@@ -15,7 +15,7 @@ Obj_Error :: enum {
 	Malformed_Number,
 }
 
-parse_obj :: proc(source: string, allocator := context.allocator) {
+parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_Error) {
 	positions: [dynamic][3]f32
 	positions.allocator = context.temp_allocator
 	uvs: [dynamic][2]f32
@@ -37,17 +37,36 @@ parse_obj :: proc(source: string, allocator := context.allocator) {
 			n := peek(&p)
 			switch n {
 			case 't':
-				skip_whitespaces(&p)
+				uv := [2]f32{}
+				for i in 0 ..< 2 {
+					skip_whitespaces(&p)
+					uv[i] = parse_float(&p) or_return
+				}
+				append(&uvs, uv)
+				skip(p, '\n')
 			case 'n':
-				skip_whitespaces(&p)
+				normal := [3]f32{}
+				for i in 0 ..< 3 {
+					skip_whitespaces(&p)
+					normal[i] = parse_float(&p) or_return
+				}
+				append(&normals, normal)
+				skip(p, '\n')
 			case ' ':
-				skip_whitespaces(&p)
+				pos := [3]f32{}
+				for i in 0 ..< 3 {
+					skip_whitespaces(&p)
+					pos[i] = parse_float(&p) or_return
+				}
+				append(&positions, pos)
 			case:
 				assert(false)
 			}
+
 		case 'f':
 		}
 	}
+	return
 }
 
 EOF: byte : 0
@@ -67,6 +86,19 @@ peek :: proc(p: ^Parser) -> byte {
 		return EOF
 	}
 	return p.source[p.current]
+}
+
+@(private)
+skip :: proc(p: ^Parser, to: byte) {
+	if peek(p) == to {
+		return
+	}
+	loop: for {
+		c := advance(p)
+		if c == EOF || c == to {
+			break loop
+		}
+	}
 }
 
 @(private)
