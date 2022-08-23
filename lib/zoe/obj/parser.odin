@@ -5,6 +5,22 @@ import "core:strconv"
 Vertex_Data :: distinct []f32
 Index_Data :: distinct []u32
 
+Vertex :: struct {
+	position: [3]f32,
+	uv:       [2]f32,
+	normal:   [3]f32,
+}
+
+Intermediate_Index :: struct {
+	data: [3]int,
+	kind: enum {
+		Pos,
+		PosTex,
+		PosNormal,
+		PosTexNormal,
+	},
+}
+
 Parser :: struct {
 	source:  string,
 	current: int,
@@ -23,6 +39,8 @@ parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_E
 	normals: [dynamic][3]f32
 	normals.allocator = context.temp_allocator
 
+	indexes: [dynamic]Intermediate_Index
+	indexes.allocator = context.temp_allocator
 	p := Parser {
 		source = source,
 	}
@@ -43,7 +61,7 @@ parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_E
 					uv[i] = parse_float(&p) or_return
 				}
 				append(&uvs, uv)
-				skip(p, '\n')
+				skip(&p, '\n')
 			case 'n':
 				normal := [3]f32{}
 				for i in 0 ..< 3 {
@@ -51,7 +69,7 @@ parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_E
 					normal[i] = parse_float(&p) or_return
 				}
 				append(&normals, normal)
-				skip(p, '\n')
+				skip(&p, '\n')
 			case ' ':
 				pos := [3]f32{}
 				for i in 0 ..< 3 {
@@ -64,6 +82,7 @@ parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_E
 			}
 
 		case 'f':
+
 		}
 	}
 	return
@@ -121,6 +140,7 @@ parse_float :: proc(p: ^Parser) -> (n: f32, err: Obj_Error) {
 	sign := peek(p)
 	if sign == '-' {
 		signed = true
+		advance(p)
 	}
 	parse: for {
 		c := peek(p)
@@ -156,8 +176,14 @@ parse_float :: proc(p: ^Parser) -> (n: f32, err: Obj_Error) {
 }
 
 @(private)
-parse_int :: proc(p: ^Parser) -> (n: u32) {
+parse_int :: proc(p: ^Parser) -> (n: int, err: Obj_Error) {
 	start := p.current
+	signed: bool
+	sign := peek(p)
+	if sign == '-' {
+		signed = true
+		advance(p)
+	}
 	parse: for {
 		c := peek(p)
 		if c != EOF {
@@ -173,7 +199,54 @@ parse_int :: proc(p: ^Parser) -> (n: u32) {
 			break parse
 		}
 	}
-	number, ok := strconv.parse_uint(p.source[start:p.current])
-	n = u32(number)
+	ok: bool
+	n, ok = strconv.parse_int(p.source[start:p.current])
+	if !ok {
+		err = .Malformed_Number
+	}
+	if signed {
+		n = -n
+	}
+	return
+}
+
+@(private)
+parse_index :: proc(p: ^Parser) -> (i: Intermediate_Index, err: Obj_Error) {
+	n := parse_int(p) or_return
+
+	next := advance(p)
+	switch next {
+	case '/':
+		if peek(p) == '/' {
+			advance(p)
+			n2 := parse_int(p) or_return
+			i = Intermediate_Index {
+				data = [3]int{n, n2, 0},
+				kind = .PosNormal,
+			}
+		} else {
+			n2 := parse_int(p) or_return
+			if advance(p) == '/' {
+				n3 := parse_int(p) or_return
+				i = Intermediate_Index {
+					data = [3]int{n, n2, n3},
+					kind = .PosTexNormal,
+				}
+			} else {
+				i = Intermediate_Index {
+					data = [3]int{n, n2, 0},
+					kind = .PosTex,
+				}
+			}
+		}
+	case ' ':
+		i = Intermediate_Index {
+			data = [3]int{n, 0, 0},
+			kind = .Pos,
+		}
+	case:
+		assert(false)
+	}
+
 	return
 }
