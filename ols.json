@@ -9,8 +9,8 @@
             "path": "C:\\Program Files\\odin\\vendor"
         },
         {
-            "name": "lib",
-            "path": ".\\lib"
+            "name": "iris",
+            "path": ".\\"
         }
     ],
     "enable_document_symbols": true,
