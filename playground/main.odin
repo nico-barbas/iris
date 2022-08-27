@@ -54,6 +54,7 @@ Game :: struct {
 	projection: iris.Matrix4,
 	view:       iris.Matrix4,
 	model:      iris.Matrix4,
+	rotation:   f32,
 }
 
 // quad_vertices := [?]f32{
@@ -131,22 +132,33 @@ init :: proc(data: iris.App_Data) {
 		f32(1),
 		f32(100),
 	)
-	// g.projection = linalg.MATRIX4F32_IDENTITY
-	// g.view = linalg.MATRIX4F32_IDENTITY
-	g.view = linalg.MATRIX4F32_IDENTITY
-	// g.model = linalg.MATRIX4F32_IDENTITY
-	// g.model = linalg.matrix4_rotate_f32(math.to_radians_f32(90), {0, 0, 1})
-	// g.view = linalg.matrix4_look_at_f32({0, 0, -2}, {0, 0, 0}, {0, 1, 0})
-	// g.model = linalg.matrix_mul(
-	// 	linalg.matrix4_rotate_f32(math.to_radians_f32(30), {1, 0, 1}),
-	// 	linalg.matrix4_translate_f32({0, 0, -2}),
-	// )
-	// g.model = linalg.MATRIX4F32_IDENTITY
-	g.model = linalg.matrix4_translate_f32({0, 0, -2})
+	g.view = linalg.matrix4_look_at_f32({2, 2, 2}, {0, 0, 0}, {0, 1, 0})
 }
+
+// look_at :: proc(eye, center, up: iris.Vector3) -> (m: iris.Matrix4) {
+// 	f := linalg.normalize(center - eye)
+// 	s := linalg.normalize(linalg.cross(f, linalg.normalize(up)))
+// 	u := linalg.cross(s, f)
+
+// 	m = {
+// 		s.x, u.x, -f.x, 0,
+// 		s.y, u.y, -f.y, 0,
+// 		s.z, u.z, -f.z, 0,
+// 		0, 0, 0, 1,
+// 	}
+// 	m = linalg.matrix_mul(m, linalg.matrix4_translate_f32({-eye.x, -eye.y, -eye.z}))
+// 	return
+// }
 
 update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
+	g.rotation += f32(iris.elapsed_time())
+	g.model = linalg.matrix_mul(
+		linalg.matrix4_translate_f32({0, 0, 0}),
+		linalg.matrix4_rotate_f32(f32(g.rotation), {1, 0, 1}),
+	)
+	// model_view := linalg.matrix_mul(g.model, g.view)
+	// mvp := linalg.matrix_mul(model_view, g.projection)
 	mvp := linalg.matrix_mul(linalg.matrix_mul(g.projection, g.view), g.model)
 	iris.set_shader_uniform(g.shader, "mvp", &mvp[0][0])
 }

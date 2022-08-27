@@ -5,10 +5,7 @@ import "core:log"
 import "core:fmt"
 import "core:runtime"
 import "core:strings"
-import "core:math/linalg"
 import gl "vendor:OpenGL"
-
-Matrix4 :: linalg.Matrix4f32
 
 Shader :: struct {
 	handle:   u32,

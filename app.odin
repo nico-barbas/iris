@@ -4,6 +4,7 @@ package iris
 import "core:os"
 import "core:mem"
 import "core:log"
+import "core:time"
 import "core:runtime"
 import "core:path/filepath"
 
@@ -20,9 +21,14 @@ App :: struct {
 	frame_arena:     mem.Arena,
 	win_handle:      glfw.WindowHandle,
 	is_running:      bool,
+	last_time:       time.Time,
+	elapsed_time:    f64,
+	input:           Input_Buffer,
+
+	// Rendering states
 	viewport_width:  int,
 	viewport_height: int,
-	input:           Input_Buffer,
+	render_ctx:      Rendering_Context,
 }
 
 App_Config :: struct {
@@ -113,6 +119,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
 	gl.DebugMessageCallback(gl_debug_cb, nil)
 	gl.Enable(gl.BLEND)
+	gl.Enable(gl.DEPTH_TEST)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	app.viewport_width = app.width
@@ -140,10 +147,13 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 run_app :: proc() {
 	context = app.ctx
 	app.is_running = true
+	app.last_time = time.now()
 	app.init(app.data)
 	for app.is_running {
 		app.is_running = bool(!glfw.WindowShouldClose(app.win_handle))
 		app.frame_arena.offset = 0
+		app.elapsed_time = time.duration_seconds(time.since(app.last_time))
+		app.last_time = time.now()
 		app.update(app.data)
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -168,6 +178,10 @@ close_app :: proc() {
 
 close_app_on_next_frame :: proc() {
 	app.is_running = false
+}
+
+elapsed_time :: proc() -> f64 {
+	return app.elapsed_time
 }
 
 @(private)
