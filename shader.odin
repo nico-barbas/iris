@@ -38,11 +38,7 @@ Shader_Uniform_Kind :: enum {
 	Matrix4,
 }
 
-load_shader_from_file :: proc(
-	v_path,
-	f_path: string,
-	allocator := context.allocator,
-) -> Shader {
+load_shader_from_file :: proc(v_path, f_path: string, allocator := context.allocator) -> Shader {
 	v_raw, v_ok := os.read_entire_file(v_path, context.temp_allocator)
 	f_raw, f_ok := os.read_entire_file(f_path, context.temp_allocator)
 
@@ -174,12 +170,7 @@ compile_shader_source :: proc(
 }
 
 @(private = "file")
-format_uniform_name :: proc(
-	buf: []u8,
-	l: i32,
-	t: u32,
-	allocator := context.allocator,
-) -> string {
+format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allocator) -> string {
 	length := int(l)
 	if t == gl.SAMPLER_2D {
 		if buf[length - 1] == ']' {
@@ -232,18 +223,18 @@ print_shader_uniforms :: proc(shader: Shader) {
 	}
 }
 
-set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr) {
+set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
 		log.fatalf(
-			"%s: Shader ID[%d]: Failed to retrieve uniform: %s",
+			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
 			App_Module.Shader,
 			shader.handle,
 			name,
+			loc,
 		)
 		return
 	}
 	bind_shader(shader)
-	defer unbind_shader()
 	info := shader.uniforms[name]
 	loc := i32(info.loc)
 	switch info.kind {

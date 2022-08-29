@@ -6,10 +6,9 @@ Mesh :: struct {
 	indices:  Buffer,
 }
 
-// Material :: struct {
-// 	shader: Shader_Program,
-// 	maps:   [4]Texture,
-// }
+draw_mesh :: proc(mesh: Mesh, t: Transform, mat: Material) {
+	push_draw_command(Render_Mesh_Command{mesh = mesh, transform = t, material = mat})
+}
 
 cube_mesh :: proc(w, h, l: f32, allocator := context.allocator) -> ([]f32, []u32) {
 	hw, hh, hl := w / 2, h / 2, h / 2
@@ -58,4 +57,24 @@ cube_mesh :: proc(w, h, l: f32, allocator := context.allocator) -> ([]f32, []u32
 	}
 
 	return vertices, indices
+}
+
+load_mesh_from_slice :: proc(
+	vert_slice: []f32,
+	index_slice: []u32,
+	layout: Vertex_Layout,
+) -> Mesh {
+	mesh := Mesh {
+		state    = get_ctx_attribute_state(layout),
+		vertices = make_buffer(f32, len(vert_slice)),
+		indices  = make_buffer(u32, len(index_slice)),
+	}
+	send_buffer_data(mesh.vertices, vert_slice)
+	send_buffer_data(mesh.indices, index_slice)
+	return mesh
+}
+
+destroy_mesh :: proc(mesh: Mesh) {
+	destroy_buffer(mesh.vertices)
+	destroy_buffer(mesh.indices)
 }

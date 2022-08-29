@@ -33,14 +33,15 @@ Obj_Error :: enum {
 
 parse_obj :: proc(source: string, allocator := context.allocator) -> (err: Obj_Error) {
 	positions: [dynamic][3]f32
-	positions.allocator = context.temp_allocator
 	uvs: [dynamic][2]f32
-	uvs.allocator = context.temp_allocator
 	normals: [dynamic][3]f32
-	normals.allocator = context.temp_allocator
-
 	indexes: [dynamic]Intermediate_Index
+	
+	positions.allocator = context.temp_allocator
+	uvs.allocator = context.temp_allocator
+	normals.allocator = context.temp_allocator
 	indexes.allocator = context.temp_allocator
+
 	p := Parser {
 		source = source,
 	}

@@ -66,25 +66,15 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	app.ctx.allocator = allocator
 
 	mem.arena_init(&app.arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
-	mem.arena_init(
-		&app.frame_arena,
-		make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator),
-	)
+	mem.arena_init(&app.frame_arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
 	app.ctx.allocator = mem.arena_allocator(&app.arena)
 	app.ctx.temp_allocator = mem.arena_allocator(&app.frame_arena)
 	app.ctx.logger = log.create_console_logger()
 
 	dir := filepath.dir(os.args[0], app.ctx.temp_allocator)
-	app.asset_dir = filepath.join(
-		elems = {dir, app.asset_dir},
-		allocator = app.ctx.allocator,
-	)
+	app.asset_dir = filepath.join(elems = {dir, app.asset_dir}, allocator = app.ctx.allocator)
 	if err := os.set_current_directory(app.asset_dir); err != 0 {
-		log.fatalf(
-			"%s: Could not set the app directory: %s\n",
-			App_Module.IO,
-			app.asset_dir,
-		)
+		log.fatalf("%s: Could not set the app directory: %s\n", App_Module.IO, app.asset_dir)
 		return
 	}
 	if glfw.Init() == 0 {
@@ -148,6 +138,7 @@ run_app :: proc() {
 	context = app.ctx
 	app.is_running = true
 	app.last_time = time.now()
+	init_render_ctx(&app.render_ctx, app.width, app.height)
 	app.init(app.data)
 	for app.is_running {
 		app.is_running = bool(!glfw.WindowShouldClose(app.win_handle))

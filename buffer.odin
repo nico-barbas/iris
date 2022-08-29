@@ -31,22 +31,13 @@ send_buffer_data :: proc(buffer: Buffer, data: $T/[]$E) {
 		assert(false)
 	}
 	if len(data) > buffer.cap {
-		log.fatalf(
-			"%s: Data slice is too large for buffer [%d]",
-			App_Module.Buffer,
-			buffer.handle,
-		)
+		log.fatalf("%s: Data slice is too large for buffer [%d]", App_Module.Buffer, buffer.handle)
 		assert(false)
 	}
-	log.debug(len(data) * buffer.elem_size, data)
-	gl.NamedBufferData(
-		buffer.handle,
-		len(data) * buffer.elem_size,
-		&data[0],
-		gl.STATIC_DRAW,
-	)
+	gl.NamedBufferData(buffer.handle, len(data) * buffer.elem_size, &data[0], gl.STATIC_DRAW)
 }
 
-destroy_buffer :: proc(buffer: ^Buffer) {
-	gl.DeleteBuffers(1, &buffer.handle)
+destroy_buffer :: proc(buffer: Buffer) {
+	b := buffer
+	gl.DeleteBuffers(1, &b.handle)
 }

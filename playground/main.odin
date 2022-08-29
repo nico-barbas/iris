@@ -3,7 +3,7 @@ package main
 import "core:mem"
 import "core:fmt"
 // import "core:math"
-import "core:math/linalg"
+// import "core:math/linalg"
 import iris "../"
 
 main :: proc() {
@@ -44,142 +44,45 @@ main :: proc() {
 }
 
 Game :: struct {
-	vertices:   iris.Buffer,
-	indices:    iris.Buffer,
-	attributes: iris.Attributes_State,
-	texture:    iris.Texture,
-	shader:     iris.Shader,
-
-	// Projection stuff
-	projection: iris.Matrix4,
-	view:       iris.Matrix4,
-	model:      iris.Matrix4,
-	rotation:   f32,
+	mesh:     iris.Mesh,
+	material: iris.Material,
 }
-
-// quad_vertices := [?]f32{
-// 	-0.5, -0.5, -0.5,  0.0, 0.0,
-//      0.5, -0.5, -0.5,  1.0, 0.0,
-//      0.5,  0.5, -0.5,  1.0, 1.0,
-//      0.5,  0.5, -0.5,  1.0, 1.0,
-//     -0.5,  0.5, -0.5,  0.0, 1.0,
-//     -0.5, -0.5, -0.5,  0.0, 0.0,
-
-//     -0.5, -0.5,  0.5,  0.0, 0.0,
-//      0.5, -0.5,  0.5,  1.0, 0.0,
-//      0.5,  0.5,  0.5,  1.0, 1.0,
-//      0.5,  0.5,  0.5,  1.0, 1.0,
-//     -0.5,  0.5,  0.5,  0.0, 1.0,
-//     -0.5, -0.5,  0.5,  0.0, 0.0,
-
-//     -0.5,  0.5,  0.5,  1.0, 0.0,
-//     -0.5,  0.5, -0.5,  1.0, 1.0,
-//     -0.5, -0.5, -0.5,  0.0, 1.0,
-//     -0.5, -0.5, -0.5,  0.0, 1.0,
-//     -0.5, -0.5,  0.5,  0.0, 0.0,
-//     -0.5,  0.5,  0.5,  1.0, 0.0,
-
-//      0.5,  0.5,  0.5,  1.0, 0.0,
-//      0.5,  0.5, -0.5,  1.0, 1.0,
-//      0.5, -0.5, -0.5,  0.0, 1.0,
-//      0.5, -0.5, -0.5,  0.0, 1.0,
-//      0.5, -0.5,  0.5,  0.0, 0.0,
-//      0.5,  0.5,  0.5,  1.0, 0.0,
-
-//     -0.5, -0.5, -0.5,  0.0, 1.0,
-//      0.5, -0.5, -0.5,  1.0, 1.0,
-//      0.5, -0.5,  0.5,  1.0, 0.0,
-//      0.5, -0.5,  0.5,  1.0, 0.0,
-//     -0.5, -0.5,  0.5,  0.0, 0.0,
-//     -0.5, -0.5, -0.5,  0.0, 1.0,
-
-//     -0.5,  0.5, -0.5,  0.0, 1.0,
-//      0.5,  0.5, -0.5,  1.0, 1.0,
-//      0.5,  0.5,  0.5,  1.0, 0.0,
-//      0.5,  0.5,  0.5,  1.0, 0.0,
-//     -0.5,  0.5,  0.5,  0.0, 0.0,
-//     -0.5,  0.5, -0.5,  0.0, 1.0,
-// }
-// quad_indices := [?]u32{
-// 	0, 1, 2,
-// 	2, 3, 0,
-// }
 
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
 
-	cube_v, cube_i := iris.cube_mesh(1, 1, 1)
+	cube_v, cube_i := iris.cube_mesh(1, 1, 1, context.temp_allocator)
+	g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, {.Float3, .Float2})
+	g.material = {
+		shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER),
+	}
+	iris.set_material_map(&g.material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
+	// fmt.println(g.material)
 
-	g.vertices = iris.make_buffer(f32, len(cube_v))
-	iris.send_buffer_data(g.vertices, cube_v[:])
-	g.indices = iris.make_buffer(u32, len(cube_i))
-	iris.send_buffer_data(g.indices, cube_i[:])
-	g.attributes = iris.make_attributes_state({.Float3, .Float2})
-	iris.link_attributes_state_vertices(&g.attributes, g.vertices)
-	iris.link_attributes_state_indices(&g.attributes, g.indices)
-	g.texture = iris.load_texture_from_file("cube_texture.png")
-	g.shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER)
-
-	texture_index := 0
-	iris.set_shader_uniform(g.shader, "texture0", &texture_index)
-	fmt.println(g.shader.uniforms)
-
-	g.projection = linalg.matrix4_perspective_f32(
-		f32(45),
-		f32(800) / f32(600),
-		f32(1),
-		f32(100),
-	)
-	g.view = linalg.matrix4_look_at_f32({2, 2, 2}, {0, 0, 0}, {0, 1, 0})
+	iris.view_position({10, 2, 10})
+	iris.view_target({0, 0, 0})
 }
 
-// look_at :: proc(eye, center, up: iris.Vector3) -> (m: iris.Matrix4) {
-// 	f := linalg.normalize(center - eye)
-// 	s := linalg.normalize(linalg.cross(f, linalg.normalize(up)))
-// 	u := linalg.cross(s, f)
-
-// 	m = {
-// 		s.x, u.x, -f.x, 0,
-// 		s.y, u.y, -f.y, 0,
-// 		s.z, u.z, -f.z, 0,
-// 		0, 0, 0, 1,
-// 	}
-// 	m = linalg.matrix_mul(m, linalg.matrix4_translate_f32({-eye.x, -eye.y, -eye.z}))
-// 	return
-// }
-
 update :: proc(data: iris.App_Data) {
-	g := cast(^Game)data
-	g.rotation += f32(iris.elapsed_time())
-	g.model = linalg.matrix_mul(
-		linalg.matrix4_translate_f32({0, 0, 0}),
-		linalg.matrix4_rotate_f32(f32(g.rotation), {1, 0, 1}),
-	)
-	// model_view := linalg.matrix_mul(g.model, g.view)
-	// mvp := linalg.matrix_mul(model_view, g.projection)
-	mvp := linalg.matrix_mul(linalg.matrix_mul(g.projection, g.view), g.model)
-	iris.set_shader_uniform(g.shader, "mvp", &mvp[0][0])
+	// g := cast(^Game)data
 }
 
 draw :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
-	iris.bind_attributes_state(g.attributes)
-	iris.bind_texture(&g.texture, 0)
-	iris.bind_shader(g.shader)
-	iris.draw_elements(36)
-	iris.unbind_shader()
-	iris.unbind_texture(&g.texture)
-	iris.unbind_attributes_state()
+	iris.start_render()
+	{
+		iris.draw_mesh(g.mesh, iris.transform(), g.material)
+	}
+	iris.end_render()
 }
 
 close :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
-	iris.destroy_buffer(&g.vertices)
-	iris.destroy_buffer(&g.indices)
-	iris.destroy_attributes_state(&g.attributes)
-	iris.destroy_texture(&g.texture)
+	iris.destroy_mesh(g.mesh)
+	iris.destroy_texture(g.material.textures[0])
+	iris.destroy_shader(g.material.shader)
 }
 
 on_escape_key :: proc(data: iris.App_Data, state: iris.Key_State) {

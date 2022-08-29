@@ -1,6 +1,6 @@
 package iris
 
-// import "core:log"
+import "core:slice"
 import gl "vendor:OpenGL"
 
 Vertex_Layout :: distinct []Vertex_Format
@@ -10,6 +10,18 @@ Vertex_Format :: enum u8 {
 	Float2 = 2,
 	Float3 = 3,
 	Float4 = 4,
+}
+
+vertex_layout_equal :: proc(l1, l2: Vertex_Layout) -> bool {
+	if len(l1) != len(l2) {
+		return false
+	}
+	for i in 0 ..< len(l1) {
+		if l1[i] != l2[i] {
+			return false
+		}
+	}
+	return true
 }
 
 vertex_layout_size :: proc(layout: Vertex_Layout) -> int {
@@ -51,9 +63,10 @@ Attributes_State :: struct {
 }
 
 make_attributes_state :: proc(layout: Vertex_Layout) -> Attributes_State {
+	l := cast([]Vertex_Format)layout
 	state := Attributes_State {
 		stride_size = vertex_layout_size(layout),
-		layout      = layout,
+		layout      = Vertex_Layout(slice.clone(l)),
 	}
 	gl.CreateVertexArrays(1, &state.handle)
 
@@ -71,16 +84,11 @@ make_attributes_state :: proc(layout: Vertex_Layout) -> Attributes_State {
 
 destroy_attributes_state :: proc(state: ^Attributes_State) {
 	gl.DeleteVertexArrays(1, &state.handle)
+	delete(state.layout)
 }
 
 link_attributes_state_vertices :: proc(state: ^Attributes_State, buffer: Buffer) {
-	gl.VertexArrayVertexBuffer(
-		state.handle,
-		state.buffer_index,
-		buffer.handle,
-		0,
-		i32(state.stride_size),
-	)
+	gl.VertexArrayVertexBuffer(state.handle, 0, buffer.handle, 0, i32(state.stride_size))
 	state.buffer_index += 1
 }
 
