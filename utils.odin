@@ -3,6 +3,15 @@ package iris
 import "core:math/linalg"
 import gl "vendor:OpenGL"
 
+set_backface_culling :: proc(on: bool) {
+	if on {
+		gl.Enable(gl.CULL_FACE)
+		gl.CullFace(gl.BACK)
+	} else {
+		gl.Disable(gl.CULL_FACE)
+	}
+}
+
 Vector2 :: linalg.Vector2f32
 Vector3 :: linalg.Vector3f32
 VECTOR_ZERO :: Vector3{0, 0, 0}
@@ -30,6 +39,8 @@ set_viewport :: proc(width, height: int) {
 // clear_viewport :: proc(clr: Color) {
 
 // }
+
+Color :: distinct [4]f32
 
 Material :: struct {
 	shader:   Shader,

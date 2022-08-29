@@ -1,7 +1,6 @@
 package iris
 
 import "core:fmt"
-// import "core:log"
 import "core:math/linalg"
 
 Rendering_Context :: struct {
@@ -36,6 +35,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	DEFAULT_NEAR :: 1
 	DEFAULT_FOVY :: 45
 
+	set_backface_culling(true)
 	ctx.render_width = w
 	ctx.render_height = h
 	ctx.projection = linalg.matrix4_perspective_f32(
@@ -65,7 +65,12 @@ view_target :: proc(target: Vector3) {
 
 start_render :: proc() {
 	ctx := &app.render_ctx
-	ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
+	ctx.commands = make(
+		[dynamic]Render_Command,
+		0,
+		ctx.previous_cmd_count,
+		context.temp_allocator,
+	)
 	set_viewport(ctx.render_width, ctx.render_height)
 }
 
@@ -85,22 +90,37 @@ end_render :: proc() {
 				c.transform.rotation,
 				c.transform.scale,
 			)
-			mvp := linalg.matrix_mul(linalg.matrix_mul(ctx.projection, ctx.view), model_mat)
+			mvp := linalg.matrix_mul(
+				linalg.matrix_mul(ctx.projection, ctx.view),
+				model_mat,
+			)
 			set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
+			if _, exist := c.material.shader.uniforms["matModel"]; exist {
+				set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
+			}
 
 			unit_index: u32
 			for kind in Material_Map {
 				if kind in c.material.maps {
 					texture_uniform_name := fmt.tprintf("texture%d", unit_index)
 					bind_texture(&c.material.textures[kind], unit_index)
-					set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
+					set_shader_uniform(
+						c.material.shader,
+						texture_uniform_name,
+						&unit_index,
+					)
 					unit_index += 1
 				}
 			}
 
 			bind_attributes_state(c.mesh.state)
 			defer unbind_attributes_state()
-			link_attributes_state_vertices(&c.mesh.state, c.mesh.vertices)
+			link_attributes_state_vertices(
+				&c.mesh.state,
+				c.mesh.vertices,
+				c.mesh.layout_map,
+			)
+			// link_attributes_state_vertices(&c.mesh.state, c.mesh.vertices)
 			link_attributes_state_indices(&c.mesh.state, c.mesh.indices)
 			draw_triangles(c.mesh.indices.cap)
 
@@ -118,7 +138,8 @@ end_render :: proc() {
 get_ctx_attribute_state :: proc(layout: Vertex_Layout) -> Attributes_State {
 	ctx := &app.render_ctx
 	for state in ctx.states {
-		if vertex_layout_equal(layout, state.layout) {
+		equal := vertex_layout_equal(layout, state.layout)
+		if equal {
 			return state
 		}
 	}

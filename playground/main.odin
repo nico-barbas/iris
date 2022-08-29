@@ -3,7 +3,6 @@ package main
 import "core:mem"
 import "core:fmt"
 import "core:math"
-// import "core:math/linalg"
 import iris "../"
 
 main :: proc() {
@@ -44,9 +43,13 @@ main :: proc() {
 }
 
 Game :: struct {
-	camera:   Camera,
-	mesh:     iris.Mesh,
-	material: iris.Material,
+	camera:        Camera,
+	light:         Light,
+	mesh:          iris.Mesh,
+	ground_mesh:   iris.Mesh,
+	material:      iris.Material,
+	delta:         f32,
+	flat_material: iris.Material,
 }
 
 Camera :: struct {
@@ -58,13 +61,32 @@ Camera :: struct {
 	target_rotation: f32,
 }
 
+Light :: struct {
+	position:     iris.Vector3,
+	ambient_clr:  iris.Color,
+	diffuse_clr:  iris.Color,
+	specular_clr: iris.Color,
+}
+
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
 
-	cube_v, cube_i := iris.cube_mesh(1, 1, 1, context.temp_allocator)
-	g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, {.Float3, .Float2})
+	cube_v, cube_i, l_map := iris.cube_mesh(
+		1,
+		1,
+		1,
+		context.allocator,
+		context.temp_allocator,
+	)
+	g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, l_map)
+
+	{
+		ground_v, ground_i, ground_layout := iris.plane_mesh(10, 10, 3, 3)
+		g.ground_mesh = iris.load_mesh_from_slice(ground_v, ground_i, ground_layout)
+	}
+
 	g.material = {
 		shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER),
 	}
@@ -73,6 +95,34 @@ init :: proc(data: iris.App_Data) {
 		.Diffuse,
 		iris.load_texture_from_file("cube_texture.png"),
 	)
+	{
+		ambient_strength: f32 = 0.4
+		iris.set_shader_uniform(g.material.shader, "light.ambientStr", &ambient_strength)
+		iris.set_shader_uniform(
+			g.material.shader,
+			"light.position",
+			&iris.Vector3{2, 3, 2},
+		)
+		iris.set_shader_uniform(
+			g.material.shader,
+			"light.ambientClr",
+			&iris.Vector3{0.45, 0.45, 0.75},
+		)
+		iris.set_shader_uniform(
+			g.material.shader,
+			"light.diffuseClr",
+			&iris.Vector3{1, 1, 1},
+		)
+		iris.set_shader_uniform(
+			g.material.shader,
+			"light.specularClr",
+			&iris.Vector3{0.0, 0.2, 0.45},
+		)
+	}
+
+	g.flat_material = {
+		shader = iris.load_shader_from_bytes(FLAT_VERTEX_SHADER, FLAT_FRAGMENT_SHADER),
+	}
 
 	g.camera = Camera {
 		pitch = 45,
@@ -90,6 +140,17 @@ update :: proc(data: iris.App_Data) {
 	if .Pressed in m_right {
 		update_camera(&g.camera, m_delta)
 	}
+
+	g.delta += f32(iris.elapsed_time())
+	if g.delta >= 10 {
+		g.delta = 0
+	}
+
+	iris.set_shader_uniform(
+		g.material.shader,
+		"light.position",
+		&iris.Vector3{2, g.delta, 2},
+	)
 }
 
 update_camera :: proc(c: ^Camera, m_delta: iris.Vector2) {
@@ -113,7 +174,14 @@ draw :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.start_render()
 	{
-		iris.draw_mesh(g.mesh, iris.transform(), g.material)
+		iris.draw_mesh(g.mesh, iris.transform(t = {0, 0.5001, 0}), g.material)
+		iris.draw_mesh(g.ground_mesh, iris.transform(), g.material)
+
+		iris.draw_mesh(
+			g.mesh,
+			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			g.flat_material,
+		)
 	}
 	iris.end_render()
 }
@@ -131,14 +199,20 @@ on_escape_key :: proc(data: iris.App_Data, state: iris.Input_State) {
 VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
-layout (location = 1) in vec2 attribTexCoord;
+layout (location = 1) in vec3 attribNormal;
+layout (location = 2) in vec2 attribTexCoord;
 
+out vec3 fragPosition;
+out vec3 fragNormal;
 out vec2 fragTexCoord;
 
 uniform mat4 mvp;
+uniform mat4 matModel;
 
 void main()
 {
+	fragPosition = vec3(matModel * vec4(attribPosition, 1.0));
+	fragNormal = attribNormal;
 	fragTexCoord = attribTexCoord;
 
     gl_Position = mvp*vec4(attribPosition, 1.0);
@@ -146,14 +220,63 @@ void main()
 `
 FRAGMENT_SHADER :: `
 #version 450 core
+in vec3 fragPosition;
+in vec3 fragNormal;
 in vec2 fragTexCoord;
 
-out vec4 fragColor;
+out vec4 finalColor;
 
+// Builtin uniforms.
 uniform sampler2D texture0;
-  
+
+// User uniforms.
+struct Light {
+	vec3 position;
+	float ambientStr;
+	vec3 ambientClr;
+	vec3 diffuseClr;
+	vec3 specularClr;
+};
+uniform Light light;  
+
 void main()
 {
-    fragColor = texture(texture0, fragTexCoord);
+    vec4 texelClr = texture(texture0, fragTexCoord);
+
+	vec3 normal = normalize(fragNormal);
+	vec3 lightDir = normalize(light.position);
+	float diffuseValue = max(dot(normal, lightDir), 0.0);
+	vec3 diffuse = texelClr.rgb * (diffuseValue * light.diffuseClr);
+
+	vec3 ambient = texelClr.rgb * light.ambientStr * light.ambientClr;
+
+	vec3 result = diffuse + ambient;
+	result.r = min(result.r, texelClr.r);
+	result.g = min(result.g, texelClr.g);
+	result.b = min(result.b, texelClr.b);
+	finalColor = vec4(result, 1.0);
+}
+`
+
+FLAT_VERTEX_SHADER :: `
+#version 450 core
+layout (location = 0) in vec3 attribPosition;
+
+uniform mat4 mvp;
+
+void main()
+{
+    gl_Position = mvp*vec4(attribPosition, 1.0);
+}  
+`
+
+FLAT_FRAGMENT_SHADER :: `
+#version 450 core
+
+out vec4 finalColor;
+
+void main()
+{
+	finalColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
 `

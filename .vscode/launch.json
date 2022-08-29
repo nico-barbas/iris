@@ -5,12 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
+            "name": "(Windows) Launch",
+            "type": "cppvsdbg",
             "request": "launch",
-            "name": "Debug",
             "program": "${workspaceFolder}/playground/playground.exe",
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "externalTerminal"
         }
     ]
 }

@@ -6,3 +6,6 @@ import gl "vendor:OpenGL"
 draw_triangles :: proc(count: int) {
 	gl.DrawElements(gl.TRIANGLES, i32(count), gl.UNSIGNED_INT, nil)
 }
+
+// @private
+// draw_lines

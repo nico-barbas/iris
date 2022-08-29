@@ -3,6 +3,16 @@ package iris
 import "core:slice"
 import gl "vendor:OpenGL"
 
+Vertex_Layout_Map :: struct {
+	layout:  Vertex_Layout,
+	offsets: []int,
+}
+
+delete_vertex_layout_map :: proc(m: Vertex_Layout_Map) {
+	delete(m.layout)
+	delete(m.offsets)
+}
+
 Vertex_Layout :: distinct []Vertex_Format
 
 Vertex_Format :: enum u8 {
@@ -70,14 +80,12 @@ make_attributes_state :: proc(layout: Vertex_Layout) -> Attributes_State {
 	}
 	gl.CreateVertexArrays(1, &state.handle)
 
-	offset: u32 = 0
 	for i in 0 ..< len(state.layout) {
 		index := u32(i)
 		size := i32(state.layout[i])
 		gl.EnableVertexArrayAttrib(state.handle, index)
-		gl.VertexArrayAttribBinding(state.handle, index, state.buffer_index)
-		gl.VertexArrayAttribFormat(state.handle, index, size, gl.FLOAT, gl.FALSE, offset)
-		offset += u32(vertex_format_size(state.layout[i]))
+		gl.VertexArrayAttribBinding(state.handle, index, index)
+		gl.VertexArrayAttribFormat(state.handle, index, size, gl.FLOAT, gl.FALSE, 0)
 	}
 	return state
 }
@@ -87,14 +95,29 @@ destroy_attributes_state :: proc(state: ^Attributes_State) {
 	delete(state.layout)
 }
 
-link_attributes_state_vertices :: proc(state: ^Attributes_State, buffer: Buffer) {
-	gl.VertexArrayVertexBuffer(state.handle, 0, buffer.handle, 0, i32(state.stride_size))
-	state.buffer_index += 1
+link_attributes_state_vertices :: proc(
+	state: ^Attributes_State,
+	buffer: Buffer,
+	m: Vertex_Layout_Map,
+) {
+	for format, i in m.layout {
+		index := u32(i)
+		offset := m.offsets[i]
+		gl.VertexArrayVertexBuffer(
+			state.handle,
+			index,
+			buffer.handle,
+			offset,
+			i32(vertex_format_size(format)),
+		)
+	}
 }
+
 
 link_attributes_state_indices :: proc(state: ^Attributes_State, buffer: Buffer) {
 	gl.VertexArrayElementBuffer(state.handle, buffer.handle)
 }
+
 
 bind_attributes_state :: proc(state: Attributes_State) {
 	gl.BindVertexArray(state.handle)
