@@ -3,6 +3,7 @@ package iris
 import "core:math/linalg"
 import gl "vendor:OpenGL"
 
+Vector2 :: linalg.Vector2f32
 Vector3 :: linalg.Vector3f32
 VECTOR_ZERO :: Vector3{0, 0, 0}
 VECTOR_UP :: Vector3{0, 1, 0}
@@ -51,7 +52,7 @@ set_material_map :: proc(material: ^Material, kind: Material_Map, texture: Textu
 
 destroy_material :: proc(material: ^Material) {
 	if material.shader.handle != 0 {
-		destroy_shader(material.shader)
+		destroy_shader(&material.shader)
 	}
 	for kind in Material_Map {
 		if kind in material.maps {

@@ -2,7 +2,7 @@ package main
 
 import "core:mem"
 import "core:fmt"
-// import "core:math"
+import "core:math"
 // import "core:math/linalg"
 import iris "../"
 
@@ -44,8 +44,18 @@ main :: proc() {
 }
 
 Game :: struct {
+	camera:   Camera,
 	mesh:     iris.Mesh,
 	material: iris.Material,
+}
+
+Camera :: struct {
+	pitch:           f32,
+	yaw:             f32,
+	position:        iris.Vector3,
+	target:          iris.Vector3,
+	target_distance: f32,
+	target_rotation: f32,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -58,15 +68,45 @@ init :: proc(data: iris.App_Data) {
 	g.material = {
 		shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER),
 	}
-	iris.set_material_map(&g.material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
-	// fmt.println(g.material)
+	iris.set_material_map(
+		&g.material,
+		.Diffuse,
+		iris.load_texture_from_file("cube_texture.png"),
+	)
 
-	iris.view_position({10, 2, 10})
-	iris.view_target({0, 0, 0})
+	g.camera = Camera {
+		pitch = 45,
+		target = {0, 0, 0},
+		target_distance = 10,
+		target_rotation = 0,
+	}
+	update_camera(&g.camera, {})
 }
 
 update :: proc(data: iris.App_Data) {
-	// g := cast(^Game)data
+	g := cast(^Game)data
+	m_delta := iris.mouse_delta()
+	m_right := iris.mouse_button_state(.Right)
+	if .Pressed in m_right {
+		update_camera(&g.camera, m_delta)
+	}
+}
+
+update_camera :: proc(c: ^Camera, m_delta: iris.Vector2) {
+	c.target_rotation += (m_delta.x * 0.5)
+	c.pitch -= (m_delta.y * 0.5)
+
+	pitch_in_rad := math.to_radians(c.pitch)
+	target_rot_in_rad := math.to_radians(c.target_rotation)
+	h_dist := c.target_distance * math.sin(pitch_in_rad)
+	v_dist := c.target_distance * math.cos(pitch_in_rad)
+	c.position = {
+		c.target.x - (h_dist * math.cos(target_rot_in_rad)),
+		c.target.y + (v_dist),
+		c.target.z - (h_dist * math.sin(target_rot_in_rad)),
+	}
+	iris.view_position(c.position)
+	iris.view_target(c.target)
 }
 
 draw :: proc(data: iris.App_Data) {
@@ -81,11 +121,10 @@ draw :: proc(data: iris.App_Data) {
 close :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.destroy_mesh(g.mesh)
-	iris.destroy_texture(g.material.textures[0])
-	iris.destroy_shader(g.material.shader)
+	iris.destroy_material(&g.material)
 }
 
-on_escape_key :: proc(data: iris.App_Data, state: iris.Key_State) {
+on_escape_key :: proc(data: iris.App_Data, state: iris.Input_State) {
 	iris.close_app_on_next_frame()
 }
 

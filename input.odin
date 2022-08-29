@@ -4,40 +4,116 @@ import "core:log"
 import "vendor:glfw"
 
 Input_Buffer :: struct {
-	keys:                Keyboard_State,
-	previous_keys:       Keyboard_State,
-	registered_key_proc: map[Key]Key_Proc,
+	keys:                          Keyboard_State,
+	previous_keys:                 Keyboard_State,
+	registered_key_proc:           map[Key]Input_Proc,
+
+	// mouse buttons
+	mouse_buttons:                 Mouse_State,
+	previous_mouse_buttons:        Mouse_State,
+	registered_mouse_buttons_proc: map[Mouse_Button]Input_Proc,
+
+	// mouse position
+	mouse_pos:                     Vector2,
+	previous_mouse_pos:            Vector2,
 }
 
-Key_State :: enum {
+Input_State :: distinct bit_set[Input_State_Kind]
+
+Input_State_Kind :: enum {
 	Just_Pressed,
 	Pressed,
 	Just_Released,
 	Released,
 }
 
-Keyboard_State :: distinct [max(Key)]bool
-Key_Proc :: #type proc(data: App_Data, state: Key_State)
+Input_Proc :: #type proc(data: App_Data, state: Input_State)
 
-set_key_proc :: proc(key: Key, p: Key_Proc) {
+@(private)
+update_input_buffer :: proc(i: ^Input_Buffer, m_pos: Vector2) {
+	i.previous_keys = i.keys
+	i.previous_mouse_buttons = i.mouse_buttons
+	i.previous_mouse_pos = i.mouse_pos
+	i.mouse_pos = m_pos
+}
+
+Mouse_State :: distinct [len(Mouse_Button)]bool
+
+Mouse_Button :: enum {
+	Left   = 0,
+	Right  = 1,
+	Middle = 2,
+}
+
+mouse_button_callback :: proc "c" (
+	window: glfw.WindowHandle,
+	button,
+	action,
+	mods: i32,
+) {
+	context = app.ctx
+	if button >= 0 && button < i32(max(Mouse_Button)) {
+		btn := Mouse_Button(button)
+		app.input.mouse_buttons[btn] = action == glfw.PRESS
+
+		if p, exist := app.input.registered_mouse_buttons_proc[btn]; exist {
+			p(app.data, mouse_button_state(btn))
+		}
+	}
+}
+
+set_mouse_button_proc :: proc(btn: Mouse_Button, p: Input_Proc) {
+	if _, exist := app.input.registered_mouse_buttons_proc[btn]; exist {
+		log.errorf("%s: Key proc already associated with key %s", App_Module.Input, btn)
+	}
+	app.input.registered_mouse_buttons_proc[btn] = p
+}
+
+mouse_position :: proc() -> Vector2 {
+	return app.input.mouse_pos
+}
+
+mouse_delta :: proc() -> Vector2 {
+	return app.input.mouse_pos - app.input.previous_mouse_pos
+}
+
+mouse_button_state :: proc(btn: Mouse_Button) -> (state: Input_State) {
+	current := app.input.mouse_buttons[btn]
+	previous := app.input.mouse_buttons[btn]
+	switch {
+	case current && !previous:
+		state = {.Just_Pressed, .Pressed}
+	case current && previous:
+		state = {.Pressed}
+	case !current && previous:
+		state = {.Just_Released, .Released}
+	case !current && !previous:
+		state = {.Released}
+	}
+	return
+}
+
+Keyboard_State :: distinct [max(Key)]bool
+
+set_key_proc :: proc(key: Key, p: Input_Proc) {
 	if _, exist := app.input.registered_key_proc[key]; exist {
 		log.errorf("%s: Key proc already associated with key %s", App_Module.Input, key)
 	}
 	app.input.registered_key_proc[key] = p
 }
 
-key_state :: proc(key: Key) -> (state: Key_State) {
+key_state :: proc(key: Key) -> (state: Input_State) {
 	current := app.input.keys[key]
 	previous := app.input.keys[key]
 	switch {
 	case current && !previous:
-		state = .Just_Pressed
+		state = {.Just_Pressed, .Pressed}
 	case current && previous:
-		state = .Pressed
+		state = {.Pressed}
 	case !current && previous:
-		state = .Just_Released
+		state = {.Just_Released, .Released}
 	case !current && !previous:
-		state = .Released
+		state = {.Released}
 	}
 	return
 }
