@@ -44,10 +44,7 @@ parse_from_file :: proc(
 	if format != .Gltf_External {
 		err = .Unsupported_Format
 	}
-	json_data, json_success := json.parse(
-		data = source,
-		allocator = context.temp_allocator,
-	)
+	json_data, json_success := json.parse(data = source, allocator = context.temp_allocator)
 	defer json.destroy_value(json_data)
 
 	if json_success != nil {
@@ -130,8 +127,7 @@ parse_from_file :: proc(
 				view.target = Buffer_View_Target(uint(view_target.(json.Float)))
 			}
 
-			view.byte_slice =
-			cast([]byte)document.buffers[view.buffer_index].data[start:end]
+			view.byte_slice = cast([]byte)document.buffers[view.buffer_index].data[start:end]
 			document.views[i] = view
 		}
 	}
@@ -301,6 +297,35 @@ parse_from_file :: proc(
 			}
 
 			document.textures[i] = texture
+		}
+	}
+
+	// Meshes
+	if json_meshes, has_meshes := json_doc["meshes"]; has_meshes {
+		meshes := json_meshes.(json.Array)
+		document.meshes = make([]Mesh, len(meshes))
+
+		for json_mesh, i in meshes {
+			mesh_info := json_mesh.(json.Object)
+
+			mesh: Mesh
+			mesh.name = strings.clone(mesh_info["name"].(string) or_else "")
+
+			if json_primitives, has_primitives := mesh_info["primitives"]; has_primitives {
+				primitives := json_primitives.(json.Array)
+				mesh.primitives = make([]Primitive, len(primitives))
+
+				for json_prim, j in primitives {
+					prim_info := json_prim.(json.Object)
+
+					primitive: Primitive
+					if prim_mode, has_mode := prim_info["mode"]; has_mode {
+						primitive.mode = Primitive_Render_Mode(uint(prim_mode.(json.Float)))
+					}
+				}
+			}
+
+			// TODO: Mesh weights
 		}
 	}
 

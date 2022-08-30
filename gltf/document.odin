@@ -55,12 +55,15 @@ Mesh :: struct {
 }
 
 Primitive :: struct {
-	mode:       Primitive_Render_Mode,
-	position:   []Vector3f32,
-	normal:     []Vector3f32,
-	tangent:    []Vector3f32,
-	tex_coords: []Accessor,
-	colors:     []Accessor,
+	mode:           Primitive_Render_Mode,
+	attributes:     map[string]struct {
+		data:  ^Accessor,
+		index: uint,
+	},
+	indices:        ^Accessor,
+	indices_index:  uint,
+	material:       Material,
+	material_index: uint,
 }
 
 Primitive_Render_Mode :: enum uint {
