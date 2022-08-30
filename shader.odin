@@ -38,7 +38,11 @@ Shader_Uniform_Kind :: enum {
 	Matrix4,
 }
 
-load_shader_from_file :: proc(v_path, f_path: string, allocator := context.allocator) -> Shader {
+load_shader_from_file :: proc(
+	v_path,
+	f_path: string,
+	allocator := context.allocator,
+) -> Shader {
 	v_raw, v_ok := os.read_entire_file(v_path, context.temp_allocator)
 	f_raw, f_ok := os.read_entire_file(f_path, context.temp_allocator)
 
@@ -170,7 +174,12 @@ compile_shader_source :: proc(
 }
 
 @(private = "file")
-format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allocator) -> string {
+format_uniform_name :: proc(
+	buf: []u8,
+	l: i32,
+	t: u32,
+	allocator := context.allocator,
+) -> string {
 	length := int(l)
 	if t == gl.SAMPLER_2D {
 		if buf[length - 1] == ']' {
@@ -223,7 +232,12 @@ print_shader_uniforms :: proc(shader: Shader) {
 	}
 }
 
-set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #caller_location) {
+set_shader_uniform :: proc(
+	shader: Shader,
+	name: string,
+	value: rawptr,
+	loc := #caller_location,
+) {
 	if exist := name in shader.uniforms; !exist {
 		log.fatalf(
 			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
@@ -284,35 +298,6 @@ set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #
 
 	}
 }
-
-// set_matrix4_uniform :: proc(shader: Shader, name: string, value: ^Matrix4) {
-// 	if exist := name in shader.uniforms; !exist {
-// 		log.fatalf(
-// 			"%s: Shader ID[%d]: Failed to retrieve uniform: %s",
-// 			App_Module.Shader,
-// 			shader.handle,
-// 			name,
-// 		)
-// 		return
-// 	}
-// 	gl.UseProgram(shader.handle)
-// 	// info := 
-// 	gl.UniformMatrix4fv(shader.uniforms[name], 1, gl.FALSE, &value[0][0])
-// }
-
-// set_int_buffer_uniform :: proc(shader: Shader, name: string, data: []i32) {
-// 	if exist := name in shader.uniforms; !exist {
-// 		log.fatalf(
-// 			"%s: Shader ID[%d]: Failed to retrieve uniform: %s",
-// 			App_Module.Shader,
-// 			shader.handle,
-// 			name,
-// 		)
-// 		return
-// 	}
-// 	gl.UseProgram(shader.handle)
-// 	gl.Uniform1iv(shader.uniforms[name], i32(len(data)), raw_data(data))
-// }
 
 destroy_shader :: proc(shader: ^Shader) {
 	for k, _ in shader.uniforms {
