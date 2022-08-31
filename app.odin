@@ -15,20 +15,21 @@ import gl "vendor:OpenGL"
 app: ^App
 
 App :: struct {
-	using config:    App_Config,
-	ctx:             runtime.Context,
-	arena:           mem.Arena,
-	frame_arena:     mem.Arena,
-	win_handle:      glfw.WindowHandle,
-	is_running:      bool,
-	last_time:       time.Time,
-	elapsed_time:    f64,
-	input:           Input_Buffer,
+	using config:      App_Config,
+	ctx:               runtime.Context,
+	arena:             mem.Arena,
+	frame_arena:       mem.Arena,
+	frame_temp_memory: mem.Arena_Temp_Memory,
+	win_handle:        glfw.WindowHandle,
+	is_running:        bool,
+	last_time:         time.Time,
+	elapsed_time:      f64,
+	input:             Input_Buffer,
 
 	// Rendering states
-	viewport_width:  int,
-	viewport_height: int,
-	render_ctx:      Rendering_Context,
+	viewport_width:    int,
+	viewport_height:   int,
+	render_ctx:        Rendering_Context,
 }
 
 App_Config :: struct {
@@ -56,7 +57,7 @@ App_Module :: enum u8 {
 }
 
 init_app :: proc(config: ^App_Config, allocator := context.allocator) {
-	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 100
+	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 500
 	DEFAULT_GL_MAJOR_VERSION :: 4
 	DEFAULT_GL_MINOR_VERSION :: 5
 
@@ -66,25 +67,15 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	app.ctx.allocator = allocator
 
 	mem.arena_init(&app.arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
-	mem.arena_init(
-		&app.frame_arena,
-		make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator),
-	)
+	mem.arena_init(&app.frame_arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
 	app.ctx.allocator = mem.arena_allocator(&app.arena)
 	app.ctx.temp_allocator = mem.arena_allocator(&app.frame_arena)
 	app.ctx.logger = log.create_console_logger()
 
 	dir := filepath.dir(os.args[0], app.ctx.temp_allocator)
-	app.asset_dir = filepath.join(
-		elems = {dir, app.asset_dir},
-		allocator = app.ctx.allocator,
-	)
+	app.asset_dir = filepath.join(elems = {dir, app.asset_dir}, allocator = app.ctx.allocator)
 	if err := os.set_current_directory(app.asset_dir); err != 0 {
-		log.fatalf(
-			"%s: Could not set the app directory: %s\n",
-			App_Module.IO,
-			app.asset_dir,
-		)
+		log.fatalf("%s: Could not set the app directory: %s\n", App_Module.IO, app.asset_dir)
 		return
 	}
 	if glfw.Init() == 0 {
@@ -96,6 +87,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, DEFAULT_GL_MINOR_VERSION)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	glfw.WindowHint(glfw.OPENGL_DEBUG_CONTEXT, 1)
+	glfw.WindowHint(glfw.SAMPLES, 4)
 
 	app.win_handle = glfw.CreateWindow(
 		i32(app.width),
@@ -118,6 +110,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	gl.Enable(gl.DEBUG_OUTPUT)
 	gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
 	gl.DebugMessageCallback(gl_debug_cb, nil)
+	gl.Enable(gl.MULTISAMPLE)
 	gl.Enable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -143,6 +136,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	app.input.registered_key_proc.allocator = app.ctx.allocator
 	glfw.SetKeyCallback(app.win_handle, key_callback)
 	glfw.SetMouseButtonCallback(app.win_handle, mouse_button_callback)
+	glfw.SetScrollCallback(app.win_handle, mouse_scroll_callback)
 }
 
 run_app :: proc() {
@@ -187,6 +181,20 @@ close_app_on_next_frame :: proc() {
 elapsed_time :: proc() -> f64 {
 	return app.elapsed_time
 }
+
+begin_temp_allocation :: proc() {
+	app.frame_temp_memory = mem.begin_arena_temp_memory(&app.frame_arena)
+}
+
+end_temp_allocation :: proc() {
+	mem.end_arena_temp_memory(app.frame_temp_memory)
+}
+
+@(private)
+frame_allocator_offset :: proc() -> int {
+	return app.frame_arena.offset
+}
+
 
 @(private)
 gl_debug_cb :: proc "c" (

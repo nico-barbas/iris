@@ -1,12 +1,10 @@
 package gltf
 
-import "core:image"
-
 Document :: struct {
 	buffers:   []Buffer,
 	views:     []Buffer_View,
 	accessors: []Accessor,
-	entry:     ^Scene,
+	root:      ^Scene,
 	scenes:    []Scene,
 	nodes:     []Node,
 	meshes:    []Mesh,
@@ -156,7 +154,6 @@ Texture_Wrap_Mode :: enum uint {
 
 Image :: struct {
 	name:      string,
-	data:      ^image.Image,
 	reference: Image_Reference,
 }
 

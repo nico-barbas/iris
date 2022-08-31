@@ -39,7 +39,7 @@ Mat4f32 :: matrix[4, 4]f32
 Quaternion :: quaternion128
 
 Translate_Rotate_Scale :: struct {
-    translation: Vector3f32,
-    rotation: Quaternion,
-    scale: Vector3f32
+	translation: Vector3f32,
+	rotation:    Quaternion,
+	scale:       Vector3f32,
 }

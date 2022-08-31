@@ -1,7 +1,10 @@
 package iris
 
+// import "core:fmt"
 import "core:mem"
 import "core:slice"
+
+import "gltf"
 
 Mesh :: struct {
 	state:      Attributes_State,
@@ -42,11 +45,7 @@ plane_mesh :: proc(
 	step_y := f32(h) / f32(s_h)
 	for y in 0 ..< v_per_col {
 		for x in 0 ..< v_per_row {
-			positions[y * v_per_row + x] = {
-				step_x * f32(x) - offset.x,
-				0,
-				step_y * f32(y) - offset.y,
-			}
+			positions[y * v_per_row + x] = {step_x * f32(x) - offset.x, 0, step_y * f32(y) - offset.y}
 			normals[y * v_per_row + x] = VECTOR_UP
 			uvs[y * v_per_row + x] = {f32(x) / f32(s_w), f32(y) / f32(s_h)}
 		}
@@ -74,9 +73,7 @@ plane_mesh :: proc(
 	indices := slice.reinterpret([]u32, faces)
 
 	layout_map := Vertex_Layout_Map {
-		layout  = Vertex_Layout(
-			slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator),
-		),
+		layout  = Vertex_Layout(slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator)),
 		offsets = slice.clone(
 			[]int{0, normal_offset * size_of(f32), uv_offset * size_of(f32)},
 			layout_allocator,
@@ -157,9 +154,7 @@ cube_mesh :: proc(
 	}
 
 	layout_map := Vertex_Layout_Map {
-		layout  = Vertex_Layout(
-			slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator),
-		),
+		layout  = Vertex_Layout(slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator)),
 		offsets = slice.clone(
 			[]int{0, NORMAL_OFFSET * size_of(f32), UV_OFFSET * size_of(f32)},
 			layout_allocator,
@@ -169,11 +164,116 @@ cube_mesh :: proc(
 	return vertices, indices, layout_map
 }
 
-load_mesh_from_slice :: proc(
-	vert_slice: []f32,
-	index_slice: []u32,
-	layout_map: Vertex_Layout_Map,
+load_mesh_from_gltf_node :: proc(
+	document: ^gltf.Document,
+	node: ^gltf.Node,
+	geometry_allocator: mem.Allocator,
+	layout_allocator: mem.Allocator,
+	flip_normals := false,
 ) -> Mesh {
+	data := node.data.(gltf.Node_Mesh_Data).mesh
+
+	assert(len(data.primitives) == 1)
+
+	primitive := data.primitives[0]
+	assert(primitive.indices != nil)
+
+	indices: []u32
+	#partial switch data in primitive.indices.data {
+	case []u16:
+		indices = make([]u32, len(data))
+		for index, i in data {
+			indices[i] = u32(index)
+		}
+	case []u32:
+		indices = data
+	case:
+		assert(false)
+	}
+
+
+	kind_to_component_count :: proc(kind: gltf.Accessor_Kind) -> (uint, bool) {
+		#partial switch kind {
+		case .Vector2:
+			return 2, true
+		case .Vector3:
+			return 3, true
+		case .Vector4:
+			return 4, true
+		case .Scalar:
+			return 1, true
+		case:
+			return 0, false
+		}
+	}
+	v_count: uint
+	p_slice: []f32
+	n_slice: []f32
+	t_slice: []f32
+	uv_slice: []f32
+	if position, has_position := primitive.attributes["POSITION"]; has_position {
+		component_count, ok := kind_to_component_count(position.data.kind)
+		assert(ok)
+		v_count += position.data.count * component_count
+		assert(position.data.component_kind == .Float)
+		accessor := position.data
+		p_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
+	}
+	if normal, has_normal := primitive.attributes["NORMAL"]; has_normal {
+		component_count, ok := kind_to_component_count(normal.data.kind)
+		assert(ok)
+		v_count += normal.data.count * component_count
+		assert(normal.data.component_kind == .Float)
+		accessor := normal.data
+		n_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
+	}
+	if tangent, has_tangent := primitive.attributes["TANGENT"]; has_tangent {
+		component_count, ok := kind_to_component_count(tangent.data.kind)
+		assert(ok)
+		v_count += tangent.data.count * component_count
+		assert(tangent.data.component_kind == .Float)
+		accessor := tangent.data
+		t_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector4f32))
+	}
+	if tex_coord, has_tex_coord := primitive.attributes["TEXCOORD_0"]; has_tex_coord {
+		component_count, ok := kind_to_component_count(tex_coord.data.kind)
+		assert(ok)
+		v_count += tex_coord.data.count * component_count
+		assert(tex_coord.data.component_kind == .Float)
+		accessor := tex_coord.data
+		uv_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector2f32))
+	}
+	vertices := make([]f32, v_count, geometry_allocator)
+	copy(vertices[:], p_slice[:])
+	p_off := len(p_slice)
+	if flip_normals {
+		for i := 0; i < len(n_slice); i += 3 {
+			vertices[p_off + i] = -n_slice[i]
+			vertices[p_off + i + 1] = -n_slice[i + 1]
+			vertices[p_off + i + 2] = -n_slice[i + 2]
+		}
+	} else {
+		copy(vertices[p_off:], n_slice)
+	}
+	n_off := p_off + len(n_slice)
+	copy(vertices[n_off:], t_slice)
+	t_off := n_off + len(t_slice)
+	copy(vertices[t_off:], uv_slice)
+
+	layout_map := Vertex_Layout_Map {
+		layout  = Vertex_Layout(
+			slice.clone([]Vertex_Format{.Float3, .Float3, .Float4, .Float2}, layout_allocator),
+		),
+		offsets = slice.clone(
+			[]int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
+			layout_allocator,
+		),
+	}
+
+	return load_mesh_from_slice(vertices, indices, layout_map)
+}
+
+load_mesh_from_slice :: proc(vert_slice: []f32, index_slice: []u32, layout_map: Vertex_Layout_Map) -> Mesh {
 	mesh := Mesh {
 		state      = get_ctx_attribute_state(layout_map.layout),
 		layout_map = layout_map,

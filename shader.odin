@@ -38,21 +38,12 @@ Shader_Uniform_Kind :: enum {
 	Matrix4,
 }
 
-load_shader_from_file :: proc(
-	v_path,
-	f_path: string,
-	allocator := context.allocator,
-) -> Shader {
+load_shader_from_file :: proc(v_path, f_path: string, allocator := context.allocator) -> Shader {
 	v_raw, v_ok := os.read_entire_file(v_path, context.temp_allocator)
 	f_raw, f_ok := os.read_entire_file(f_path, context.temp_allocator)
 
 	if !(v_ok && f_ok) {
-		log.fatalf(
-			"%s: Failed to read shader source file:\n\t- %s\n\t- %s\n",
-			App_Module.IO,
-			v_path,
-			f_path,
-		)
+		log.fatalf("%s: Failed to read shader source file:\n\t- %s\n\t- %s\n", App_Module.IO, v_path, f_path)
 		return {}
 	}
 
@@ -84,9 +75,21 @@ load_shader_from_bytes :: proc(
 	gl.AttachShader(shader.handle, vertex_handle)
 	gl.AttachShader(shader.handle, fragment_handle)
 	gl.LinkProgram(shader.handle)
-	if shader.handle == 0 {
-		log.debug("Failed to compile shader program")
-	}
+	// compile_ok: i32
+	// gl.GetShaderiv(shader.handle, gl.LINK_STATUS, &compile_ok)
+	// if compile_ok == 0 {
+	// 	max_length: i32
+	// 	gl.GetShaderiv(shader.handle, gl.INFO_LOG_LENGTH, &max_length)
+
+	// 	message: [512]byte
+	// 	gl.GetShaderInfoLog(shader.handle, 512, &max_length, &message[0])
+	// 	log.debugf(
+	// 		"%s: Linkage error Shader[%d]:\n\t%s\n",
+	// 		App_Module.Shader,
+	// 		shader.handle,
+	// 		string(message[:max_length]),
+	// 	)
+	// }
 
 	// populate uniform cache
 	u_count: i32
@@ -94,11 +97,7 @@ load_shader_from_bytes :: proc(
 	if u_count == 0 {
 		return shader
 	}
-	shader.uniforms = make(
-		map[string]Shader_Uniform_Info,
-		runtime.DEFAULT_RESERVE_CAPACITY,
-		allocator,
-	)
+	shader.uniforms = make(map[string]Shader_Uniform_Info, runtime.DEFAULT_RESERVE_CAPACITY, allocator)
 
 	max_name_len: i32
 	cur_name_len: i32
@@ -108,20 +107,10 @@ load_shader_from_bytes :: proc(
 	for i in 0 ..< u_count {
 		buf := make([]u8, max_name_len, allocator)
 		defer delete(buf)
-		gl.GetActiveUniform(
-			shader.handle,
-			u32(i),
-			max_name_len,
-			&cur_name_len,
-			&size,
-			&type,
-			&buf[0],
-		)
+		gl.GetActiveUniform(shader.handle, u32(i), max_name_len, &cur_name_len, &size, &type, &buf[0])
 		u_name := format_uniform_name(buf, cur_name_len, type)
 		shader.uniforms[u_name] = Shader_Uniform_Info {
-			loc   = Shader_Uniform_Loc(
-				gl.GetUniformLocation(shader.handle, cstring(raw_data(buf))),
-			),
+			loc   = Shader_Uniform_Loc(gl.GetUniformLocation(shader.handle, cstring(raw_data(buf)))),
 			kind  = uniform_kind(type),
 			count = 1,
 		}
@@ -174,12 +163,7 @@ compile_shader_source :: proc(
 }
 
 @(private = "file")
-format_uniform_name :: proc(
-	buf: []u8,
-	l: i32,
-	t: u32,
-	allocator := context.allocator,
-) -> string {
+format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allocator) -> string {
 	length := int(l)
 	if t == gl.SAMPLER_2D {
 		if buf[length - 1] == ']' {
@@ -232,20 +216,15 @@ print_shader_uniforms :: proc(shader: Shader) {
 	}
 }
 
-set_shader_uniform :: proc(
-	shader: Shader,
-	name: string,
-	value: rawptr,
-	loc := #caller_location,
-) {
+set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
-		log.fatalf(
-			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
-			App_Module.Shader,
-			shader.handle,
-			name,
-			loc,
-		)
+		// log.fatalf(
+		// 	"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
+		// 	App_Module.Shader,
+		// 	shader.handle,
+		// 	name,
+		// 	loc,
+		// )
 		return
 	}
 	bind_shader(shader)

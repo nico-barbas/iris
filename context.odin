@@ -2,6 +2,9 @@ package iris
 
 import "core:fmt"
 import "core:math/linalg"
+import "core:strings"
+
+import "gltf"
 
 Rendering_Context :: struct {
 	render_width:       int,
@@ -18,6 +21,10 @@ Rendering_Context :: struct {
 	states:             [dynamic]Attributes_State,
 	commands:           [dynamic]Render_Command,
 	previous_cmd_count: int,
+
+	// Resource management
+	textures:           map[string]Texture,
+	materials:          map[string]Material,
 }
 
 Render_Command :: union {
@@ -26,7 +33,10 @@ Render_Command :: union {
 
 Render_Mesh_Command :: struct {
 	mesh:      Mesh,
-	transform: Transform,
+	transform: union {
+		Transform,
+		Matrix4,
+	},
 	material:  Material,
 }
 
@@ -65,12 +75,7 @@ view_target :: proc(target: Vector3) {
 
 start_render :: proc() {
 	ctx := &app.render_ctx
-	ctx.commands = make(
-		[dynamic]Render_Command,
-		0,
-		ctx.previous_cmd_count,
-		context.temp_allocator,
-	)
+	ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
 	set_viewport(ctx.render_width, ctx.render_height)
 }
 
@@ -85,18 +90,22 @@ end_render :: proc() {
 				bind_shader(c.material.shader)
 				current_shader = c.material.shader.handle
 			}
-			model_mat := linalg.matrix4_from_trs_f32(
-				c.transform.translation,
-				c.transform.rotation,
-				c.transform.scale,
-			)
-			mvp := linalg.matrix_mul(
-				linalg.matrix_mul(ctx.projection, ctx.view),
-				model_mat,
-			)
+			model_mat: Matrix4
+			switch t in c.transform {
+			case Matrix4:
+				model_mat = t
+			case Transform:
+				model_mat = linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
+			}
+			mvp := linalg.matrix_mul(linalg.matrix_mul(ctx.projection, ctx.view), model_mat)
 			set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
 			if _, exist := c.material.shader.uniforms["matModel"]; exist {
 				set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matNormal"]; exist {
+				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(model_mat)
+				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+				set_shader_uniform(c.material.shader, "matNormal", &normal_mat[0][0])
 			}
 
 			unit_index: u32
@@ -104,23 +113,14 @@ end_render :: proc() {
 				if kind in c.material.maps {
 					texture_uniform_name := fmt.tprintf("texture%d", unit_index)
 					bind_texture(&c.material.textures[kind], unit_index)
-					set_shader_uniform(
-						c.material.shader,
-						texture_uniform_name,
-						&unit_index,
-					)
+					set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
 					unit_index += 1
 				}
 			}
 
 			bind_attributes_state(c.mesh.state)
 			defer unbind_attributes_state()
-			link_attributes_state_vertices(
-				&c.mesh.state,
-				c.mesh.vertices,
-				c.mesh.layout_map,
-			)
-			// link_attributes_state_vertices(&c.mesh.state, c.mesh.vertices)
+			link_attributes_state_vertices(&c.mesh.state, c.mesh.vertices, c.mesh.layout_map)
 			link_attributes_state_indices(&c.mesh.state, c.mesh.indices)
 			draw_triangles(c.mesh.indices.cap)
 
@@ -151,4 +151,53 @@ get_ctx_attribute_state :: proc(layout: Vertex_Layout) -> Attributes_State {
 @(private)
 push_draw_command :: proc(cmd: Render_Command) {
 	append(&app.render_ctx.commands, cmd)
+}
+
+
+load_materials_from_gltf :: proc(document: ^gltf.Document) {
+	ctx := &app.render_ctx
+	for material in document.materials {
+		if _, exist := ctx.materials[material.name]; !exist {
+			name := strings.clone(material.name, app.ctx.allocator)
+			m: Material
+			if material.base_color_texture.present {
+				path := material.base_color_texture.texture.source.reference.(string)
+				if texture, has_texture := ctx.textures[path]; has_texture {
+					set_material_map(&m, .Diffuse, texture)
+				} else {
+					assert(false)
+				}
+			}
+			if material.normal_texture.present {
+				path := material.normal_texture.texture.source.reference.(string)
+				if texture, has_texture := ctx.textures[path]; has_texture {
+					set_material_map(&m, .Normal, texture)
+				}
+			}
+			fmt.println(m)
+			ctx.materials[name] = m
+		}
+	}
+}
+
+load_textures_from_gltf :: proc(document: ^gltf.Document) {
+	ctx := &app.render_ctx
+	for texture in document.textures {
+		if _, ok := texture.source.reference.(string); !ok {
+			unimplemented("Image from buffer view")
+		}
+		path := texture.source.reference.(string)
+		if _, exist := ctx.textures[path]; !exist {
+			name := strings.clone(path, app.ctx.allocator)
+			ctx.textures[name] = load_texture_from_file(path, app.ctx.allocator)
+		}
+	}
+}
+
+get_material :: proc(name: string) -> Material {
+	if material, exist := app.render_ctx.materials[name]; exist {
+		return material
+	}
+	fmt.println(name, app.render_ctx.materials)
+	unreachable()
 }

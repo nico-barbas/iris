@@ -4,6 +4,7 @@ import "core:mem"
 import "core:fmt"
 import "core:math"
 import iris "../"
+import gltf "../gltf"
 
 main :: proc() {
 	track: mem.Tracking_Allocator
@@ -46,6 +47,7 @@ Game :: struct {
 	camera:        Camera,
 	light:         Light,
 	mesh:          iris.Mesh,
+	model:         iris.Model,
 	ground_mesh:   iris.Mesh,
 	material:      iris.Material,
 	delta:         f32,
@@ -70,16 +72,28 @@ Light :: struct {
 
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
+
+	doc, err := gltf.parse_from_file("lantern/lantern.gltf", .Gltf_External)
+	iris.load_textures_from_gltf(&doc)
+	iris.load_materials_from_gltf(&doc)
+	assert(err == nil)
+	root := doc.root.nodes[0]
+
+	shader := iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER)
+	g.model = iris.load_model_from_gltf_node(
+		loader = &iris.Model_Loader{
+			document = &doc,
+			shader = shader,
+			allocator = context.allocator,
+			temp_allocator = context.temp_allocator,
+		},
+		node = root,
+	)
+
 	iris.set_key_proc(.Escape, on_escape_key)
 
 
-	cube_v, cube_i, l_map := iris.cube_mesh(
-		1,
-		1,
-		1,
-		context.allocator,
-		context.temp_allocator,
-	)
+	cube_v, cube_i, l_map := iris.cube_mesh(1, 1, 1, context.allocator, context.temp_allocator)
 	g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, l_map)
 
 	{
@@ -88,36 +102,16 @@ init :: proc(data: iris.App_Data) {
 	}
 
 	g.material = {
-		shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER),
+		shader = shader,
 	}
-	iris.set_material_map(
-		&g.material,
-		.Diffuse,
-		iris.load_texture_from_file("cube_texture.png"),
-	)
+	iris.set_material_map(&g.material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
 	{
 		ambient_strength: f32 = 0.4
 		iris.set_shader_uniform(g.material.shader, "light.ambientStr", &ambient_strength)
-		iris.set_shader_uniform(
-			g.material.shader,
-			"light.position",
-			&iris.Vector3{2, 3, 2},
-		)
-		iris.set_shader_uniform(
-			g.material.shader,
-			"light.ambientClr",
-			&iris.Vector3{0.45, 0.45, 0.75},
-		)
-		iris.set_shader_uniform(
-			g.material.shader,
-			"light.diffuseClr",
-			&iris.Vector3{1, 1, 1},
-		)
-		iris.set_shader_uniform(
-			g.material.shader,
-			"light.specularClr",
-			&iris.Vector3{0.0, 0.2, 0.45},
-		)
+		iris.set_shader_uniform(g.material.shader, "light.position", &iris.Vector3{2, 3, 2})
+		iris.set_shader_uniform(g.material.shader, "light.ambientClr", &iris.Vector3{0.45, 0.45, 0.75})
+		iris.set_shader_uniform(g.material.shader, "light.diffuseClr", &iris.Vector3{1, 1, 1})
+		iris.set_shader_uniform(g.material.shader, "light.specularClr", &iris.Vector3{0.0, 0.2, 0.45})
 	}
 
 	g.flat_material = {
@@ -130,15 +124,16 @@ init :: proc(data: iris.App_Data) {
 		target_distance = 10,
 		target_rotation = 0,
 	}
-	update_camera(&g.camera, {})
+	update_camera(&g.camera, {}, 0)
 }
 
 update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	m_delta := iris.mouse_delta()
 	m_right := iris.mouse_button_state(.Right)
-	if .Pressed in m_right {
-		update_camera(&g.camera, m_delta)
+	m_scroll := iris.mouse_scroll()
+	if .Pressed in m_right || m_scroll != 0 {
+		update_camera(&g.camera, m_delta, m_scroll)
 	}
 
 	g.delta += f32(iris.elapsed_time())
@@ -146,16 +141,21 @@ update :: proc(data: iris.App_Data) {
 		g.delta = 0
 	}
 
-	iris.set_shader_uniform(
-		g.material.shader,
-		"light.position",
-		&iris.Vector3{2, g.delta, 2},
-	)
+	iris.set_shader_uniform(g.material.shader, "light.position", &iris.Vector3{2, g.delta, 2})
+	iris.set_shader_uniform(g.material.shader, "lightPosition", &iris.Vector3{2, g.delta, 2})
+	iris.set_shader_uniform(g.material.shader, "viewPosition", &g.camera.position)
 }
 
-update_camera :: proc(c: ^Camera, m_delta: iris.Vector2) {
+update_camera :: proc(c: ^Camera, m_delta: iris.Vector2, m_scroll: f64) {
+	SCROLL_SPEED :: 1
+	MIN_TARGET_DISTANCE :: 2
+	MAX_PITCH :: 170
+	MIN_PITCH :: 10
+
+	c.target_distance = max(c.target_distance - f32(m_scroll), MIN_TARGET_DISTANCE)
 	c.target_rotation += (m_delta.x * 0.5)
 	c.pitch -= (m_delta.y * 0.5)
+	c.pitch = clamp(c.pitch, MIN_PITCH, MAX_PITCH)
 
 	pitch_in_rad := math.to_radians(c.pitch)
 	target_rot_in_rad := math.to_radians(c.target_rotation)
@@ -174,14 +174,10 @@ draw :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.start_render()
 	{
-		iris.draw_mesh(g.mesh, iris.transform(t = {0, 0.5001, 0}), g.material)
+		iris.draw_model(g.model, iris.transform(s = {0.1, 0.1, 0.1}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.material)
 
-		iris.draw_mesh(
-			g.mesh,
-			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
-			g.flat_material,
-		)
+		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
 	}
 	iris.end_render()
 }
@@ -200,34 +196,62 @@ VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec2 attribTexCoord;
+layout (location = 2) in vec4 attribTangent;
+layout (location = 3) in vec2 attribTexCoord;
 
-out vec3 fragPosition;
-out vec3 fragNormal;
-out vec2 fragTexCoord;
+out VS_OUT {
+	vec3 position;
+	vec3 normal;
+	vec2 texCoord;
+	vec3 tanLightPosition;
+	vec3 tanViewPosition;
+	vec3 tanPosition;
+} frag;
 
+// builtin uniforms
 uniform mat4 mvp;
 uniform mat4 matModel;
+uniform mat3 matNormal;
+
+// Custom uniforms
+uniform vec3 lightPosition;
+uniform vec3 viewPosition;
 
 void main()
 {
-	fragPosition = vec3(matModel * vec4(attribPosition, 1.0));
-	fragNormal = attribNormal;
-	fragTexCoord = attribTexCoord;
+	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
+	frag.normal = matNormal * attribNormal;
+	frag.texCoord = attribTexCoord;
 
-    gl_Position = mvp*vec4(attribPosition, 1.0);
+	vec3 t = normalize(matNormal * vec3(attribTangent));
+	vec3 n = normalize(matNormal * attribNormal);
+	t =  normalize(t - dot(t, n) * n);
+	vec3 b = cross(n, t);
+
+	mat3 tbn = transpose(mat3(t, b, n));
+	frag.tanLightPosition = tbn * lightPosition;
+	frag.tanViewPosition = tbn * viewPosition;
+	frag.tanPosition = tbn * frag.position;
+
+    gl_Position = mvp * vec4(attribPosition, 1.0);
 }  
 `
 FRAGMENT_SHADER :: `
 #version 450 core
-in vec3 fragPosition;
-in vec3 fragNormal;
-in vec2 fragTexCoord;
+in VS_OUT {
+	vec3 position;
+	vec3 normal;
+	vec2 texCoord;
+	vec3 tanLightPosition;
+	vec3 tanViewPosition;
+	vec3 tanPosition;
+} frag;
 
 out vec4 finalColor;
 
 // Builtin uniforms.
 uniform sampler2D texture0;
+uniform sampler2D texture1;
 
 // User uniforms.
 struct Light {
@@ -241,11 +265,14 @@ uniform Light light;
 
 void main()
 {
-    vec4 texelClr = texture(texture0, fragTexCoord);
-
-	vec3 normal = normalize(fragNormal);
-	vec3 lightDir = normalize(light.position);
-	float diffuseValue = max(dot(normal, lightDir), 0.0);
+	
+	vec4 texelClr = texture(texture0, frag.texCoord);
+	
+	vec3 normal = texture(texture1, frag.texCoord).rgb;
+	normal = normalize(normal * 2.0 - 1.0);
+	// vec3 normal = normalize(frag.normal);
+	vec3 lightDir = normalize(frag.tanLightPosition - frag.tanPosition);
+	float diffuseValue = max(dot(lightDir, normal), 0.0);
 	vec3 diffuse = texelClr.rgb * (diffuseValue * light.diffuseClr);
 
 	vec3 ambient = texelClr.rgb * light.ambientStr * light.ambientClr;

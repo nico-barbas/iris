@@ -2,6 +2,7 @@ package iris
 
 import "core:math/linalg"
 import gl "vendor:OpenGL"
+import "gltf"
 
 set_backface_culling :: proc(on: bool) {
 	if on {
@@ -51,7 +52,22 @@ Material :: struct {
 Material_Maps :: distinct bit_set[Material_Map]
 
 Material_Map :: enum byte {
-	Diffuse,
+	Diffuse = 0,
+	Normal  = 1,
+}
+
+load_material_from_gtlf_material :: proc(
+	document: ^gltf.Document,
+	m: ^gltf.Material,
+	shader: Shader,
+	allocator := context.allocator,
+) -> (
+	material: Material,
+) {
+	if m.base_color_texture.present {
+
+	}
+	return
 }
 
 set_material_map :: proc(material: ^Material, kind: Material_Map, texture: Texture) {

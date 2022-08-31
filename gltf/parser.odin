@@ -6,7 +6,6 @@ import "core:slice"
 import "core:strings"
 import "core:strconv"
 import "core:path/filepath"
-import "core:image"
 
 Format :: enum {
 	Gltf_Embed,
@@ -18,6 +17,7 @@ Error :: enum {
 	None,
 	Unsupported_Format,
 	Json_Parsing_Error,
+	Failed_To_Read_Gltf_File,
 	Failed_To_Read_External_File,
 	Invalid_Buffer_Uri,
 	Invalid_Buffer_View_Length,
@@ -45,9 +45,15 @@ parse_from_file :: proc(
 	dir := filepath.dir(path, context.temp_allocator)
 	source, file_ok := os.read_entire_file(path, context.temp_allocator)
 
+	if !file_ok {
+		err = .Failed_To_Read_Gltf_File
+		return
+	}
 	if format != .Gltf_External {
 		err = .Unsupported_Format
+		return
 	}
+
 	json_data, json_success := json.parse(data = source, allocator = context.temp_allocator)
 	defer json.destroy_value(json_data)
 
@@ -115,7 +121,7 @@ parse_from_file :: proc(
 
 			if view_length, has_length := view_data["byteLength"]; has_length {
 				view.byte_length = uint(view_length.(json.Float))
-				end = view.byte_length
+				end = view.byte_length + view.byte_offset
 			} else {
 				err = .Invalid_Buffer_View_Length
 				return
@@ -200,14 +206,7 @@ parse_from_file :: proc(
 			img.name = strings.clone(image_data["name"].(string) or_else "")
 
 			if image_uri, has_uri := image_data["uri"]; has_uri {
-				img.reference = strings.clone(image_uri.(string))
-				image_err: image.Error
-				img.data, image_err = image.load_from_file(image_uri.(string))
-
-				if image_err != nil {
-					err = .Failed_To_Read_External_File
-					return
-				}
+				img.reference = filepath.join({dir, image_uri.(string)})
 			} else if image_view, has_view := image_data["bufferView"]; has_view {
 				ref: Image_Embedded_Reference
 				ref.view_index = uint(image_view.(json.Float))
@@ -224,18 +223,12 @@ parse_from_file :: proc(
 					err = .Invalid_Image_Reference
 					return
 				}
-
-				image_err: image.Error
-				img.data, image_err = image.load_from_bytes(ref.view.byte_slice)
-				if image_err != nil {
-					err = .Failed_To_Read_External_File
-					return
-				}
 				img.reference = ref
 			} else {
 				err = .Invalid_Image_Reference
 				return
 			}
+			document.images[i] = img
 		}
 	}
 
@@ -289,7 +282,7 @@ parse_from_file :: proc(
 				texture.sampler_index = uint(texture_sampler.(json.Float))
 				texture.sampler = &document.samplers[texture.sampler_index]
 			}
-			if texture_source, has_source := texture_info["sampler"]; has_source {
+			if texture_source, has_source := texture_info["source"]; has_source {
 				texture.source_index = uint(texture_source.(json.Float))
 				texture.source = &document.images[texture.source_index]
 			} else {
@@ -354,7 +347,7 @@ parse_from_file :: proc(
 						metallic_roughness_texture,
 					) or_return
 				} else {
-					material.base_color_texture.present = false
+					material.metallic_roughness_texture.present = false
 				}
 			}
 
@@ -369,11 +362,12 @@ parse_from_file :: proc(
 				} else {
 					n_texture_info.scale = 1
 				}
+				material.normal_texture = n_texture_info
 			} else {
-				material.base_color_texture.present = false
+				material.normal_texture.present = false
 			}
 
-			if occ_t, has_occ_t := material_info["normalTexture"]; has_occ_t {
+			if occ_t, has_occ_t := material_info["occlusionTexture"]; has_occ_t {
 				occlusion_texture := occ_t.(json.Object)
 
 				occ_texture_info: Occlusion_Texture_Info
@@ -384,8 +378,9 @@ parse_from_file :: proc(
 				} else {
 					occ_texture_info.strength = 1
 				}
+				material.occlusion_texture = occ_texture_info
 			} else {
-				material.base_color_texture.present = false
+				material.occlusion_texture.present = false
 			}
 
 			if emissive_t, has_emissive_t := material_info["emissiveTexture"]; has_emissive_t {
@@ -393,7 +388,7 @@ parse_from_file :: proc(
 
 				material.emissive_texture = parse_texture_info(&document, emissive_texture) or_return
 			} else {
-				material.base_color_texture.present = false
+				material.emissive_texture.present = false
 			}
 
 			if emissive_f, has_emissive_factor := material_info["emissiveFactor"]; has_emissive_factor {
@@ -567,8 +562,20 @@ parse_from_file :: proc(
 					node_trs.rotation.z = f32(node_rotation[2].(json.Float))
 					node_trs.rotation.w = f32(node_rotation[3].(json.Float))
 				} else {
-					node_trs.rotation.w = 1
+					node_trs.rotation = Quaternion(1)
 				}
+				if node_scale, has_scale := node_info["scale"]; has_scale {
+					node_scale := node_scale.(json.Array)
+
+					node_trs.scale = {
+						0 = f32(node_scale[0].(json.Float)),
+						1 = f32(node_scale[1].(json.Float)),
+						2 = f32(node_scale[2].(json.Float)),
+					}
+				} else {
+					node_trs.scale = {1, 1, 1}
+				}
+				node.transform = node_trs
 			}
 
 			node.data = nil
@@ -618,6 +625,10 @@ parse_from_file :: proc(
 		}
 	}
 
+	if json_scene, has_root := json_doc["scene"]; has_root {
+		document.root = &document.scenes[uint(json_scene.(json.Float))]
+	}
+
 	return
 }
 
@@ -645,7 +656,6 @@ destroy_document :: proc(d: ^Document) {
 	// Free images
 	for img in d.images {
 		delete(img.name)
-		image.destroy(img.data)
 		if uri, uri_ok := img.reference.(string); uri_ok {
 			delete(uri)
 		}

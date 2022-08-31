@@ -16,6 +16,8 @@ Input_Buffer :: struct {
 	// mouse position
 	mouse_pos:                     Vector2,
 	previous_mouse_pos:            Vector2,
+	mouse_scroll:                  f64,
+	previous_mouse_scroll:         f64,
 }
 
 Input_State :: distinct bit_set[Input_State_Kind]
@@ -35,6 +37,8 @@ update_input_buffer :: proc(i: ^Input_Buffer, m_pos: Vector2) {
 	i.previous_mouse_buttons = i.mouse_buttons
 	i.previous_mouse_pos = i.mouse_pos
 	i.mouse_pos = m_pos
+	i.previous_mouse_scroll = i.mouse_scroll
+	i.mouse_scroll = 0
 }
 
 Mouse_State :: distinct [len(Mouse_Button)]bool
@@ -45,12 +49,7 @@ Mouse_Button :: enum {
 	Middle = 2,
 }
 
-mouse_button_callback :: proc "c" (
-	window: glfw.WindowHandle,
-	button,
-	action,
-	mods: i32,
-) {
+mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
 	context = app.ctx
 	if button >= 0 && button < i32(max(Mouse_Button)) {
 		btn := Mouse_Button(button)
@@ -91,6 +90,15 @@ mouse_button_state :: proc(btn: Mouse_Button) -> (state: Input_State) {
 		state = {.Released}
 	}
 	return
+}
+
+mouse_scroll_callback :: proc "c" (window: glfw.WindowHandle, x_offset: f64, y_offset: f64) {
+	context = app.ctx
+	app.input.mouse_scroll = y_offset
+}
+
+mouse_scroll :: proc() -> f64 {
+	return app.input.previous_mouse_scroll
 }
 
 Keyboard_State :: distinct [max(Key)]bool
