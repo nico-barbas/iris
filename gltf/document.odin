@@ -10,21 +10,27 @@ Document :: struct {
 	scenes:    []Scene,
 	nodes:     []Node,
 	meshes:    []Mesh,
+	materials: []Material,
 	images:    []Image,
 	textures:  []Texture,
 	samplers:  []Texture_Sampler,
 }
 
-Scene :: struct {}
+Scene :: struct {
+	name:         string,
+	nodes:        []^Node,
+	node_indices: []uint,
+}
 
 Node :: struct {
-	name:      string,
-	transform: union {
+	name:             string,
+	transform:        union {
 		Translate_Rotate_Scale,
 		Mat4f32,
 	},
-	children:  []^Node,
-	data:      Node_Data,
+	children:         []^Node,
+	children_indices: []uint,
+	data:             Node_Data,
 }
 
 Node_Data :: union {
@@ -62,8 +68,9 @@ Primitive :: struct {
 	},
 	indices:        ^Accessor,
 	indices_index:  uint,
-	material:       Material,
+	material:       ^Material,
 	material_index: uint,
+	// TODO: targets
 }
 
 Primitive_Render_Mode :: enum uint {
@@ -74,6 +81,46 @@ Primitive_Render_Mode :: enum uint {
 	Triangles      = 4,
 	Triangle_Strip = 5,
 	Triangle_Fan   = 6,
+}
+
+Material :: struct {
+	name:                       string,
+	base_color_factor:          [4]f32,
+	base_color_texture:         Texture_Info,
+	metallic_factor:            f32,
+	roughness_factor:           f32,
+	metallic_roughness_texture: Texture_Info,
+	normal_texture:             Normal_Texture_Info,
+	occlusion_texture:          Occlusion_Texture_Info,
+	emissive_texture:           Texture_Info,
+	emissive_factor:            [3]f32,
+	alpha_mode:                 Material_Alpha_Mode,
+	alpha_cutoff:               f32,
+	double_sided:               bool,
+}
+
+Material_Alpha_Mode :: enum uint {
+	Opaque,
+	Mask,
+	Blend,
+}
+
+Normal_Texture_Info :: struct {
+	using info: Texture_Info,
+	scale:      f32,
+}
+
+Occlusion_Texture_Info :: struct {
+	using info: Texture_Info,
+	strength:   f32,
+}
+
+Texture_Info :: struct {
+	present:         bool,
+	texture:         ^Texture,
+	texture_index:   uint,
+	tex_coord_name:  string,
+	tex_coord_index: uint,
 }
 
 Texture :: struct {

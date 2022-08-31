@@ -4,6 +4,7 @@ import "core:os"
 import "core:encoding/json"
 import "core:slice"
 import "core:strings"
+import "core:strconv"
 import "core:path/filepath"
 import "core:image"
 
@@ -24,6 +25,9 @@ Error :: enum {
 	Invalid_Accessor_Type,
 	Invalid_Accessor_Component_Type,
 	Invalid_Image_Reference,
+	Invalid_Mesh_Primitives,
+	Invalid_Primitive_Attributes,
+	Invalid_Texture_Info_Index,
 }
 
 parse_from_file :: proc(
@@ -179,11 +183,7 @@ parse_from_file :: proc(
 			}
 
 			data := accessor.view.byte_slice[accessor.byte_offset:]
-			accessor.data = byte_slice_to_accessor_data(
-				data,
-				accessor.component_kind,
-				accessor.kind,
-			)
+			accessor.data = byte_slice_to_accessor_data(data, accessor.component_kind, accessor.kind)
 			document.accessors[i] = accessor
 		}
 	}
@@ -300,6 +300,143 @@ parse_from_file :: proc(
 		}
 	}
 
+	// Materials
+	if json_materials, has_materials := json_doc["materials"]; has_materials {
+		materials := json_materials.(json.Array)
+		document.materials = make([]Material, len(materials))
+
+		for json_material, i in materials {
+			material_info := json_material.(json.Object)
+
+			material: Material
+			material.name = strings.clone(material_info["name"].(string) or_else "")
+
+			if json_pbr_info, has_pbr := material_info["pbrMetallicRoughness"]; has_pbr {
+				pbr_info := json_pbr_info.(json.Object)
+
+				if base_clr_f, has_base_clr_f := pbr_info["baseColorFactor"]; has_base_clr_f {
+					base_color_factor := base_clr_f.(json.Array)
+					material.base_color_factor = {
+						0 = f32(base_color_factor[0].(json.Float)),
+						1 = f32(base_color_factor[1].(json.Float)),
+						2 = f32(base_color_factor[2].(json.Float)),
+						3 = f32(base_color_factor[3].(json.Float)),
+					}
+				} else {
+					material.base_color_factor = {1, 1, 1, 1}
+				}
+
+				if base_clr_t, has_base_t := pbr_info["baseColorTexture"]; has_base_t {
+					base_color_texture := base_clr_t.(json.Object)
+
+					material.base_color_texture = parse_texture_info(&document, base_color_texture) or_return
+				} else {
+					material.base_color_texture.present = false
+				}
+
+				if metallic_factor, has_m_factor := pbr_info["metallicFactor"]; has_m_factor {
+					material.metallic_factor = f32(metallic_factor.(json.Float))
+				} else {
+					material.metallic_factor = 1
+				}
+
+				if roughness_factor, has_r_factor := pbr_info["roughnessFactor"]; has_r_factor {
+					material.roughness_factor = f32(roughness_factor.(json.Float))
+				} else {
+					material.roughness_factor = 1
+				}
+
+				if mr_t, has_mr_t := pbr_info["metallicRoughnessTexture"]; has_mr_t {
+					metallic_roughness_texture := mr_t.(json.Object)
+
+					material.metallic_roughness_texture = parse_texture_info(
+						&document,
+						metallic_roughness_texture,
+					) or_return
+				} else {
+					material.base_color_texture.present = false
+				}
+			}
+
+			if normal_t, has_normal_t := material_info["normalTexture"]; has_normal_t {
+				normal_texture := normal_t.(json.Object)
+
+				n_texture_info: Normal_Texture_Info
+				n_texture_info.info = parse_texture_info(&document, normal_texture) or_return
+
+				if scale, has_scale := normal_texture["scale"]; has_scale {
+					n_texture_info.scale = f32(scale.(json.Float))
+				} else {
+					n_texture_info.scale = 1
+				}
+			} else {
+				material.base_color_texture.present = false
+			}
+
+			if occ_t, has_occ_t := material_info["normalTexture"]; has_occ_t {
+				occlusion_texture := occ_t.(json.Object)
+
+				occ_texture_info: Occlusion_Texture_Info
+				occ_texture_info.info = parse_texture_info(&document, occlusion_texture) or_return
+
+				if strength, has_strength := occlusion_texture["strength"]; has_strength {
+					occ_texture_info.strength = f32(strength.(json.Float))
+				} else {
+					occ_texture_info.strength = 1
+				}
+			} else {
+				material.base_color_texture.present = false
+			}
+
+			if emissive_t, has_emissive_t := material_info["emissiveTexture"]; has_emissive_t {
+				emissive_texture := emissive_t.(json.Object)
+
+				material.emissive_texture = parse_texture_info(&document, emissive_texture) or_return
+			} else {
+				material.base_color_texture.present = false
+			}
+
+			if emissive_f, has_emissive_factor := material_info["emissiveFactor"]; has_emissive_factor {
+				emissive_factor := emissive_f.(json.Array)
+
+				material.emissive_factor = {
+					0 = f32(emissive_factor[0].(json.Float)),
+					1 = f32(emissive_factor[1].(json.Float)),
+					2 = f32(emissive_factor[2].(json.Float)),
+				}
+			} else {
+				material.emissive_factor = {}
+			}
+
+			if alpha_mode, has_alpha_mode := material_info["alphaMode"]; has_alpha_mode {
+				switch alpha_mode.(string) {
+				case "OPAQUE":
+					material.alpha_mode = .Opaque
+				case "MASK":
+					material.alpha_mode = .Mask
+				case "BLEND":
+					material.alpha_mode = .Blend
+				}
+			} else {
+				material.alpha_mode = .Opaque
+			}
+
+			if alpha_cutoff, has_alpha_cutoff := material_info["alphaCutoff"]; has_alpha_cutoff {
+				material.alpha_cutoff = f32(alpha_cutoff.(json.Float))
+			} else {
+				material.alpha_cutoff = 0.5
+			}
+
+			if double_sided, has_double_sided := material_info["doubleSided"]; has_double_sided {
+				material.double_sided = double_sided.(json.Boolean)
+			} else {
+				material.double_sided = false
+			}
+
+			document.materials[i] = material
+		}
+	}
+
 	// Meshes
 	if json_meshes, has_meshes := json_doc["meshes"]; has_meshes {
 		meshes := json_meshes.(json.Array)
@@ -321,11 +458,163 @@ parse_from_file :: proc(
 					primitive: Primitive
 					if prim_mode, has_mode := prim_info["mode"]; has_mode {
 						primitive.mode = Primitive_Render_Mode(uint(prim_mode.(json.Float)))
+					} else {
+						primitive.mode = .Triangles
 					}
+
+					if prim_indices, has_indices := prim_info["indices"]; has_indices {
+						primitive.indices_index = uint(prim_indices.(json.Float))
+						primitive.indices = &document.accessors[primitive.indices_index]
+					}
+
+					if prim_material, has_material := prim_info["material"]; has_material {
+						primitive.material_index = uint(prim_material.(json.Float))
+						primitive.material = &document.materials[primitive.material_index]
+					}
+
+					if prim_attributes, has_attributes := prim_info["attributes"]; has_attributes {
+						attributes := prim_attributes.(json.Object)
+
+						for attrib_name, attrib_index in attributes {
+							index := uint(attrib_index.(json.Float))
+							name := strings.clone(attrib_name)
+
+							primitive.attributes[name] = {
+								data  = &document.accessors[index],
+								index = index,
+							}
+						}
+					} else {
+						err = .Invalid_Primitive_Attributes
+						return
+					}
+
+					mesh.primitives[j] = primitive
 				}
+			} else {
+				err = .Invalid_Mesh_Primitives
+				return
 			}
 
 			// TODO: Mesh weights
+
+			document.meshes[i] = mesh
+		}
+	}
+
+	// Nodes
+	if json_nodes, has_nodes := json_doc["nodes"]; has_nodes {
+		nodes := json_nodes.(json.Array)
+		document.nodes = make([]Node, len(nodes))
+
+		for json_node, i in nodes {
+			node_info := json_node.(json.Object)
+
+			node: Node
+			node.name = strings.clone(node_info["name"].(string) or_else "")
+
+			if n_children, has_children := node_info["children"]; has_children {
+				node_children := n_children.(json.Array)
+				node.children = make([]^Node, len(node_children))
+				node.children_indices = make([]uint, len(node_children))
+
+				for child, j in node_children {
+					node.children_indices[j] = uint(child.(json.Float))
+				}
+			}
+
+			if m, has_matrix := node_info["matrix"]; has_matrix {
+				mat := m.(json.Array)
+
+				node_matrix: Mat4f32
+				node_matrix[0][0] = f32(mat[0].(json.Float))
+				node_matrix[0][1] = f32(mat[1].(json.Float))
+				node_matrix[0][2] = f32(mat[2].(json.Float))
+				node_matrix[0][3] = f32(mat[3].(json.Float))
+				node_matrix[1][0] = f32(mat[4].(json.Float))
+				node_matrix[1][1] = f32(mat[5].(json.Float))
+				node_matrix[1][2] = f32(mat[6].(json.Float))
+				node_matrix[1][3] = f32(mat[7].(json.Float))
+				node_matrix[2][0] = f32(mat[8].(json.Float))
+				node_matrix[2][1] = f32(mat[9].(json.Float))
+				node_matrix[2][2] = f32(mat[10].(json.Float))
+				node_matrix[2][3] = f32(mat[11].(json.Float))
+				node_matrix[3][0] = f32(mat[12].(json.Float))
+				node_matrix[3][1] = f32(mat[13].(json.Float))
+				node_matrix[3][2] = f32(mat[14].(json.Float))
+				node_matrix[3][3] = f32(mat[15].(json.Float))
+
+				node.transform = node_matrix
+			} else {
+				node_trs: Translate_Rotate_Scale
+				if node_trans, has_trans := node_info["translation"]; has_trans {
+					node_translation := node_trans.(json.Array)
+
+					node_trs.translation = {
+						0 = f32(node_translation[0].(json.Float)),
+						1 = f32(node_translation[1].(json.Float)),
+						2 = f32(node_translation[2].(json.Float)),
+					}
+				} else {
+					node_trs.translation = {}
+				}
+
+				if node_rot, has_rot := node_info["rotation"]; has_rot {
+					node_rotation := node_rot.(json.Array)
+
+					node_trs.rotation.x = f32(node_rotation[0].(json.Float))
+					node_trs.rotation.y = f32(node_rotation[1].(json.Float))
+					node_trs.rotation.z = f32(node_rotation[2].(json.Float))
+					node_trs.rotation.w = f32(node_rotation[3].(json.Float))
+				} else {
+					node_trs.rotation.w = 1
+				}
+			}
+
+			node.data = nil
+			if node_mesh, has_mesh := node_info["mesh"]; has_mesh {
+				node.data = Node_Mesh_Data {
+					mesh       = &document.meshes[uint(node_mesh.(json.Float))],
+					mesh_index = uint(node_mesh.(json.Float)),
+				}
+			} else {
+
+			}
+
+			document.nodes[i] = node
+		}
+
+		for node in &document.nodes {
+			if node.children_indices != nil {
+				for index, j in node.children_indices {
+					node.children[j] = &document.nodes[index]
+				}
+			}
+		}
+	}
+
+	if json_scenes, has_scenes := json_doc["scenes"]; has_scenes {
+		scenes := json_scenes.(json.Array)
+		document.scenes = make([]Scene, len(scenes))
+
+		for json_scene, i in scenes {
+			scene_info := json_scene.(json.Object)
+
+			scene: Scene
+			scene.name = strings.clone(scene_info["name"].(string) or_else "")
+
+			if scene_nodes, has_nodes := scene_info["nodes"]; has_nodes {
+				nodes := scene_nodes.(json.Array)
+				scene.nodes = make([]^Node, len(nodes))
+				scene.node_indices = make([]uint, len(nodes))
+
+				for node, j in nodes {
+					scene.node_indices[j] = uint(node.(json.Float))
+					scene.nodes[j] = &document.nodes[uint(node.(json.Float))]
+				}
+			}
+
+			document.scenes[i] = scene
 		}
 	}
 
@@ -375,15 +664,59 @@ destroy_document :: proc(d: ^Document) {
 	}
 	delete(d.samplers)
 
-	// Free scenes
-	delete(d.scenes)
-
-	// Free nodes
-	delete(d.nodes)
+	// Free materials
+	for material in d.materials {
+		delete(material.name)
+		if material.base_color_texture.present {
+			delete(material.base_color_texture.tex_coord_name)
+		}
+		if material.base_color_texture.present {
+			delete(material.base_color_texture.tex_coord_name)
+		}
+		if material.metallic_roughness_texture.present {
+			delete(material.metallic_roughness_texture.tex_coord_name)
+		}
+		if material.normal_texture.present {
+			delete(material.normal_texture.tex_coord_name)
+		}
+		if material.occlusion_texture.present {
+			delete(material.occlusion_texture.tex_coord_name)
+		}
+		if material.emissive_texture.present {
+			delete(material.emissive_texture.tex_coord_name)
+		}
+	}
+	delete(d.materials)
 
 	// Free meshes
+	for mesh in d.meshes {
+		delete(mesh.name)
+		for primitive in mesh.primitives {
+			for name, _ in primitive.attributes {
+				delete(name)
+			}
+		}
+		delete(mesh.primitives)
+		delete(mesh.weights)
+	}
 	delete(d.meshes)
 
+
+	// Free nodes
+	for node in d.nodes {
+		delete(node.name)
+		delete(node.children)
+		delete(node.children_indices)
+	}
+	delete(d.nodes)
+
+	// Free nodes
+	for scene in d.scenes {
+		delete(scene.name)
+		delete(scene.nodes)
+		delete(scene.node_indices)
+	}
+	delete(d.scenes)
 }
 
 @(private)
@@ -507,5 +840,39 @@ byte_slice_to_accessor_data :: proc(
 			result = slice.reinterpret([]Mat4f32, raw)
 		}
 	}
+	return
+}
+
+// FIXME: pass the max texcoord
+@(private)
+parse_texture_info :: proc(
+	doc: ^Document,
+	t_info: json.Object,
+	max_coord := 1,
+) -> (
+	info: Texture_Info,
+	err: Error,
+) {
+	info.present = true
+	if texture_index, has_index := t_info["index"]; has_index {
+		info.texture_index = uint(texture_index.(json.Float))
+		info.texture = &doc.textures[info.texture_index]
+	} else {
+		err = .Invalid_Texture_Info_Index
+		return
+	}
+
+	if tex_coord_index, has_tex_coord := t_info["texCoord"]; has_tex_coord {
+		info.tex_coord_index = uint(tex_coord_index.(json.Float))
+	}
+
+	tex_coord_prefix := "TEXCOORD_"
+	name_buf := make([]byte, len(tex_coord_prefix) + max_coord)
+	copy(name_buf[:], tex_coord_prefix[:])
+	info.tex_coord_name = strconv.append_uint(
+		name_buf[len(tex_coord_prefix):],
+		u64(info.tex_coord_index),
+		10,
+	)
 	return
 }
