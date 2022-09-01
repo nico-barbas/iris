@@ -164,6 +164,7 @@ run_app :: proc() {
 
 close_app :: proc() {
 	app.close(app.data)
+	close_render_ctx(&app.render_ctx)
 	glfw.DestroyWindow(app.win_handle)
 	glfw.Terminate()
 	log.destroy_console_logger(app.ctx.logger)

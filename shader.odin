@@ -47,10 +47,10 @@ load_shader_from_file :: proc(v_path, f_path: string, allocator := context.alloc
 		return {}
 	}
 
-	return load_shader_from_bytes(string(v_raw), string(f_raw))
+	return internal_load_shader_from_bytes(string(v_raw), string(f_raw))
 }
 
-load_shader_from_bytes :: proc(
+internal_load_shader_from_bytes :: proc(
 	vertex_src,
 	fragment_src: string,
 	v_path := "",
@@ -75,21 +75,21 @@ load_shader_from_bytes :: proc(
 	gl.AttachShader(shader.handle, vertex_handle)
 	gl.AttachShader(shader.handle, fragment_handle)
 	gl.LinkProgram(shader.handle)
-	// compile_ok: i32
-	// gl.GetShaderiv(shader.handle, gl.LINK_STATUS, &compile_ok)
-	// if compile_ok == 0 {
-	// 	max_length: i32
-	// 	gl.GetShaderiv(shader.handle, gl.INFO_LOG_LENGTH, &max_length)
+	compile_ok: i32
+	gl.GetProgramiv(shader.handle, gl.LINK_STATUS, &compile_ok)
+	if compile_ok == 0 {
+		max_length: i32
+		gl.GetProgramiv(shader.handle, gl.INFO_LOG_LENGTH, &max_length)
 
-	// 	message: [512]byte
-	// 	gl.GetShaderInfoLog(shader.handle, 512, &max_length, &message[0])
-	// 	log.debugf(
-	// 		"%s: Linkage error Shader[%d]:\n\t%s\n",
-	// 		App_Module.Shader,
-	// 		shader.handle,
-	// 		string(message[:max_length]),
-	// 	)
-	// }
+		message: [512]byte
+		gl.GetProgramInfoLog(shader.handle, 512, &max_length, &message[0])
+		log.debugf(
+			"%s: Linkage error Shader[%d]:\n\t%s\n",
+			App_Module.Shader,
+			shader.handle,
+			string(message[:max_length]),
+		)
+	}
 
 	// populate uniform cache
 	u_count: i32
@@ -218,13 +218,13 @@ print_shader_uniforms :: proc(shader: Shader) {
 
 set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
-		// log.fatalf(
-		// 	"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
-		// 	App_Module.Shader,
-		// 	shader.handle,
-		// 	name,
-		// 	loc,
-		// )
+		log.fatalf(
+			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
+			App_Module.Shader,
+			shader.handle,
+			name,
+			loc,
+		)
 		return
 	}
 	bind_shader(shader)

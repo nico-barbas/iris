@@ -3,6 +3,7 @@ package iris
 // import "core:fmt"
 import "core:mem"
 import "core:slice"
+import "core:math/linalg"
 
 import "gltf"
 
@@ -14,7 +15,8 @@ Mesh :: struct {
 }
 
 draw_mesh :: proc(mesh: Mesh, t: Transform, mat: Material) {
-	push_draw_command(Render_Mesh_Command{mesh = mesh, transform = t, material = mat})
+	transform := linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
+	push_draw_command(Render_Mesh_Command{mesh = mesh, transform = transform, material = mat})
 }
 
 plane_mesh :: proc(

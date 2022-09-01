@@ -3,6 +3,7 @@ package main
 import "core:mem"
 import "core:fmt"
 import "core:math"
+// import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
@@ -13,8 +14,8 @@ main :: proc() {
 
 	iris.init_app(
 		&iris.App_Config{
-			width = 800,
-			height = 600,
+			width = 1600,
+			height = 900,
 			title = "Small World",
 			decorated = true,
 			asset_dir = "assets/",
@@ -44,14 +45,16 @@ main :: proc() {
 }
 
 Game :: struct {
-	camera:        Camera,
-	light:         Light,
-	mesh:          iris.Mesh,
-	model:         iris.Model,
-	ground_mesh:   iris.Mesh,
-	material:      iris.Material,
-	delta:         f32,
-	flat_material: iris.Material,
+	camera:            Camera,
+	light:             iris.Light_ID,
+	mesh:              iris.Mesh,
+	model:             iris.Model,
+	model_shader:      iris.Shader,
+	ground_mesh:       iris.Mesh,
+	// material:      iris.Material,
+	delta:             f32,
+	flat_material:     iris.Material,
+	flat_lit_material: iris.Material,
 }
 
 Camera :: struct {
@@ -63,27 +66,20 @@ Camera :: struct {
 	target_rotation: f32,
 }
 
-Light :: struct {
-	position:     iris.Vector3,
-	ambient_clr:  iris.Color,
-	diffuse_clr:  iris.Color,
-	specular_clr: iris.Color,
-}
-
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 
 	doc, err := gltf.parse_from_file("lantern/lantern.gltf", .Gltf_External)
+	assert(err == nil)
 	iris.load_textures_from_gltf(&doc)
 	iris.load_materials_from_gltf(&doc)
-	assert(err == nil)
 	root := doc.root.nodes[0]
 
-	shader := iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER)
+	g.model_shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER)
 	g.model = iris.load_model_from_gltf_node(
 		loader = &iris.Model_Loader{
 			document = &doc,
-			shader = shader,
+			shader = g.model_shader,
 			allocator = context.allocator,
 			temp_allocator = context.temp_allocator,
 		},
@@ -101,30 +97,24 @@ init :: proc(data: iris.App_Data) {
 		g.ground_mesh = iris.load_mesh_from_slice(ground_v, ground_i, ground_layout)
 	}
 
-	g.material = {
-		shader = shader,
-	}
-	iris.set_material_map(&g.material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
-	{
-		ambient_strength: f32 = 0.4
-		iris.set_shader_uniform(g.material.shader, "light.ambientStr", &ambient_strength)
-		iris.set_shader_uniform(g.material.shader, "light.position", &iris.Vector3{2, 3, 2})
-		iris.set_shader_uniform(g.material.shader, "light.ambientClr", &iris.Vector3{0.45, 0.45, 0.75})
-		iris.set_shader_uniform(g.material.shader, "light.diffuseClr", &iris.Vector3{1, 1, 1})
-		iris.set_shader_uniform(g.material.shader, "light.specularClr", &iris.Vector3{0.0, 0.2, 0.45})
-	}
-
 	g.flat_material = {
 		shader = iris.load_shader_from_bytes(FLAT_VERTEX_SHADER, FLAT_FRAGMENT_SHADER),
 	}
 
+	g.flat_lit_material = {
+		shader = iris.load_shader_from_bytes(FLAT_LIT_VERTEX_SHADER, FLAT_LIT_FRAGMENT_SHADER),
+	}
+	iris.set_material_map(&g.flat_lit_material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
+
 	g.camera = Camera {
 		pitch = 45,
-		target = {0, 0, 0},
+		target = {0, 0.5, 0},
 		target_distance = 10,
 		target_rotation = 0,
 	}
 	update_camera(&g.camera, {}, 0)
+
+	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 }
 
 update :: proc(data: iris.App_Data) {
@@ -138,12 +128,11 @@ update :: proc(data: iris.App_Data) {
 
 	g.delta += f32(iris.elapsed_time())
 	if g.delta >= 10 {
-		g.delta = 0
+		g.delta = 0.5
 	}
 
-	iris.set_shader_uniform(g.material.shader, "light.position", &iris.Vector3{2, g.delta, 2})
-	iris.set_shader_uniform(g.material.shader, "lightPosition", &iris.Vector3{2, g.delta, 2})
-	iris.set_shader_uniform(g.material.shader, "viewPosition", &g.camera.position)
+	iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
+	iris.set_shader_uniform(g.model_shader, "viewPosition", &g.camera.position)
 }
 
 update_camera :: proc(c: ^Camera, m_delta: iris.Vector2, m_scroll: f64) {
@@ -175,7 +164,7 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.draw_model(g.model, iris.transform(s = {0.1, 0.1, 0.1}))
-		iris.draw_mesh(g.ground_mesh, iris.transform(), g.material)
+		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
 		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
 	}
@@ -185,7 +174,6 @@ draw :: proc(data: iris.App_Data) {
 close :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.destroy_mesh(g.mesh)
-	iris.destroy_material(&g.material)
 }
 
 on_escape_key :: proc(data: iris.App_Data, state: iris.Input_State) {
@@ -199,6 +187,23 @@ layout (location = 1) in vec3 attribNormal;
 layout (location = 2) in vec4 attribTangent;
 layout (location = 3) in vec2 attribTexCoord;
 
+layout (std140, binding = 0) uniform ProjectionData {
+	mat4 projView;
+	vec3 viewPosition;
+};
+
+struct Light {
+	uint on;
+	vec3 position;
+	vec3 color;
+};
+layout (std140, binding = 1) uniform Lights {
+	Light lights[4];
+	mat4 matLightSpace;
+	vec3 ambientClr;
+	float ambientStrength;
+};
+
 out VS_OUT {
 	vec3 position;
 	vec3 normal;
@@ -206,6 +211,7 @@ out VS_OUT {
 	vec3 tanLightPosition;
 	vec3 tanViewPosition;
 	vec3 tanPosition;
+	vec4 lightSpacePosition;
 } frag;
 
 // builtin uniforms
@@ -213,15 +219,12 @@ uniform mat4 mvp;
 uniform mat4 matModel;
 uniform mat3 matNormal;
 
-// Custom uniforms
-uniform vec3 lightPosition;
-uniform vec3 viewPosition;
-
 void main()
 {
 	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
 	frag.normal = matNormal * attribNormal;
 	frag.texCoord = attribTexCoord;
+	frag.lightSpacePosition = matLightSpace * matModel * vec4(attribPosition, 1.0);
 
 	vec3 t = normalize(matNormal * vec3(attribTangent));
 	vec3 n = normalize(matNormal * attribNormal);
@@ -229,7 +232,7 @@ void main()
 	vec3 b = cross(n, t);
 
 	mat3 tbn = transpose(mat3(t, b, n));
-	frag.tanLightPosition = tbn * lightPosition;
+	frag.tanLightPosition = tbn * lights[0].position;
 	frag.tanViewPosition = tbn * viewPosition;
 	frag.tanPosition = tbn * frag.position;
 
@@ -245,45 +248,184 @@ in VS_OUT {
 	vec3 tanLightPosition;
 	vec3 tanViewPosition;
 	vec3 tanPosition;
+	vec4 lightSpacePosition;
 } frag;
 
 out vec4 finalColor;
 
 // Builtin uniforms.
 uniform sampler2D texture0;
-uniform sampler2D texture1;
+uniform sampler2D texture1; 
+uniform sampler2D mapShadow;
 
-// User uniforms.
 struct Light {
+	uint on;
 	vec3 position;
-	float ambientStr;
-	vec3 ambientClr;
-	vec3 diffuseClr;
-	vec3 specularClr;
+	vec3 color;
 };
-uniform Light light;  
+layout (std140, binding = 1) uniform Lights {
+	Light lights[4];
+	mat4 matLightSpace;
+	vec3 ambientClr;
+	float ambientStrength;
+};
+
+float computeShadowValue(vec4 lightSpacePosition, float bias);
 
 void main()
 {
-	
 	vec4 texelClr = texture(texture0, frag.texCoord);
 	
 	vec3 normal = texture(texture1, frag.texCoord).rgb;
 	normal = normalize(normal * 2.0 - 1.0);
-	// vec3 normal = normalize(frag.normal);
 	vec3 lightDir = normalize(frag.tanLightPosition - frag.tanPosition);
 	float diffuseValue = max(dot(lightDir, normal), 0.0);
-	vec3 diffuse = texelClr.rgb * (diffuseValue * light.diffuseClr);
+	vec3 diffuse = diffuseValue * lights[0].color;
 
-	vec3 ambient = texelClr.rgb * light.ambientStr * light.ambientClr;
+	vec3 ambient = ambientStrength * ambientClr;
 
-	vec3 result = diffuse + ambient;
-	result.r = min(result.r, texelClr.r);
-	result.g = min(result.g, texelClr.g);
-	result.b = min(result.b, texelClr.b);
+	vec3 viewDir = normalize(frag.tanViewPosition - frag.tanPosition);
+	vec3 reflectDir = reflect(-lightDir, normal);
+	float specValue = max(dot(viewDir, reflectDir), 0.0);
+	specValue = pow(specValue, 32);
+	vec3 specular = 0.5 * (specValue * lights[0].color);
+	
+	float bias = 0.05 * (1.0 - dot(normal, lightDir));
+	bias = max(bias, 0.005);
+	float shadowValue = computeShadowValue(frag.lightSpacePosition, bias);
+
+	vec3 result = (ambient + ((1.0 - shadowValue) * (diffuse + specular))) * texelClr.rgb;
+
 	finalColor = vec4(result, 1.0);
 }
+
+float computeShadowValue(vec4 lightSpacePosition, float bias) {
+	vec3 projCoord = lightSpacePosition.xyz / lightSpacePosition.w;
+	if (projCoord.z > 1.0) {
+		return 0.0;
+	}
+	projCoord = projCoord * 0.5 + 0.5;
+	float lightDepth = texture(mapShadow, projCoord.xy).r;
+	float currentDepth = projCoord.z;
+
+	float result = currentDepth - bias > lightDepth ? 1.0 : 0.0;
+	return result;
+}
 `
+
+FLAT_LIT_VERTEX_SHADER :: `
+#version 450 core
+layout (location = 0) in vec3 attribPosition;
+layout (location = 1) in vec3 attribNormal;
+layout (location = 2) in vec2 attribTexCoord;
+
+out VS_OUT {
+	vec3 position;
+	vec3 normal;
+	vec2 texCoord;
+	vec4 lightSpacePosition;
+} frag;
+
+uniform mat4 mvp;
+uniform mat4 matModel;
+uniform mat3 matNormal;
+
+struct Light {
+	uint on;
+	vec3 position;
+	vec3 color;
+};
+layout (std140, binding = 1) uniform Lights {
+	Light lights[4];
+	mat4 matLightSpace;
+	vec3 ambientClr;
+	float ambientStrength;
+};
+
+void main()
+{
+	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
+	frag.normal = matNormal * attribNormal; 
+	frag.texCoord = attribTexCoord;
+	frag.lightSpacePosition = matLightSpace * matModel * vec4(attribPosition, 1.0);
+
+    gl_Position = mvp*vec4(attribPosition, 1.0);
+}  
+`
+
+FLAT_LIT_FRAGMENT_SHADER :: `
+#version 450 core
+in VS_OUT {
+	vec3 position;
+	vec3 normal;
+	vec2 texCoord;
+	vec4 lightSpacePosition;
+} frag;
+
+out vec4 finalColor;
+
+// builtin uniforms;
+uniform sampler2D texture0;
+uniform sampler2D mapShadow;
+
+struct Light {
+	uint on;
+	vec3 position;
+	vec3 color;
+};
+layout (std140, binding = 1) uniform Lights {
+	Light lights[4];
+	mat4 matLightSpace;
+	vec3 ambientClr;
+	float ambientStrength;
+};
+
+float computeShadowValue(vec4 lightSpacePosition, float bias);
+
+void main()
+{
+	vec4 texelClr = texture(texture0, frag.texCoord);
+
+	vec3 normal = normalize(frag.normal);
+	vec3 lightDir = normalize(lights[0].position - frag.position);
+	float diffuseValue = max(dot(lightDir, normal), 0.0);
+	vec3 diffuse = diffuseValue * lights[0].color.rgb;
+
+	vec3 ambient = ambientStrength * ambientClr;
+
+	float bias = 0.05 * (1.0 - dot(normal, lightDir));
+	bias = max(bias, 0.005);
+	float shadowValue = computeShadowValue(frag.lightSpacePosition, bias);
+
+	vec3 result = (ambient + ((1.0 - shadowValue) * diffuse)) * texelClr.rgb;
+
+	finalColor = vec4(result, 1.0);
+}
+
+float computeShadowValue(vec4 lightSpacePosition, float bias) {
+	vec3 projCoord = lightSpacePosition.xyz / lightSpacePosition.w;
+	if (projCoord.z > 1.0) {
+		return 0.0;
+	}
+	projCoord = projCoord * 0.5 + 0.5;
+	// float lightDepth = texture(mapShadow, projCoord.xy).r;
+	float currentDepth = projCoord.z;
+
+	float result = 0.0;
+	vec2 texelSize = 1.0 / textureSize(mapShadow, 0);
+	for (int x = -1; x <= 1; x += 1) {
+		for (int y = -1; y <= 1; y += 1) {
+			vec2 pcfCoord = projCoord.xy + vec2(x, y) * texelSize;
+			float pcfDepth = texture(mapShadow, pcfCoord).r;
+			result += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+		}
+	}
+	result /= 9.0;
+	// float result = currentDepth - bias > lightDepth ? 1.0 : 0.0;
+	return result;
+}
+`
+
 
 FLAT_VERTEX_SHADER :: `
 #version 450 core
