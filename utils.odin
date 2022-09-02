@@ -99,3 +99,8 @@ destroy_material :: proc(material: ^Material) {
 		}
 	}
 }
+
+Rectangle :: struct {
+	x, y:          f32,
+	width, height: f32,
+}

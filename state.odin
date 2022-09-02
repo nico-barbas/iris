@@ -70,22 +70,39 @@ Attributes_State :: struct {
 	buffer_index: u32,
 	stride_size:  int,
 	layout:       Vertex_Layout,
+	format:       Attribute_Format,
 }
 
-make_attributes_state :: proc(layout: Vertex_Layout) -> Attributes_State {
+Attribute_Format :: enum {
+	Interleaved,
+	Blocks,
+}
+
+make_attributes_state :: proc(
+	layout: Vertex_Layout,
+	format: Attribute_Format = .Blocks,
+) -> Attributes_State {
 	l := cast([]Vertex_Format)layout
 	state := Attributes_State {
 		stride_size = vertex_layout_size(layout),
 		layout      = Vertex_Layout(slice.clone(l)),
+		format      = format,
 	}
 	gl.CreateVertexArrays(1, &state.handle)
 
+	offset: u32
 	for i in 0 ..< len(state.layout) {
 		index := u32(i)
 		size := i32(state.layout[i])
 		gl.EnableVertexArrayAttrib(state.handle, index)
-		gl.VertexArrayAttribBinding(state.handle, index, index)
-		gl.VertexArrayAttribFormat(state.handle, index, size, gl.FLOAT, gl.FALSE, 0)
+		if format == .Blocks {
+			gl.VertexArrayAttribBinding(state.handle, index, index)
+			gl.VertexArrayAttribFormat(state.handle, index, size, gl.FLOAT, gl.FALSE, 0)
+		} else {
+			gl.VertexArrayAttribBinding(state.handle, index, 0)
+			gl.VertexArrayAttribFormat(state.handle, index, size, gl.FLOAT, gl.FALSE, offset)
+			offset += u32(vertex_format_size(state.layout[i]))
+		}
 	}
 	return state
 }
@@ -95,21 +112,21 @@ destroy_attributes_state :: proc(state: ^Attributes_State) {
 	delete(state.layout)
 }
 
-link_attributes_state_vertices :: proc(
-	state: ^Attributes_State,
-	buffer: Buffer,
-	m: Vertex_Layout_Map,
-) {
-	for format, i in m.layout {
-		index := u32(i)
-		offset := m.offsets[i]
-		gl.VertexArrayVertexBuffer(
-			state.handle,
-			index,
-			buffer.handle,
-			offset,
-			i32(vertex_format_size(format)),
-		)
+link_attributes_state_vertices :: proc(state: ^Attributes_State, buffer: Buffer, m: Vertex_Layout_Map = {}) {
+	if state.format == .Blocks {
+		for format, i in m.layout {
+			index := u32(i)
+			offset := m.offsets[i]
+			gl.VertexArrayVertexBuffer(
+				state.handle,
+				index,
+				buffer.handle,
+				offset,
+				i32(vertex_format_size(format)),
+			)
+		}
+	} else {
+		gl.VertexArrayVertexBuffer(state.handle, 0, buffer.handle, 0, i32(vertex_layout_size(state.layout)))
 	}
 }
 

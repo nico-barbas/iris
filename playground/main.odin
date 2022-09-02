@@ -122,8 +122,10 @@ update :: proc(data: iris.App_Data) {
 	m_delta := iris.mouse_delta()
 	m_right := iris.mouse_button_state(.Right)
 	m_scroll := iris.mouse_scroll()
-	if .Pressed in m_right || m_scroll != 0 {
-		update_camera(&g.camera, m_delta, m_scroll)
+	if .Pressed in m_right {
+		update_camera(&g.camera, m_delta, 0)
+	} else if m_scroll != 0 {
+		update_camera(&g.camera, 0, m_scroll)
 	}
 
 	g.delta += f32(iris.elapsed_time())
@@ -167,6 +169,8 @@ draw :: proc(data: iris.App_Data) {
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
 		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
+
+		iris.draw_rectangle({0, 0, 100, 100}, {1, 0, 0, 1})
 	}
 	iris.end_render()
 }

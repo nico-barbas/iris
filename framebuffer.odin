@@ -26,7 +26,7 @@ make_framebuffer :: proc(attach: Framebuffer_Attachments, w, h: int) -> Framebuf
 		case .Color:
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-			gl.TextureStorage2D(texture.handle, 1, gl.RGB, i32(w), i32(h))
+			gl.TextureStorage2D(texture.handle, 1, gl.RGBA8, i32(w), i32(h))
 		case .Depth:
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
