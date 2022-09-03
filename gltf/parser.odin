@@ -189,7 +189,11 @@ parse_from_file :: proc(
 			}
 
 			data := accessor.view.byte_slice[accessor.byte_offset:]
-			accessor.data = byte_slice_to_accessor_data(data, accessor.component_kind, accessor.kind)
+			accessor.data = byte_slice_to_accessor_data(
+				data,
+				accessor.component_kind,
+				accessor.kind,
+			)
 			document.accessors[i] = accessor
 		}
 	}
@@ -322,7 +326,10 @@ parse_from_file :: proc(
 				if base_clr_t, has_base_t := pbr_info["baseColorTexture"]; has_base_t {
 					base_color_texture := base_clr_t.(json.Object)
 
-					material.base_color_texture = parse_texture_info(&document, base_color_texture) or_return
+					material.base_color_texture = parse_texture_info(
+						&document,
+						base_color_texture,
+					) or_return
 				} else {
 					material.base_color_texture.present = false
 				}
@@ -386,12 +393,16 @@ parse_from_file :: proc(
 			if emissive_t, has_emissive_t := material_info["emissiveTexture"]; has_emissive_t {
 				emissive_texture := emissive_t.(json.Object)
 
-				material.emissive_texture = parse_texture_info(&document, emissive_texture) or_return
+				material.emissive_texture = parse_texture_info(
+					&document,
+					emissive_texture,
+				) or_return
 			} else {
 				material.emissive_texture.present = false
 			}
 
-			if emissive_f, has_emissive_factor := material_info["emissiveFactor"]; has_emissive_factor {
+			if emissive_f, has_emissive_factor := material_info["emissiveFactor"];
+			   has_emissive_factor {
 				emissive_factor := emissive_f.(json.Array)
 
 				material.emissive_factor = {

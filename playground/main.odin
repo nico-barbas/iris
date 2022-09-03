@@ -69,8 +69,8 @@ Camera :: struct {
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 
-	doc, err := gltf.parse_from_file("lantern/lantern.gltf", .Gltf_External)
-	assert(err == nil)
+	doc, err := gltf.parse_from_file("lantern/Lantern.gltf", .Gltf_External)
+	fmt.assertf(err == nil, "%s\n", err)
 	iris.load_textures_from_gltf(&doc)
 	iris.load_materials_from_gltf(&doc)
 	root := doc.root.nodes[0]
@@ -104,7 +104,11 @@ init :: proc(data: iris.App_Data) {
 	g.flat_lit_material = {
 		shader = iris.load_shader_from_bytes(FLAT_LIT_VERTEX_SHADER, FLAT_LIT_FRAGMENT_SHADER),
 	}
-	iris.set_material_map(&g.flat_lit_material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
+	iris.set_material_map(
+		&g.flat_lit_material,
+		.Diffuse,
+		iris.load_texture_from_file("cube_texture.png"),
+	)
 
 	g.camera = Camera {
 		pitch = 45,
@@ -168,7 +172,11 @@ draw :: proc(data: iris.App_Data) {
 		iris.draw_model(g.model, iris.transform(s = {0.1, 0.1, 0.1}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
-		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
+		iris.draw_mesh(
+			g.mesh,
+			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			g.flat_material,
+		)
 
 		iris.draw_rectangle({0, 0, 100, 100}, {1, 0, 0, 1})
 	}

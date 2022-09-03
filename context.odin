@@ -123,7 +123,10 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	load_shader_from_bytes(LIGHT_DEPTH_VERTEX_SHADER, LIGHT_DEPTH_FRAGMENT_SHADER, "lightDepth")
 
 	ctx.projection_uniform_buffer = make_raw_buffer(size_of(Render_Uniform_Projection_Data), true)
-	set_uniform_buffer_binding(ctx.projection_uniform_buffer, u32(Render_Uniform_Binding.Projection_Data))
+	set_uniform_buffer_binding(
+		ctx.projection_uniform_buffer,
+		u32(Render_Uniform_Binding.Projection_Data),
+	)
 
 	ctx.light_ambient_strength = RENDER_CTX_DEFAULT_AMBIENT_STR
 	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
@@ -190,7 +193,14 @@ add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color) -> (id: Light_ID) {
 	id = Light_ID(ctx.light_count)
 	ctx.lights[id] = Light {
 		kind = kind,
-		projection = linalg.matrix_ortho3d_f32(-10, 10, -10, 10, f32(RENDER_CTX_DEFAULT_NEAR), f32(10)),
+		projection = linalg.matrix_ortho3d_f32(
+			-10,
+			10,
+			-10,
+			10,
+			f32(RENDER_CTX_DEFAULT_NEAR),
+			f32(10),
+		),
 		data = Light_Data{position = {p.x, p.y, p.z, 1.0}, color = clr},
 	}
 	ctx.light_count += 1
@@ -399,9 +409,16 @@ end_render :: proc() {
 			}
 			default_framebuffer()
 		}
-		link_attributes_state_vertices(&ctx.orthographic_data.state, ctx.orthographic_data.vertex_buffer)
-		link_attributes_state_indices(&ctx.orthographic_data.state, ctx.orthographic_data.index_buffer)
+		link_attributes_state_vertices(
+			&ctx.orthographic_data.state,
+			ctx.orthographic_data.vertex_buffer,
+		)
+		link_attributes_state_indices(
+			&ctx.orthographic_data.state,
+			ctx.orthographic_data.index_buffer,
+		)
 		draw_triangles(len(ctx.orthographic_data.indices))
+		blit_framebuffer(ctx.orthographic_data.frambuffer, nil)
 	}
 	ctx.orthographic_data.previous_v_count = len(ctx.orthographic_data.vertices)
 	ctx.orthographic_data.previous_i_count = len(ctx.orthographic_data.indices)
@@ -414,7 +431,10 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 	send_raw_buffer_data(
 		ctx.projection_uniform_buffer,
 		size_of(Render_Uniform_Projection_Data),
-		&Render_Uniform_Projection_Data{projection_view = ctx.projection_view, view_position = ctx.eye},
+		&Render_Uniform_Projection_Data{
+			projection_view = ctx.projection_view,
+			view_position = ctx.eye,
+		},
 	)
 }
 

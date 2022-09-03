@@ -94,7 +94,50 @@ default_framebuffer :: proc() {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
+blit_framebuffer :: proc(src: Framebuffer, dst: Maybe(Framebuffer)) {
+	src_w := i32(src.maps[Framebuffer_Attachment.Color].width)
+	src_h := i32(src.maps[Framebuffer_Attachment.Color].height)
+	if dst != nil {
+		d := dst.?
+		gl.BlitNamedFramebuffer(
+			src.handle,
+			d.handle,
+			0,
+			0,
+			src_w,
+			src_h,
+			0,
+			0,
+			i32(d.maps[Framebuffer_Attachment.Color].width),
+			i32(d.maps[Framebuffer_Attachment.Color].height),
+			gl.COLOR_BUFFER_BIT,
+			gl.NEAREST,
+		)
+	} else {
+		gl.BlitNamedFramebuffer(
+			src.handle,
+			0,
+			0,
+			0,
+			src_w,
+			src_h,
+			0,
+			0,
+			i32(app.viewport_width),
+			i32(app.viewport_height),
+			gl.COLOR_BUFFER_BIT,
+			gl.NEAREST,
+		)
+	}
+}
+
 destroy_framebuffer :: proc(f: Framebuffer) {
 	fb := f
 	gl.DeleteFramebuffers(1, &fb.handle)
 }
+
+// FRAMEBUFFER_BLIT_VERTEX_SHADER :: `
+// #version 450 core
+// layout (location = 0) in vec2 attribPosition;
+// layout (location = 1)
+// `
