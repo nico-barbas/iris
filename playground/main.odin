@@ -178,7 +178,9 @@ draw :: proc(data: iris.App_Data) {
 			g.flat_material,
 		)
 
-		iris.draw_rectangle({0, 0, 100, 100}, {1, 0, 0, 1})
+		iris.draw_overlay_rect({0, 0, 100, 100}, {1, 0, 0, 1})
+
+		// iris.draw_rectangle({300, 300, 400, 150}, {1, 1, 1, 1})
 	}
 	iris.end_render()
 }

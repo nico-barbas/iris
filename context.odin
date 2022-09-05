@@ -36,21 +36,8 @@ Rendering_Context :: struct {
 	// Shadow mapping states
 	depth_framebuffer:         Framebuffer,
 
-	// Orthographic (2D) rendering states
-	orthographic_data:         struct {
-		preserve_last_frame: bool,
-		frambuffer:          Framebuffer,
-		projection:          Matrix4,
-		vertex_buffer:       Buffer,
-		index_buffer:        Buffer,
-		state:               Attributes_State,
-		vertices:            [dynamic]f32,
-		indices:             [dynamic]u32,
-		textures:            [16]Texture,
-		t_count:             int,
-		previous_v_count:    int,
-		previous_i_count:    int,
-	},
+	// 2D rendering states
+	overlay:                   Overlay,
 
 
 	// Command buffer
@@ -133,27 +120,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.light_uniform_buffer = make_raw_buffer(size_of(Render_Uniform_Light_Data), true)
 	set_uniform_buffer_binding(ctx.light_uniform_buffer, u32(Render_Uniform_Binding.Light_Data))
 
-	// 2D stuff
-	DEFAULT_ORTHO_QUAD_CAP :: 1000
-	DEFAULT_ORTHO_VERT_CAP :: DEFAULT_ORTHO_QUAD_CAP * 4
-	DEFAULT_ORTHO_ID_CAP :: DEFAULT_ORTHO_QUAD_CAP * 6
-	DEFAULT_ORTHO_VERT_LAYOUT :: Vertex_Layout{.Float2, .Float2, .Float1, .Float4}
-	DEFAULT_ORTHO_MAX_TEXTURE :: 6
-	default_ortho_stride := vertex_layout_length(DEFAULT_ORTHO_VERT_LAYOUT)
-	ctx.orthographic_data = {
-		projection    = linalg.matrix_mul(
-			linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 1, 100),
-			linalg.matrix4_translate_f32({0, 0, f32(-1)}),
-		),
-		state         = get_ctx_attribute_state(DEFAULT_ORTHO_VERT_LAYOUT, .Interleaved),
-		vertex_buffer = make_buffer(f32, default_ortho_stride * DEFAULT_ORTHO_VERT_CAP),
-		index_buffer  = make_buffer(u32, DEFAULT_ORTHO_ID_CAP),
-	}
-	ctx.orthographic_data.frambuffer = make_framebuffer({.Color}, w, h)
-	ctx.orthographic_data.frambuffer.clear_color = {0, 0, 0, 0}
-	ctx.orthographic_data.textures[0] = load_texture_from_bitmap({0xff, 0xff, 0xff, 0xff}, 4, 1, 1)
-	ctx.orthographic_data.t_count = 1
-	load_shader_from_bytes(ORTHO_VERTEX_SHADER, ORTHO_FRAGMENT_SHADER, "2D")
+	init_overlay(&ctx.overlay, w, h)
 }
 
 close_render_ctx :: proc(ctx: ^Rendering_Context) {
@@ -170,11 +137,7 @@ close_render_ctx :: proc(ctx: ^Rendering_Context) {
 	destroy_buffer(ctx.light_uniform_buffer)
 	destroy_framebuffer(ctx.depth_framebuffer)
 
-	{
-		destroy_buffer(ctx.orthographic_data.index_buffer)
-		destroy_buffer(ctx.orthographic_data.vertex_buffer)
-		destroy_texture(&ctx.orthographic_data.textures[0])
-	}
+	close_overlay(&ctx.overlay)
 }
 
 view_position :: proc(position: Vector3) {
@@ -224,20 +187,7 @@ start_render :: proc() {
 	ctx := &app.render_ctx
 	ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
 
-	// MIN_ORTHO_QUAD :: 100
-	ctx.orthographic_data.vertices = make(
-		[dynamic]f32,
-		0,
-		ctx.orthographic_data.previous_v_count,
-		context.temp_allocator,
-	)
-	ctx.orthographic_data.indices = make(
-		[dynamic]u32,
-		0,
-		ctx.orthographic_data.previous_i_count,
-		context.temp_allocator,
-	)
-	ctx.orthographic_data.t_count = 1
+	prepare_overlay_frame(&ctx.overlay)
 }
 
 end_render :: proc() {
@@ -344,84 +294,15 @@ end_render :: proc() {
 			}
 
 		case Render_Quad_Command:
-			x1 := c.dst.x
-			x2 := c.dst.x + c.dst.width
-			y1 := c.dst.y
-			y2 := c.dst.x + c.dst.height
-			uvx1 := c.src.x / c.texture.width
-			uvx2 := (c.src.x + c.src.width) / c.texture.width
-			uvy1 := c.src.y / c.texture.width
-			uvy2 := (c.src.y + c.src.height) / c.texture.width
-			r := c.color.r
-			g := c.color.g
-			b := c.color.b
-			a := c.color.a
-
-			texture_index := -1
-			for texture, i in ctx.orthographic_data.textures {
-				if c.texture.handle == texture.handle {
-					texture_index = i
-					break
-				}
-			}
-			if texture_index == -1 {
-				ctx.orthographic_data.textures[ctx.orthographic_data.t_count] = c.texture
-				texture_index = ctx.orthographic_data.t_count
-				ctx.orthographic_data.t_count += 1
-			}
-					//odinfmt: disable
-			append(
-				&ctx.orthographic_data.vertices, 
-				x1, y1, uvx1, uvy1, f32(texture_index), r, g, b, a,
-				x2, y1, uvx2, uvy1, f32(texture_index), r, g, b, a,
-				x2, y2, uvx2, uvy2, f32(texture_index), r, g, b, a,
-				x1, y2, uvx1, uvy2, f32(texture_index), r, g, b, a,
-			)
-			append(
-				&ctx.orthographic_data.indices,
-				0, 1, 2,
-				2, 3, 0,
-			)
-			//odinfmt: enable
+			push_overlay_quad(&ctx.overlay, c)
 		}
 	}
 	ctx.previous_cmd_count = len(ctx.commands)
 
-
-	if len(ctx.orthographic_data.indices) > 0 {
-		bind_framebuffer(ctx.orthographic_data.frambuffer)
-		clear_framebuffer(ctx.orthographic_data.frambuffer)
-		ortho_shader := ctx.shaders["2D"]
-		bind_shader(ortho_shader)
-		set_shader_uniform(ortho_shader, "matProj", &ctx.orthographic_data.projection[0][0])
-		send_buffer_data(ctx.orthographic_data.vertex_buffer, ctx.orthographic_data.vertices[:])
-		send_buffer_data(ctx.orthographic_data.index_buffer, ctx.orthographic_data.indices[:])
-
-		for i in 0 ..< ctx.orthographic_data.t_count {
-			bind_texture(&ctx.orthographic_data.textures[i], u32(i))
-		}
-		bind_attributes_state(ctx.orthographic_data.state)
-
-		defer {
-			unbind_attributes_state()
-			for i in 0 ..< ctx.orthographic_data.t_count {
-				unbind_texture(&ctx.orthographic_data.textures[i])
-			}
-			default_framebuffer()
-		}
-		link_attributes_state_vertices(
-			&ctx.orthographic_data.state,
-			ctx.orthographic_data.vertex_buffer,
-		)
-		link_attributes_state_indices(
-			&ctx.orthographic_data.state,
-			ctx.orthographic_data.index_buffer,
-		)
-		draw_triangles(len(ctx.orthographic_data.indices))
-		blit_framebuffer(ctx.orthographic_data.frambuffer, nil)
-	}
-	ctx.orthographic_data.previous_v_count = len(ctx.orthographic_data.vertices)
-	ctx.orthographic_data.previous_i_count = len(ctx.orthographic_data.indices)
+	set_backface_culling(false)
+	flush_overlay_buffers(&ctx.overlay)
+	paint_overlay(&ctx.overlay)
+	set_backface_culling(true)
 }
 
 @(private)
@@ -587,8 +468,8 @@ out vec4 fragColor;
 uniform sampler2D textures[16];
 
 void main() {
-	// int index = int(frag.texIndex);
-	// fragColor = texture(textures[index], frag.texCoord);
-	fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	int index = int(frag.texIndex);
+	fragColor = texture(textures[index], frag.texCoord) * frag.color;
+	// fragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
 `

@@ -94,41 +94,8 @@ default_framebuffer :: proc() {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
-blit_framebuffer :: proc(src: Framebuffer, dst: Maybe(Framebuffer)) {
-	src_w := i32(src.maps[Framebuffer_Attachment.Color].width)
-	src_h := i32(src.maps[Framebuffer_Attachment.Color].height)
-	if dst != nil {
-		d := dst.?
-		gl.BlitNamedFramebuffer(
-			src.handle,
-			d.handle,
-			0,
-			0,
-			src_w,
-			src_h,
-			0,
-			0,
-			i32(d.maps[Framebuffer_Attachment.Color].width),
-			i32(d.maps[Framebuffer_Attachment.Color].height),
-			gl.COLOR_BUFFER_BIT,
-			gl.NEAREST,
-		)
-	} else {
-		gl.BlitNamedFramebuffer(
-			src.handle,
-			0,
-			0,
-			0,
-			src_w,
-			src_h,
-			0,
-			0,
-			i32(app.viewport_width),
-			i32(app.viewport_height),
-			gl.COLOR_BUFFER_BIT,
-			gl.NEAREST,
-		)
-	}
+framebuffer_texture :: proc(f: ^Framebuffer, a: Framebuffer_Attachment) -> ^Texture {
+	return &f.maps[a]
 }
 
 destroy_framebuffer :: proc(f: Framebuffer) {
@@ -136,8 +103,35 @@ destroy_framebuffer :: proc(f: Framebuffer) {
 	gl.DeleteFramebuffers(1, &fb.handle)
 }
 
-// FRAMEBUFFER_BLIT_VERTEX_SHADER :: `
-// #version 450 core
-// layout (location = 0) in vec2 attribPosition;
-// layout (location = 1)
-// `
+@(private)
+BLIT_FRAMEBUFFER_VERTEX_SHADER :: `
+#version 450 core
+layout (location = 0) in vec2 attribPosition;
+layout (location = 1) in vec2 attribTexCoord;
+
+out VS_OUT {
+	vec2 texCoord;
+} frag;
+
+void main() {
+	frag.texCoord = attribTexCoord;
+
+	gl_Position = vec4(attribPosition, 0.0, 1.0);
+}
+`
+
+@(private)
+BLIT_FRAMEBUFFER_FRAGMENT_SHADER :: `
+#version 450 core
+in VS_OUT {
+	vec2 texCoord;
+} frag;
+
+out vec4 fragColor;
+
+uniform sampler2D texture0;
+
+void main() {
+	fragColor = texture(texture0, frag.texCoord);
+}
+`
