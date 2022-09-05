@@ -6,37 +6,66 @@ import "core:image"
 import "core:image/png"
 import gl "vendor:OpenGL"
 
+import "gltf"
+
 Texture :: struct {
+	name:       string,
 	handle:     u32,
 	width:      f32,
 	height:     f32,
 	unit_index: u32,
 }
 
-Texture_Filtering :: enum u8 {
-	Linear,
-	Nearest,
+Texture_Filter_Mode :: enum uint {
+	Nearest                = 9728,
+	Linear                 = 9729,
+	Nearest_Mipmap_Nearest = 9984,
+	Linear_Mipmap_Nearest  = 9985,
+	Nearest_Mipmap_Linear  = 9986,
+	Linear_Mipmap_Linear   = 9987,
 }
 
-// TODO: Provide a back up texture in case of failure
+Texture_Wrap_Mode :: enum uint {
+	Clamp_To_Edge   = 33071,
+	Mirrored_Repeat = 33648,
+	Repeat          = 10497,
+}
 
-load_texture_from_file :: proc(path: string, allocator := context.allocator) -> Texture {
-	raw, ok := os.read_entire_file(path, allocator)
-	defer delete(raw)
+Texture_Loader :: struct {
+	path:     string,
+	data:     []byte,
+	filter:   Texture_Filter_Mode,
+	wrap:     Texture_Wrap_Mode,
+	channels: int,
+	width:    int,
+	height:   int,
+}
+
+@(private)
+internal_load_texture_from_file :: proc(l: Texture_Loader, allocator := context.allocator) -> Texture {
+	ok: bool
+	loader := l
+	loader.data, ok = os.read_entire_file(loader.path, allocator)
+	defer delete(loader.data)
 
 	if !ok {
-		log.fatalf("%s: Failed to read file: %s", App_Module.IO, path)
+		log.fatalf("%s: Failed to read file: %s", App_Module.IO, loader.path)
 		return {}
 	}
 
-	return load_texture_from_bytes(raw, allocator)
+	texture := internal_load_texture_from_bytes(loader, allocator)
+	texture.name = l.path
+	return texture
 }
 
-load_texture_from_bytes :: proc(b: []byte, allocator := context.allocator) -> Texture {
+@(private)
+internal_load_texture_from_bytes :: proc(l: Texture_Loader, allocator := context.allocator) -> Texture {
+	assert(int(l.filter) != 0 && int(l.wrap) != 0)
+
 	texture: Texture
 
 	options := image.Options{}
-	img, err := png.load_from_bytes(b, options, allocator)
+	img, err := png.load_from_bytes(l.data, options, allocator)
 	defer png.destroy(img)
 	if err != nil {
 		log.fatalf("%s: Texture loading error: %s", err)
@@ -67,10 +96,10 @@ load_texture_from_bytes :: proc(b: []byte, allocator := context.allocator) -> Te
 
 	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, i32(l.wrap))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, i32(l.wrap))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, i32(l.filter))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, i32(l.filter))
 
 	gl.TextureStorage2D(texture.handle, 1, gl_internal_format, i32(texture.width), i32(texture.height))
 	gl.TextureSubImage2D(
@@ -88,15 +117,20 @@ load_texture_from_bytes :: proc(b: []byte, allocator := context.allocator) -> Te
 	return texture
 }
 
-load_texture_from_bitmap :: proc(data: []byte, channels: int, w, h: int) -> Texture {
+@(private)
+internal_load_texture_from_bitmap :: proc(l: Texture_Loader) -> Texture {
+	if int(l.filter) == 0 || int(l.wrap) == 0 {
+		assert(false)
+	}
+
 	texture := Texture {
-		width  = f32(w),
-		height = f32(h),
+		width  = f32(l.width),
+		height = f32(l.height),
 	}
 	gl_internal_format: u32
 	gl_format: u32
 
-	switch channels {
+	switch l.channels {
 	case 1:
 		gl_format = gl.RED
 		gl_internal_format = gl.R8
@@ -113,10 +147,10 @@ load_texture_from_bitmap :: proc(data: []byte, channels: int, w, h: int) -> Text
 
 	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, i32(l.wrap))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, i32(l.wrap))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, i32(l.filter))
+	gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, i32(l.filter))
 
 	gl.TextureStorage2D(texture.handle, 1, gl_internal_format, i32(texture.width), i32(texture.height))
 	gl.TextureSubImage2D(
@@ -128,9 +162,27 @@ load_texture_from_bitmap :: proc(data: []byte, channels: int, w, h: int) -> Text
 		i32(texture.height),
 		gl_format,
 		gl.UNSIGNED_BYTE,
-		raw_data(data),
+		raw_data(l.data),
 	)
 	gl.GenerateTextureMipmap(texture.handle)
+	return texture
+}
+
+load_texture_from_gltf :: proc(t: gltf.Texture) -> ^Texture {
+	loader := Texture_Loader {
+		path = t.source.reference.(string),
+	}
+
+	if t.sampler != nil {
+		loader.filter = Texture_Filter_Mode(t.sampler.min_filter)
+		loader.wrap = Texture_Wrap_Mode(t.sampler.wrap_s)
+	} else {
+		loader.filter = .Nearest
+		loader.wrap = .Repeat
+	}
+
+	resource := texture_resource(loader)
+	texture := resource.data.(^Texture)
 	return texture
 }
 

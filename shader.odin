@@ -2,7 +2,7 @@ package iris
 
 import "core:os"
 import "core:log"
-import "core:fmt"
+// import "core:fmt"
 import "core:runtime"
 import "core:strings"
 import gl "vendor:OpenGL"
@@ -38,30 +38,43 @@ Shader_Uniform_Kind :: enum {
 	Matrix4,
 }
 
-load_shader_from_file :: proc(v_path, f_path: string, allocator := context.allocator) -> Shader {
-	v_raw, v_ok := os.read_entire_file(v_path, context.temp_allocator)
-	f_raw, f_ok := os.read_entire_file(f_path, context.temp_allocator)
-
-	if !(v_ok && f_ok) {
-		log.fatalf("%s: Failed to read shader source file:\n\t- %s\n\t- %s\n", App_Module.IO, v_path, f_path)
-		return {}
-	}
-
-	return internal_load_shader_from_bytes(string(v_raw), string(f_raw))
+Shader_Loader :: struct {
+	vertex_source:   string,
+	fragment_source: string,
+	vertex_path:     string,
+	fragment_path:   string,
 }
 
+@(private)
+internal_load_shader_from_file :: proc(l: Shader_Loader, allocator := context.allocator) -> Shader {
+	v_raw, v_ok := os.read_entire_file(l.vertex_path, context.temp_allocator)
+	f_raw, f_ok := os.read_entire_file(l.fragment_path, context.temp_allocator)
+
+	if !(v_ok && f_ok) {
+		log.fatalf(
+			"%s: Failed to read shader source file:\n\t- %s\n\t- %s\n",
+			App_Module.IO,
+			l.vertex_path,
+			l.fragment_path,
+		)
+		return {}
+	}
+	loader := l
+	loader.vertex_source = string(v_raw)
+	loader.fragment_source = string(f_raw)
+	return internal_load_shader_from_bytes(loader)
+}
+
+@(private)
 internal_load_shader_from_bytes :: proc(
-	vertex_src,
-	fragment_src: string,
-	v_path := "",
-	f_path := "",
+	l: Shader_Loader,
 	allocator := context.allocator,
 ) -> (
 	shader: Shader,
 ) {
-	vertex_handle := compile_shader_source(vertex_src, .VERTEX_SHADER, v_path)
+	vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.vertex_path)
 	defer gl.DeleteShader(vertex_handle)
-	fragment_handle := compile_shader_source(fragment_src, .FRAGMENT_SHADER, f_path)
+	fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.fragment_path)
 	defer gl.DeleteShader(vertex_handle)
 
 	switch {
@@ -105,14 +118,13 @@ internal_load_shader_from_bytes :: proc(
 	type: u32
 	gl.GetProgramiv(shader.handle, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name_len)
 	for i in 0 ..< u_count {
-		buf := make([]u8, max_name_len, allocator)
-		defer delete(buf)
+		buf := make([]u8, max_name_len, context.temp_allocator)
 		gl.GetActiveUniform(shader.handle, u32(i), max_name_len, &cur_name_len, &size, &type, &buf[0])
 		u_name := format_uniform_name(buf, cur_name_len, type)
 		shader.uniforms[u_name] = Shader_Uniform_Info {
 			loc   = Shader_Uniform_Loc(gl.GetUniformLocation(shader.handle, cstring(raw_data(buf)))),
 			kind  = uniform_kind(type),
-			count = 1,
+			count = int(size),
 		}
 	}
 	return shader
@@ -210,13 +222,7 @@ uniform_kind :: proc(t: u32) -> (kind: Shader_Uniform_Kind) {
 	return
 }
 
-print_shader_uniforms :: proc(shader: Shader) {
-	for name, handle in shader.uniforms {
-		fmt.println(name, " : ", handle)
-	}
-}
-
-set_shader_uniform :: proc(shader: Shader, name: string, value: rawptr, loc := #caller_location) {
+set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
 		log.fatalf(
 			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
@@ -286,10 +292,10 @@ destroy_shader :: proc(shader: ^Shader) {
 	gl.DeleteProgram(shader.handle)
 }
 
-bind_shader :: proc(shader: Shader) {
+bind_shader :: proc(shader: ^Shader) {
 	gl.UseProgram(shader.handle)
 }
 
-unbind_shader :: proc() {
+default_shader :: proc() {
 	gl.UseProgram(0)
 }

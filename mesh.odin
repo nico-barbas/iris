@@ -1,43 +1,38 @@
 package iris
 
-// import "core:fmt"
-import "core:mem"
 import "core:slice"
 import "core:math/linalg"
 
 import "gltf"
 
 Mesh :: struct {
-	state:      Attributes_State,
-	layout_map: Vertex_Layout_Map,
-	vertices:   Buffer,
-	indices:    Buffer,
+	attributes:      ^Attributes,
+	attributes_info: Packed_Attributes,
+	vertices:        ^Buffer,
+	indices:         ^Buffer,
 }
 
-draw_mesh :: proc(mesh: Mesh, t: Transform, mat: Material) {
+Mesh_Loader :: struct {
+	vertices: []f32,
+	indices:  []u32,
+	format:   Attribute_Format,
+	layout:   Vertex_Layout,
+	offsets:  []int,
+}
+
+draw_mesh :: proc(mesh: ^Mesh, t: Transform, mat: ^Material) {
 	transform := linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
 	push_draw_command(Render_Mesh_Command{mesh = mesh, transform = transform, material = mat})
 }
 
-plane_mesh :: proc(
-	w,
-	h: int,
-	s_w,
-	s_h: int,
-	layout_allocator := context.allocator,
-	geometry_allocator := context.temp_allocator,
-) -> (
-	[]f32,
-	[]u32,
-	Vertex_Layout_Map,
-) {
+plane_mesh :: proc(w, h: int, s_w, s_h: int) -> ^Resource {
 	v_per_row := s_w + 1
 	v_per_col := s_h + 1
 	v_count := v_per_row * v_per_col
 
 	normal_offset := v_count * 3
 	uv_offset := v_count * 6
-	vertices := make([]f32, v_count * 8, geometry_allocator)
+	vertices := make([]f32, v_count * 8, context.temp_allocator)
 	positions := slice.reinterpret([]Vector3, (vertices[:normal_offset]))
 	normals := slice.reinterpret([]Vector3, (vertices[normal_offset:uv_offset]))
 	uvs := slice.reinterpret([]Vector2, (vertices[uv_offset:]))
@@ -57,7 +52,7 @@ plane_mesh :: proc(
 	f_per_row := (s_w)
 	f_per_col := (s_h)
 	f_count := f_per_row * f_per_col
-	faces := make([]Face, f_count, geometry_allocator)
+	faces := make([]Face, f_count, context.temp_allocator)
 	for i in 0 ..< f_count {
 		f_x := i % f_per_row
 		f_y := i / f_per_col
@@ -74,28 +69,28 @@ plane_mesh :: proc(
 	}
 	indices := slice.reinterpret([]u32, faces)
 
-	layout_map := Vertex_Layout_Map {
-		layout  = Vertex_Layout(slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator)),
-		offsets = slice.clone(
-			[]int{0, normal_offset * size_of(f32), uv_offset * size_of(f32)},
-			layout_allocator,
-		),
-	}
 
-	return vertices, indices, layout_map
+	// attributes_info := Packed_Attributes {
+	// 	offsets = slice.clone(
+	// 		[]int{0, normal_offset * size_of(f32), uv_offset * size_of(f32)},
+	// 		layout_allocator,
+	// 	),
+	// }
+
+	resource := mesh_resource(
+		Mesh_Loader{
+			vertices = vertices,
+			indices = indices,
+			format = .Packed_Blocks,
+			layout = Vertex_Layout{.Float3, .Float3, .Float2},
+			offsets = []int{0, normal_offset * size_of(f32), uv_offset * size_of(f32)},
+		},
+	)
+	return resource
+	// return vertices, indices, attributes_info
 }
 
-cube_mesh :: proc(
-	w,
-	h,
-	l: f32,
-	layout_allocator: mem.Allocator,
-	geometry_allocator: mem.Allocator,
-) -> (
-	[]f32,
-	[]u32,
-	Vertex_Layout_Map,
-) {
+cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 	hw, hh, hl := w / 2, h / 2, h / 2
 	//odinfmt: disable
 	v := [24*8]f32 {
@@ -133,7 +128,7 @@ cube_mesh :: proc(
 
 	NORMAL_OFFSET :: 24 * 3
 	UV_OFFSET :: 24 * 6
-	vertices := make([]f32, 24 * 8, geometry_allocator)
+	vertices := make([]f32, 24 * 8, context.temp_allocator)
 	positions := transmute([]Vector3)vertices[:NORMAL_OFFSET]
 	normals := transmute([]Vector3)vertices[NORMAL_OFFSET:UV_OFFSET]
 	uvs := transmute([]Vector2)vertices[UV_OFFSET:]
@@ -144,7 +139,7 @@ cube_mesh :: proc(
 		uvs[i] = {v[index + 6], v[index + 7]}
 	}
 
-	indices := make([]u32, 36, geometry_allocator)
+	indices := make([]u32, 36, context.temp_allocator)
 	j: u32 = 0
 	for i := 0; i < 36; i, j = i + 6, j + 1 {
 		indices[i] = 4 * j
@@ -155,24 +150,32 @@ cube_mesh :: proc(
 		indices[i + 5] = 4 * j + 3
 	}
 
-	layout_map := Vertex_Layout_Map {
-		layout  = Vertex_Layout(slice.clone([]Vertex_Format{.Float3, .Float3, .Float2}, layout_allocator)),
-		offsets = slice.clone(
-			[]int{0, NORMAL_OFFSET * size_of(f32), UV_OFFSET * size_of(f32)},
-			layout_allocator,
-		),
-	}
+	// attributes_info := Packed_Attributes {
+	// 	offsets = slice.clone(
+	// 		[]int{0, NORMAL_OFFSET * size_of(f32), UV_OFFSET * size_of(f32)},
+	// 		layout_allocator,
+	// 	),
+	// }
 
-	return vertices, indices, layout_map
+	resource := mesh_resource(
+		Mesh_Loader{
+			vertices = vertices,
+			indices = indices,
+			format = .Packed_Blocks,
+			layout = Vertex_Layout{.Float3, .Float3, .Float2},
+			offsets = []int{0, NORMAL_OFFSET * size_of(f32), UV_OFFSET * size_of(f32)},
+		},
+	)
+	return resource
+	// return vertices, indices, attributes_info
 }
 
-load_mesh_from_gltf_node :: proc(
+@(private)
+internal_load_mesh_from_gltf_node :: proc(
 	document: ^gltf.Document,
 	node: ^gltf.Node,
-	geometry_allocator: mem.Allocator,
-	layout_allocator: mem.Allocator,
 	flip_normals := false,
-) -> Mesh {
+) -> ^Resource {
 	data := node.data.(gltf.Node_Mesh_Data).mesh
 
 	assert(len(data.primitives) == 1)
@@ -183,7 +186,7 @@ load_mesh_from_gltf_node :: proc(
 	indices: []u32
 	#partial switch data in primitive.indices.data {
 	case []u16:
-		indices = make([]u32, len(data))
+		indices = make([]u32, len(data), context.temp_allocator)
 		for index, i in data {
 			indices[i] = u32(index)
 		}
@@ -245,7 +248,7 @@ load_mesh_from_gltf_node :: proc(
 		accessor := tex_coord.data
 		uv_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector2f32))
 	}
-	vertices := make([]f32, v_count, geometry_allocator)
+	vertices := make([]f32, v_count, context.temp_allocator)
 	copy(vertices[:], p_slice[:])
 	p_off := len(p_slice)
 	if flip_normals {
@@ -262,33 +265,40 @@ load_mesh_from_gltf_node :: proc(
 	t_off := n_off + len(t_slice)
 	copy(vertices[t_off:], uv_slice)
 
-	layout_map := Vertex_Layout_Map {
-		layout  = Vertex_Layout(
-			slice.clone([]Vertex_Format{.Float3, .Float3, .Float4, .Float2}, layout_allocator),
-		),
-		offsets = slice.clone(
-			[]int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
-			layout_allocator,
-		),
-	}
+	// layout_map := Vertex_Layout_Map {
+	// 	layout  = Vertex_Layout(
+	// 		slice.clone([]Vertex_Format{.Float3, .Float3, .Float4, .Float2}, layout_allocator),
+	// 	),
+	// 	offsets = slice.clone(
+	// 		[]int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
+	// 		layout_allocator,
+	// 	),
+	// }
 
-	return load_mesh_from_slice(vertices, indices, layout_map)
+	resource := mesh_resource(
+		Mesh_Loader{
+			vertices = vertices,
+			indices = indices,
+			format = .Packed_Blocks,
+			layout = {.Float3, .Float3, .Float4, .Float2},
+			offsets = []int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
+		},
+	)
+	return resource
+	// return load_mesh_from_slice(vertices, indices, layout_map)
 }
 
-load_mesh_from_slice :: proc(vert_slice: []f32, index_slice: []u32, layout_map: Vertex_Layout_Map) -> Mesh {
+@(private)
+internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
 	mesh := Mesh {
-		state      = get_ctx_attribute_state(layout_map.layout),
-		layout_map = layout_map,
-		vertices   = make_buffer(f32, len(vert_slice)),
-		indices    = make_buffer(u32, len(index_slice)),
+		attributes = attributes_from_layout(loader.layout, loader.format),
+		attributes_info = Packed_Attributes{offsets = slice.clone(loader.offsets)},
+		vertices = typed_buffer_resource(f32, len(loader.vertices)).data.(^Buffer),
+		indices = typed_buffer_resource(u32, len(loader.indices)).data.(^Buffer),
 	}
-	send_buffer_data(mesh.vertices, vert_slice)
-	send_buffer_data(mesh.indices, index_slice)
+	send_buffer_data(mesh.vertices, loader.vertices)
+	send_buffer_data(mesh.indices, loader.indices)
 	return mesh
 }
 
-destroy_mesh :: proc(mesh: Mesh) {
-	destroy_buffer(mesh.vertices)
-	destroy_buffer(mesh.indices)
-	delete_vertex_layout_map(mesh.layout_map)
-}
+destroy_mesh :: proc(mesh: ^Mesh) {}

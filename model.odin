@@ -6,7 +6,7 @@ import "gltf"
 
 Model_Loader :: struct {
 	flags:          Model_Loader_Flags,
-	shader:         Shader,
+	shader:         ^Shader,
 	model:          ^Model,
 	document:       ^gltf.Document,
 	allocator:      mem.Allocator,
@@ -24,9 +24,9 @@ Model :: struct {
 }
 
 Model_Node :: struct {
-	mesh:      Mesh,
+	mesh:      ^Mesh,
 	transform: Matrix4,
-	material:  Material,
+	material:  ^Material,
 }
 
 load_model_from_gltf_node :: proc(loader: ^Model_Loader, node: ^gltf.Node) -> Model {
@@ -51,16 +51,20 @@ load_model_from_gltf_node :: proc(loader: ^Model_Loader, node: ^gltf.Node) -> Mo
 		if data, ok := node.data.(gltf.Node_Mesh_Data); ok {
 			begin_temp_allocation()
 			mesh_node := Model_Node {
-				mesh      = load_mesh_from_gltf_node(
+				mesh      = internal_load_mesh_from_gltf_node(
 					document = loader.document,
 					node = node,
-					geometry_allocator = loader.temp_allocator,
-					layout_allocator = loader.allocator,
 					flip_normals = .Flip_Normals in loader.flags,
-				),
+				).data.(^Mesh),
 				transform = node_matrix,
-				material  = get_material(data.mesh.primitives[0].material.name),
 			}
+
+
+			material, exist := material_from_name(data.mesh.primitives[0].material.name)
+			if !exist {
+				material = load_material_from_gltf(data.mesh.primitives[0].material^)
+			}
+			mesh_node.material = material
 			mesh_node.material.shader = loader.shader
 			end_temp_allocation()
 			append(&loader.model.nodes, mesh_node)

@@ -47,14 +47,15 @@ main :: proc() {
 Game :: struct {
 	camera:            Camera,
 	light:             iris.Light_ID,
-	mesh:              iris.Mesh,
+	mesh:              ^iris.Mesh,
 	model:             iris.Model,
-	model_shader:      iris.Shader,
-	ground_mesh:       iris.Mesh,
+	model_shader:      ^iris.Shader,
+	ground_mesh:       ^iris.Mesh,
 	// material:      iris.Material,
 	delta:             f32,
-	flat_material:     iris.Material,
-	flat_lit_material: iris.Material,
+	flat_material:     ^iris.Material,
+	flat_lit_material: ^iris.Material,
+	font:              ^iris.Font,
 }
 
 Camera :: struct {
@@ -68,14 +69,22 @@ Camera :: struct {
 
 init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
+	// g.font = iris.load_font(, )
+	font_res := iris.font_resource(iris.Font_Loader{path = "ComicMono.ttf", sizes = {32}})
+	g.font = font_res.data.(^iris.Font)
 
 	doc, err := gltf.parse_from_file("lantern/Lantern.gltf", .Gltf_External)
 	fmt.assertf(err == nil, "%s\n", err)
-	iris.load_textures_from_gltf(&doc)
-	iris.load_materials_from_gltf(&doc)
+	// iris.load_textures_from_gltf(&doc)
+	// iris.load_materials_from_gltf(&doc)
+	iris.load_resources_from_gltf(&doc)
 	root := doc.root.nodes[0]
 
-	g.model_shader = iris.load_shader_from_bytes(VERTEX_SHADER, FRAGMENT_SHADER)
+	model_shader_res := iris.shader_resource(
+		iris.Shader_Loader{vertex_source = VERTEX_SHADER, fragment_source = FRAGMENT_SHADER},
+	)
+	g.model_shader = model_shader_res.data.(^iris.Shader)
+	// g.model_shader = iris.shader_resource(VERTEX_SHADER, FRAGMENT_SHADER)
 	g.model = iris.load_model_from_gltf_node(
 		loader = &iris.Model_Loader{
 			document = &doc,
@@ -89,26 +98,51 @@ init :: proc(data: iris.App_Data) {
 	iris.set_key_proc(.Escape, on_escape_key)
 
 
-	cube_v, cube_i, l_map := iris.cube_mesh(1, 1, 1, context.allocator, context.temp_allocator)
-	g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, l_map)
+	mesh_res := iris.cube_mesh(1, 1, 1)
+	g.mesh = mesh_res.data.(^iris.Mesh)
+	// g.mesh = iris.load_mesh_from_slice(cube_v, cube_i, l_map)
 
-	{
-		ground_v, ground_i, ground_layout := iris.plane_mesh(10, 10, 3, 3)
-		g.ground_mesh = iris.load_mesh_from_slice(ground_v, ground_i, ground_layout)
-	}
+	ground_res := iris.plane_mesh(10, 10, 3, 3)
+	g.ground_mesh = ground_res.data.(^iris.Mesh)
+	// {
+	// 	ground_v, ground_i, ground_layout := iris.plane_mesh(10, 10, 3, 3)
+	// 	g.ground_mesh = iris.load_mesh_from_slice(ground_v, ground_i, ground_layout)
+	// }
 
-	g.flat_material = {
-		shader = iris.load_shader_from_bytes(FLAT_VERTEX_SHADER, FLAT_FRAGMENT_SHADER),
-	}
-
-	g.flat_lit_material = {
-		shader = iris.load_shader_from_bytes(FLAT_LIT_VERTEX_SHADER, FLAT_LIT_FRAGMENT_SHADER),
-	}
-	iris.set_material_map(
-		&g.flat_lit_material,
-		.Diffuse,
-		iris.load_texture_from_file("cube_texture.png"),
+	// g.flat_material = {
+	// 	shader = iris.load_shader_from_bytes(FLAT_VERTEX_SHADER, FLAT_FRAGMENT_SHADER),
+	// }
+	flat_shader_res := iris.shader_resource(
+		iris.Shader_Loader{vertex_source = FLAT_VERTEX_SHADER, fragment_source = FLAT_FRAGMENT_SHADER},
 	)
+	flat_material_res := iris.material_resource(
+		iris.Material_Loader{name = "flat", shader = flat_shader_res.data.(^iris.Shader)},
+	)
+	g.flat_material = flat_material_res.data.(^iris.Material)
+
+	flat_lit_shader_res := iris.shader_resource(
+		iris.Shader_Loader{
+			vertex_source = FLAT_LIT_VERTEX_SHADER,
+			fragment_source = FLAT_LIT_FRAGMENT_SHADER,
+		},
+	)
+	flat_lit_material_res := iris.material_resource(
+		iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader_res.data.(^iris.Shader)},
+	)
+	g.flat_lit_material = flat_lit_material_res.data.(^iris.Material)
+	iris.set_material_map(
+		g.flat_lit_material,
+		.Diffuse,
+		iris.texture_resource(
+			iris.Texture_Loader{path = "cube_texture.png", filter = .Linear, wrap = .Repeat},
+		).data.(^iris.Texture),
+	)
+
+	// g.flat_lit_material = {
+	// 	shader = iris.load_shader_from_bytes(FLAT_LIT_VERTEX_SHADER, FLAT_LIT_FRAGMENT_SHADER),
+	// }
+	// iris.set_material_map(&g.flat_lit_material, .Diffuse, iris.load_texture_from_file("cube_texture.png"))
+	// iris.set_material_map(&g.flat_lit_material, .Diffuse, g.font.faces[18].texture)
 
 	g.camera = Camera {
 		pitch = 45,
@@ -119,6 +153,7 @@ init :: proc(data: iris.App_Data) {
 	update_camera(&g.camera, {}, 0)
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
+
 }
 
 update :: proc(data: iris.App_Data) {
@@ -172,14 +207,13 @@ draw :: proc(data: iris.App_Data) {
 		iris.draw_model(g.model, iris.transform(s = {0.1, 0.1, 0.1}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
-		iris.draw_mesh(
-			g.mesh,
-			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
-			g.flat_material,
-		)
+		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
 
-		iris.draw_overlay_rect({0, 0, 100, 100}, {1, 0, 0, 1})
+		// iris.draw_overlay_rect({0, 0, 100, 100}, {1, 0, 0, 1})
 
+		// t := g.font.faces[18].texture
+		// iris.draw_overlay_sub_texture(t, {0, 0, t.width, t.height}, {0, 0, t.width, t.height}, {1, 1, 1, 1})
+		iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 		// iris.draw_rectangle({300, 300, 400, 150}, {1, 1, 1, 1})
 	}
 	iris.end_render()

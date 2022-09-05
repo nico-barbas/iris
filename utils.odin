@@ -2,7 +2,6 @@ package iris
 
 import "core:math/linalg"
 import gl "vendor:OpenGL"
-import "gltf"
 
 set_backface_culling :: proc(on: bool) {
 	if on {
@@ -54,51 +53,6 @@ set_viewport :: proc(width, height: int) {
 
 Color :: distinct [4]f32
 
-Material :: struct {
-	shader:   Shader,
-	maps:     Material_Maps,
-	textures: [len(Material_Map)]Texture,
-}
-
-Material_Maps :: distinct bit_set[Material_Map]
-
-Material_Map :: enum byte {
-	Diffuse = 0,
-	Normal  = 1,
-	Shadow  = 2,
-}
-
-load_material_from_gtlf_material :: proc(
-	document: ^gltf.Document,
-	m: ^gltf.Material,
-	shader: Shader,
-	allocator := context.allocator,
-) -> (
-	material: Material,
-) {
-	if m.base_color_texture.present {
-
-	}
-	return
-}
-
-set_material_map :: proc(material: ^Material, kind: Material_Map, texture: Texture) {
-	if kind not_in material.maps {
-		material.maps += {kind}
-	}
-	material.textures[kind] = texture
-}
-
-destroy_material :: proc(material: ^Material) {
-	if material.shader.handle != 0 {
-		destroy_shader(&material.shader)
-	}
-	for kind in Material_Map {
-		if kind in material.maps {
-			destroy_texture(&material.textures[kind])
-		}
-	}
-}
 
 Rectangle :: struct {
 	x, y:          f32,

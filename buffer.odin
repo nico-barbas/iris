@@ -5,29 +5,65 @@ import gl "vendor:OpenGL"
 
 // Generic data buffer stored on the GPU
 Buffer :: struct {
-	handle:    u32,
-	elem_size: int,
-	cap:       int,
-	raw_size:  int,
+	handle: u32,
+	info:   union {
+		Raw_Buffer,
+		Typed_Buffer,
+	},
 }
 
+Raw_Buffer :: struct {
+	size: int,
+}
+
+Typed_Buffer :: struct {
+	element_type: typeid,
+	element_size: int,
+	cap:          int,
+}
+
+// make_buffer :: proc($T: typeid, cap: int, reserve := false) -> (buffer: Buffer) {
+// 	ctx := &app.render_ctx
+// 	buffer = internal_make_buffer(T, cap, reserve)
+
+// 	append(&ctx.buffers, buffer)
+// 	return buffer
+// }
+
 // Make a buffer of the given data type
-make_buffer :: proc($T: typeid, cap: int, reserve := false) -> (buffer: Buffer) {
+@(private)
+internal_make_typed_buffer :: proc($T: typeid, cap: int, reserve := false) -> (buffer: Buffer) {
+	info := Typed_Buffer {
+		element_type = T,
+		element_size = size_of(T),
+		cap          = cap,
+	}
 	buffer = Buffer {
-		elem_size = size_of(T),
-		cap       = cap,
+		info = info,
 	}
 	gl.CreateBuffers(1, &buffer.handle)
 
 	if reserve {
-		gl.NamedBufferData(buffer.handle, cap * buffer.elem_size, nil, gl.STATIC_DRAW)
+		gl.NamedBufferData(buffer.handle, info.cap * info.element_size, nil, gl.STATIC_DRAW)
 	}
 	return
 }
 
-make_raw_buffer :: proc(size: int, reserve := false) -> (buffer: Buffer) {
+// make_raw_buffer :: proc(size: int, reserve := false) -> (buffer: Buffer) {
+// 	ctx := &app.render_ctx
+// 	buffer = internal_make_raw_buffer(size, reserve)
+
+// 	append(&ctx.buffers, buffer)
+// 	return buffer
+// }
+
+@(private)
+internal_make_raw_buffer :: proc(size: int, reserve := false) -> (buffer: Buffer) {
+	info := Raw_Buffer {
+		size = size,
+	}
 	buffer = Buffer {
-		raw_size = size,
+		info = info,
 	}
 	gl.CreateBuffers(1, &buffer.handle)
 
@@ -37,8 +73,13 @@ make_raw_buffer :: proc(size: int, reserve := false) -> (buffer: Buffer) {
 	return
 }
 
-send_buffer_data :: proc(buffer: Buffer, data: $T/[]$E) {
-	if size_of(E) != buffer.elem_size {
+send_buffer_data :: proc(buffer: ^Buffer, data: $T/[]$E) {
+	info, ok := buffer.info.(Typed_Buffer)
+	if !ok {
+		log.fatalf("%s: Invalid Buffer access, trying to send typed data to raw buffer", App_Module.Buffer)
+		assert(false)
+	}
+	if size_of(E) != info.element_size {
 		log.fatalf(
 			"%s: Type mismatch: Buffer [%d] elements are of type %s",
 			App_Module.Buffer,
@@ -47,26 +88,38 @@ send_buffer_data :: proc(buffer: Buffer, data: $T/[]$E) {
 		)
 		assert(false)
 	}
-	if len(data) > buffer.cap {
+	if len(data) > info.cap {
 		log.fatalf("%s: Data slice is too large for buffer [%d]", App_Module.Buffer, buffer.handle)
 		assert(false)
 	}
-	gl.NamedBufferData(buffer.handle, len(data) * buffer.elem_size, &data[0], gl.STATIC_DRAW)
+	gl.NamedBufferData(buffer.handle, len(data) * info.element_size, &data[0], gl.STATIC_DRAW)
 }
 
-send_raw_buffer_data :: proc(buffer: Buffer, size: int, data: rawptr) {
-	if size > buffer.raw_size {
+send_raw_buffer_data :: proc(buffer: ^Buffer, size: int, data: rawptr) {
+	info, ok := buffer.info.(Raw_Buffer)
+	if !ok {
+		log.fatalf("%s: Invalid Buffer access, trying to send raw data to typed buffer", App_Module.Buffer)
+		assert(false)
+	}
+	if size > info.size {
 		log.fatalf("%s: Data is too large for buffer [%d]", App_Module.Buffer, buffer.handle)
 		assert(false)
 	}
 	gl.NamedBufferData(buffer.handle, size, data, gl.STATIC_DRAW)
 }
 
-set_uniform_buffer_binding :: proc(buffer: Buffer, binding_point: u32) {
-	gl.BindBufferRange(gl.UNIFORM_BUFFER, binding_point, buffer.handle, 0, buffer.raw_size)
+set_uniform_buffer_binding :: proc(buffer: ^Buffer, binding_point: u32) {
+	info, ok := buffer.info.(Raw_Buffer)
+	if !ok {
+		log.fatalf(
+			"%s: Invalid Buffer access, trying to use a typed buffer as uniform buffer",
+			App_Module.Buffer,
+		)
+		assert(false)
+	}
+	gl.BindBufferRange(gl.UNIFORM_BUFFER, binding_point, buffer.handle, 0, info.size)
 }
 
-destroy_buffer :: proc(buffer: Buffer) {
-	b := buffer
-	gl.DeleteBuffers(1, &b.handle)
+destroy_buffer :: proc(buffer: ^Buffer) {
+	gl.DeleteBuffers(1, &buffer.handle)
 }
