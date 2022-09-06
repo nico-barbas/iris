@@ -17,6 +17,7 @@ Resource_Library :: struct {
 	framebuffers:   [dynamic]^Resource,
 	meshes:         [dynamic]^Resource,
 	materials:      map[string]^Resource,
+	scenes:         map[string]^Resource,
 }
 
 Resource :: struct {
@@ -34,6 +35,7 @@ Resource_Data :: union {
 	^Framebuffer,
 	^Mesh,
 	^Material,
+	^Scene,
 }
 
 Resource_Loader :: union {
@@ -55,6 +57,7 @@ init_library :: proc(lib: ^Resource_Library) {
 	lib.framebuffers.allocator = lib.allocator
 	lib.meshes.allocator = lib.allocator
 	lib.materials.allocator = lib.allocator
+	lib.scenes.allocator = lib.allocator
 }
 
 close_library :: proc(lib: ^Resource_Library) {
@@ -100,6 +103,11 @@ close_library :: proc(lib: ^Resource_Library) {
 		free_resource(r)
 	}
 	delete(lib.meshes)
+
+	for _, r in lib.scenes {
+		free_resource(r)
+	}
+	delete(lib.scenes)
 
 	free_all(lib.allocator)
 }
@@ -239,6 +247,19 @@ material_resource :: proc(loader: Material_Loader) -> ^Resource {
 	return resource
 }
 
+scene_resource :: proc() -> ^Resource {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	data := new(Scene)
+	init_scene(data)
+	resource := new_resource(lib, data)
+
+	lib.materials[data.name] = resource
+	return resource
+}
+
 free_resource :: proc(resource: ^Resource, remove := false) {
 	lib := &app.library
 	context.allocator = lib.allocator
@@ -290,6 +311,10 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 
 	case ^Material:
 		destroy_material(r)
+		free(r)
+
+	case ^Scene:
+		destroy_scene(r)
 		free(r)
 	}
 	free(resource)

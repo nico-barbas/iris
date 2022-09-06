@@ -42,10 +42,10 @@ Texture_Loader :: struct {
 }
 
 @(private)
-internal_load_texture_from_file :: proc(l: Texture_Loader, allocator := context.allocator) -> Texture {
+internal_load_texture_from_file :: proc(l: Texture_Loader) -> Texture {
 	ok: bool
 	loader := l
-	loader.data, ok = os.read_entire_file(loader.path, allocator)
+	loader.data, ok = os.read_entire_file(loader.path, context.temp_allocator)
 	defer delete(loader.data)
 
 	if !ok {
@@ -53,19 +53,19 @@ internal_load_texture_from_file :: proc(l: Texture_Loader, allocator := context.
 		return {}
 	}
 
-	texture := internal_load_texture_from_bytes(loader, allocator)
+	texture := internal_load_texture_from_bytes(loader)
 	texture.name = l.path
 	return texture
 }
 
 @(private)
-internal_load_texture_from_bytes :: proc(l: Texture_Loader, allocator := context.allocator) -> Texture {
+internal_load_texture_from_bytes :: proc(l: Texture_Loader) -> Texture {
 	assert(int(l.filter) != 0 && int(l.wrap) != 0)
 
 	texture: Texture
 
 	options := image.Options{}
-	img, err := png.load_from_bytes(l.data, options, allocator)
+	img, err := png.load_from_bytes(l.data, options, context.temp_allocator)
 	defer png.destroy(img)
 	if err != nil {
 		log.fatalf("%s: Texture loading error: %s", err)

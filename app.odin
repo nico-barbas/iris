@@ -57,6 +57,7 @@ App_Module :: enum u8 {
 	Shader,
 	Texture,
 	Buffer,
+	Mesh,
 }
 
 init_app :: proc(config: ^App_Config, allocator := context.allocator) {

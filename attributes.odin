@@ -3,16 +3,6 @@ package iris
 import "core:slice"
 import gl "vendor:OpenGL"
 
-// Vertex_Layout_Map :: struct {
-// 	layout:  Vertex_Layout,
-// 	offsets: []int,
-// }
-
-// delete_vertex_layout_map :: proc(m: Vertex_Layout_Map) {
-// 	delete(m.layout)
-// 	delete(m.offsets)
-// }
-
 Vertex_Layout :: distinct []Vertex_Format
 
 Vertex_Format :: enum u8 {

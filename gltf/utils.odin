@@ -47,3 +47,11 @@ Translate_Rotate_Scale :: struct {
 	rotation:    Quaternion,
 	scale:       Vector3f32,
 }
+
+// ATTRIBUTES NAMES
+POSITION :: "POSITION"
+NORMAL :: "NORMAL"
+TANGENT :: "TANGENT"
+JOINTS_0 :: "JOINTS_0"
+WEIGHTS_0 :: "WEIGHTS_0"
+TEXCOORD_0 :: "TEXCOORD_0"

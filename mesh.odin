@@ -3,7 +3,7 @@ package iris
 import "core:slice"
 import "core:math/linalg"
 
-import "gltf"
+// import "gltf"
 
 Mesh :: struct {
 	attributes:      ^Attributes,
@@ -69,14 +69,6 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int) -> ^Resource {
 	}
 	indices := slice.reinterpret([]u32, faces)
 
-
-	// attributes_info := Packed_Attributes {
-	// 	offsets = slice.clone(
-	// 		[]int{0, normal_offset * size_of(f32), uv_offset * size_of(f32)},
-	// 		layout_allocator,
-	// 	),
-	// }
-
 	resource := mesh_resource(
 		Mesh_Loader{
 			vertices = vertices,
@@ -87,7 +79,6 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int) -> ^Resource {
 		},
 	)
 	return resource
-	// return vertices, indices, attributes_info
 }
 
 cube_mesh :: proc(w, h, l: f32) -> ^Resource {
@@ -150,13 +141,6 @@ cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 		indices[i + 5] = 4 * j + 3
 	}
 
-	// attributes_info := Packed_Attributes {
-	// 	offsets = slice.clone(
-	// 		[]int{0, NORMAL_OFFSET * size_of(f32), UV_OFFSET * size_of(f32)},
-	// 		layout_allocator,
-	// 	),
-	// }
-
 	resource := mesh_resource(
 		Mesh_Loader{
 			vertices = vertices,
@@ -167,126 +151,114 @@ cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 		},
 	)
 	return resource
-	// return vertices, indices, attributes_info
 }
 
-@(private)
-internal_load_mesh_from_gltf_node :: proc(
-	document: ^gltf.Document,
-	node: ^gltf.Node,
-	flip_normals := false,
-) -> ^Resource {
-	data := node.data.(gltf.Node_Mesh_Data).mesh
+// @(private)
+// internal_load_mesh_from_gltf_node :: proc(
+// 	document: ^gltf.Document,
+// 	node: ^gltf.Node,
+// 	flip_normals := false,
+// ) -> ^Resource {
+// 	data := node.data.(gltf.Node_Mesh_Data).mesh
 
-	assert(len(data.primitives) == 1)
+// 	assert(len(data.primitives) == 1)
 
-	primitive := data.primitives[0]
-	assert(primitive.indices != nil)
+// 	primitive := data.primitives[0]
+// 	assert(primitive.indices != nil)
 
-	indices: []u32
-	#partial switch data in primitive.indices.data {
-	case []u16:
-		indices = make([]u32, len(data), context.temp_allocator)
-		for index, i in data {
-			indices[i] = u32(index)
-		}
-	case []u32:
-		indices = data
-	case:
-		assert(false)
-	}
+// 	indices: []u32
+// 	#partial switch data in primitive.indices.data {
+// 	case []u16:
+// 		indices = make([]u32, len(data), context.temp_allocator)
+// 		for index, i in data {
+// 			indices[i] = u32(index)
+// 		}
+// 	case []u32:
+// 		indices = data
+// 	case:
+// 		assert(false)
+// 	}
 
 
-	kind_to_component_count :: proc(kind: gltf.Accessor_Kind) -> (uint, bool) {
-		#partial switch kind {
-		case .Vector2:
-			return 2, true
-		case .Vector3:
-			return 3, true
-		case .Vector4:
-			return 4, true
-		case .Scalar:
-			return 1, true
-		case:
-			return 0, false
-		}
-	}
-	v_count: uint
-	p_slice: []f32
-	n_slice: []f32
-	t_slice: []f32
-	uv_slice: []f32
-	if position, has_position := primitive.attributes["POSITION"]; has_position {
-		component_count, ok := kind_to_component_count(position.data.kind)
-		assert(ok)
-		v_count += position.data.count * component_count
-		assert(position.data.component_kind == .Float)
-		accessor := position.data
-		p_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
-	}
-	if normal, has_normal := primitive.attributes["NORMAL"]; has_normal {
-		component_count, ok := kind_to_component_count(normal.data.kind)
-		assert(ok)
-		v_count += normal.data.count * component_count
-		assert(normal.data.component_kind == .Float)
-		accessor := normal.data
-		n_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
-	}
-	if tangent, has_tangent := primitive.attributes["TANGENT"]; has_tangent {
-		component_count, ok := kind_to_component_count(tangent.data.kind)
-		assert(ok)
-		v_count += tangent.data.count * component_count
-		assert(tangent.data.component_kind == .Float)
-		accessor := tangent.data
-		t_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector4f32))
-	}
-	if tex_coord, has_tex_coord := primitive.attributes["TEXCOORD_0"]; has_tex_coord {
-		component_count, ok := kind_to_component_count(tex_coord.data.kind)
-		assert(ok)
-		v_count += tex_coord.data.count * component_count
-		assert(tex_coord.data.component_kind == .Float)
-		accessor := tex_coord.data
-		uv_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector2f32))
-	}
-	vertices := make([]f32, v_count, context.temp_allocator)
-	copy(vertices[:], p_slice[:])
-	p_off := len(p_slice)
-	if flip_normals {
-		for i := 0; i < len(n_slice); i += 3 {
-			vertices[p_off + i] = -n_slice[i]
-			vertices[p_off + i + 1] = -n_slice[i + 1]
-			vertices[p_off + i + 2] = -n_slice[i + 2]
-		}
-	} else {
-		copy(vertices[p_off:], n_slice)
-	}
-	n_off := p_off + len(n_slice)
-	copy(vertices[n_off:], t_slice)
-	t_off := n_off + len(t_slice)
-	copy(vertices[t_off:], uv_slice)
+// 	kind_to_component_count :: proc(kind: gltf.Accessor_Kind) -> (uint, bool) {
+// 		#partial switch kind {
+// 		case .Vector2:
+// 			return 2, true
+// 		case .Vector3:
+// 			return 3, true
+// 		case .Vector4:
+// 			return 4, true
+// 		case .Scalar:
+// 			return 1, true
+// 		case:
+// 			return 0, false
+// 		}
+// 	}
+// 	v_count: uint
+// 	p_slice: []f32
+// 	n_slice: []f32
+// 	t_slice: []f32
+// 	uv_slice: []f32
+// 	if position, has_position := primitive.attributes["POSITION"]; has_position {
+// 		component_count, ok := kind_to_component_count(position.data.kind)
+// 		assert(ok)
+// 		v_count += position.data.count * component_count
+// 		assert(position.data.component_kind == .Float)
+// 		accessor := position.data
+// 		p_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
+// 	}
+// 	if normal, has_normal := primitive.attributes["NORMAL"]; has_normal {
+// 		component_count, ok := kind_to_component_count(normal.data.kind)
+// 		assert(ok)
+// 		v_count += normal.data.count * component_count
+// 		assert(normal.data.component_kind == .Float)
+// 		accessor := normal.data
+// 		n_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector3f32))
+// 	}
+// 	if tangent, has_tangent := primitive.attributes["TANGENT"]; has_tangent {
+// 		component_count, ok := kind_to_component_count(tangent.data.kind)
+// 		assert(ok)
+// 		v_count += tangent.data.count * component_count
+// 		assert(tangent.data.component_kind == .Float)
+// 		accessor := tangent.data
+// 		t_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector4f32))
+// 	}
+// 	if tex_coord, has_tex_coord := primitive.attributes["TEXCOORD_0"]; has_tex_coord {
+// 		component_count, ok := kind_to_component_count(tex_coord.data.kind)
+// 		assert(ok)
+// 		v_count += tex_coord.data.count * component_count
+// 		assert(tex_coord.data.component_kind == .Float)
+// 		accessor := tex_coord.data
+// 		uv_slice = slice.reinterpret([]f32, accessor.data.([]gltf.Vector2f32))
+// 	}
+// 	vertices := make([]f32, v_count, context.temp_allocator)
+// 	copy(vertices[:], p_slice[:])
+// 	p_off := len(p_slice)
+// 	if flip_normals {
+// 		for i := 0; i < len(n_slice); i += 3 {
+// 			vertices[p_off + i] = -n_slice[i]
+// 			vertices[p_off + i + 1] = -n_slice[i + 1]
+// 			vertices[p_off + i + 2] = -n_slice[i + 2]
+// 		}
+// 	} else {
+// 		copy(vertices[p_off:], n_slice)
+// 	}
+// 	n_off := p_off + len(n_slice)
+// 	copy(vertices[n_off:], t_slice)
+// 	t_off := n_off + len(t_slice)
+// 	copy(vertices[t_off:], uv_slice)
 
-	// layout_map := Vertex_Layout_Map {
-	// 	layout  = Vertex_Layout(
-	// 		slice.clone([]Vertex_Format{.Float3, .Float3, .Float4, .Float2}, layout_allocator),
-	// 	),
-	// 	offsets = slice.clone(
-	// 		[]int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
-	// 		layout_allocator,
-	// 	),
-	// }
-
-	resource := mesh_resource(
-		Mesh_Loader{
-			vertices = vertices,
-			indices = indices,
-			format = .Packed_Blocks,
-			layout = {.Float3, .Float3, .Float4, .Float2},
-			offsets = []int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
-		},
-	)
-	return resource
-	// return load_mesh_from_slice(vertices, indices, layout_map)
-}
+// 	resource := mesh_resource(
+// 		Mesh_Loader{
+// 			vertices = vertices,
+// 			indices = indices,
+// 			format = .Packed_Blocks,
+// 			layout = {.Float3, .Float3, .Float4, .Float2},
+// 			offsets = []int{0, p_off * size_of(f32), n_off * size_of(f32), t_off * size_of(f32)},
+// 		},
+// 	)
+// 	return resource
+// }
 
 @(private)
 internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {

@@ -5,6 +5,7 @@ Document :: struct {
 	views:      []Buffer_View,
 	accessors:  []Accessor,
 	root:       ^Scene,
+	root_nodes: [dynamic]^Node,
 	scenes:     []Scene,
 	nodes:      []Node,
 	meshes:     []Mesh,
@@ -14,6 +15,10 @@ Document :: struct {
 	samplers:   []Texture_Sampler,
 	animations: []Animation,
 	skins:      []Skin,
+
+	// Lookups
+	mesh_nodes: map[string]^Node,
+	skin_nodes: map[string]^Node,
 }
 
 Scene :: struct {
@@ -24,34 +29,26 @@ Scene :: struct {
 
 Node :: struct {
 	name:             string,
-	transform:        union {
-		Translate_Rotate_Scale,
-		Mat4f32,
-	},
+	local_transform:  Mat4f32,
+	global_transform: Mat4f32,
+	parent:           Maybe(^Node),
 	children:         []^Node,
 	children_indices: []uint,
-	data:             Node_Data,
-}
-
-Node_Data :: union {
-	Node_Mesh_Data,
-	Node_Mesh_Weights_Data,
-	Node_Skin_Data,
-	Node_Camera_Data,
+	mesh:             Maybe(Node_Mesh_Data),
+	skin:             Maybe(Node_Skin_Data),
+	weigths:          []f32,
 }
 
 Node_Mesh_Data :: struct {
-	mesh:       ^Mesh,
-	mesh_index: uint,
+	using ptr: ^Mesh,
+	index:     uint,
 }
 
-Node_Mesh_Weights_Data :: struct {
-	mesh:       ^Mesh,
-	mesh_index: uint,
-	weigths:    []f32,
+Node_Skin_Data :: struct {
+	using ptr: ^Skin,
+	index:     uint,
 }
 
-Node_Skin_Data :: struct {}
 Node_Camera_Data :: struct {}
 
 Animation :: struct {
@@ -108,11 +105,11 @@ Skin_Inverse_Bind_Matrices :: union {
 }
 
 Skin_Accessor_Inverse_Bind_Matrices :: struct {
-	data:  ^Accessor,
-	index: uint,
+	using ptr: ^Accessor,
+	index:     uint,
 }
 
-Skin_Identity_Inverse_Bind_Matrices :: distinct []Mat4f32
+Skin_Identity_Inverse_Bind_Matrices :: []Mat4f32
 
 Mesh :: struct {
 	name:       string,

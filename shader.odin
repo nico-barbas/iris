@@ -177,7 +177,7 @@ compile_shader_source :: proc(
 @(private = "file")
 format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allocator) -> string {
 	length := int(l)
-	if t == gl.SAMPLER_2D {
+	if t == gl.SAMPLER_2D || t == gl.FLOAT_MAT4 {
 		if buf[length - 1] == ']' {
 			length -= 3
 		}

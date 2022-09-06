@@ -1,11 +1,13 @@
 package gltf
 
 import "core:os"
+import "core:fmt"
 import "core:encoding/json"
 import "core:slice"
 import "core:strings"
 import "core:strconv"
 import "core:path/filepath"
+import "core:math/linalg"
 
 Format :: enum {
 	Gltf_Embed,
@@ -173,7 +175,7 @@ parse_from_file :: proc(
 				return
 			}
 
-			if accessor_offset, has_offset := accessor_data["offset"]; has_offset {
+			if accessor_offset, has_offset := accessor_data["byteOffset"]; has_offset {
 				accessor.byte_offset = uint(accessor_offset.(json.Float))
 			}
 
@@ -196,8 +198,9 @@ parse_from_file :: proc(
 				return
 			}
 
-			data := accessor.view.byte_slice[accessor.byte_offset:]
-			accessor.data = byte_slice_to_accessor_data(data, accessor.component_kind, accessor.kind)
+			start := accessor.byte_offset
+			data := accessor.view.byte_slice[start:]
+			parse_accessor_data(&accessor, data)
 			document.accessors[i] = accessor
 		}
 	}
@@ -529,82 +532,84 @@ parse_from_file :: proc(
 			if m, has_matrix := node_info["matrix"]; has_matrix {
 				mat := m.(json.Array)
 
-				node_matrix: Mat4f32
-				node_matrix[0][0] = f32(mat[0].(json.Float))
-				node_matrix[0][1] = f32(mat[1].(json.Float))
-				node_matrix[0][2] = f32(mat[2].(json.Float))
-				node_matrix[0][3] = f32(mat[3].(json.Float))
-				node_matrix[1][0] = f32(mat[4].(json.Float))
-				node_matrix[1][1] = f32(mat[5].(json.Float))
-				node_matrix[1][2] = f32(mat[6].(json.Float))
-				node_matrix[1][3] = f32(mat[7].(json.Float))
-				node_matrix[2][0] = f32(mat[8].(json.Float))
-				node_matrix[2][1] = f32(mat[9].(json.Float))
-				node_matrix[2][2] = f32(mat[10].(json.Float))
-				node_matrix[2][3] = f32(mat[11].(json.Float))
-				node_matrix[3][0] = f32(mat[12].(json.Float))
-				node_matrix[3][1] = f32(mat[13].(json.Float))
-				node_matrix[3][2] = f32(mat[14].(json.Float))
-				node_matrix[3][3] = f32(mat[15].(json.Float))
+				n_m: Mat4f32
+				n_m[0][0] = f32(mat[0].(json.Float))
+				n_m[0][1] = f32(mat[1].(json.Float))
+				n_m[0][2] = f32(mat[2].(json.Float))
+				n_m[0][3] = f32(mat[3].(json.Float))
+				n_m[1][0] = f32(mat[4].(json.Float))
+				n_m[1][1] = f32(mat[5].(json.Float))
+				n_m[1][2] = f32(mat[6].(json.Float))
+				n_m[1][3] = f32(mat[7].(json.Float))
+				n_m[2][0] = f32(mat[8].(json.Float))
+				n_m[2][1] = f32(mat[9].(json.Float))
+				n_m[2][2] = f32(mat[10].(json.Float))
+				n_m[2][3] = f32(mat[11].(json.Float))
+				n_m[3][0] = f32(mat[12].(json.Float))
+				n_m[3][1] = f32(mat[13].(json.Float))
+				n_m[3][2] = f32(mat[14].(json.Float))
+				n_m[3][3] = f32(mat[15].(json.Float))
 
-				node.transform = node_matrix
+				node.local_transform = n_m
 			} else {
-				node_trs: Translate_Rotate_Scale
+				translation: Vector3f32
+				rotation: Quaternion
+				scale: Vector3f32
 				if node_trans, has_trans := node_info["translation"]; has_trans {
 					node_translation := node_trans.(json.Array)
 
-					node_trs.translation = {
+					translation = {
 						0 = f32(node_translation[0].(json.Float)),
 						1 = f32(node_translation[1].(json.Float)),
 						2 = f32(node_translation[2].(json.Float)),
 					}
 				} else {
-					node_trs.translation = {}
+					translation = {}
 				}
 
 				if node_rot, has_rot := node_info["rotation"]; has_rot {
 					node_rotation := node_rot.(json.Array)
 
-					node_trs.rotation.x = f32(node_rotation[0].(json.Float))
-					node_trs.rotation.y = f32(node_rotation[1].(json.Float))
-					node_trs.rotation.z = f32(node_rotation[2].(json.Float))
-					node_trs.rotation.w = f32(node_rotation[3].(json.Float))
+					rotation.x = f32(node_rotation[0].(json.Float))
+					rotation.y = f32(node_rotation[1].(json.Float))
+					rotation.z = f32(node_rotation[2].(json.Float))
+					rotation.w = f32(node_rotation[3].(json.Float))
 				} else {
-					node_trs.rotation = Quaternion(1)
+					rotation = Quaternion(1)
 				}
 				if node_scale, has_scale := node_info["scale"]; has_scale {
 					node_scale := node_scale.(json.Array)
 
-					node_trs.scale = {
+					scale = {
 						0 = f32(node_scale[0].(json.Float)),
 						1 = f32(node_scale[1].(json.Float)),
 						2 = f32(node_scale[2].(json.Float)),
 					}
 				} else {
-					node_trs.scale = {1, 1, 1}
+					scale = {1, 1, 1}
 				}
-				node.transform = node_trs
+				node.local_transform = linalg.matrix4_from_trs_f32(
+					linalg.Vector3f32(translation),
+					linalg.Quaternionf32(rotation),
+					linalg.Vector3f32(scale),
+				)
 			}
 
-			node.data = nil
 			if node_mesh, has_mesh := node_info["mesh"]; has_mesh {
-				node.data = Node_Mesh_Data {
-					mesh       = &document.meshes[uint(node_mesh.(json.Float))],
-					mesh_index = uint(node_mesh.(json.Float)),
+				node.mesh = Node_Mesh_Data {
+					ptr   = &document.meshes[uint(node_mesh.(json.Float))],
+					index = uint(node_mesh.(json.Float)),
 				}
-			} else {
-
 			}
+
+			if node_skin, has_skin := node_info["skin"]; has_skin {
+				node.skin = Node_Skin_Data {
+					index = uint(node_skin.(json.Float)),
+				}
+			}
+
 
 			document.nodes[i] = node
-		}
-
-		for node in &document.nodes {
-			if node.children_indices != nil {
-				for index, j in node.children_indices {
-					node.children[j] = &document.nodes[index]
-				}
-			}
 		}
 	}
 
@@ -756,7 +761,7 @@ parse_from_file :: proc(
 			if ibm, has_ibm := skin_info["inverseBindMatrices"]; has_ibm {
 				accessor_ibm: Skin_Accessor_Inverse_Bind_Matrices
 				accessor_ibm.index = uint(ibm.(json.Float))
-				accessor_ibm.data = &document.accessors[accessor_ibm.index]
+				accessor_ibm.ptr = &document.accessors[accessor_ibm.index]
 				skin.inverse_bind_matrices = accessor_ibm
 			} else {
 				identity_ibm := make(Skin_Identity_Inverse_Bind_Matrices, len(skin.joints))
@@ -768,6 +773,56 @@ parse_from_file :: proc(
 
 			document.skins[i] = skin
 		}
+	}
+
+	// Second node pass
+	for node, i in &document.nodes {
+		if node.children_indices != nil {
+			for index, j in node.children_indices {
+				node.children[j] = &document.nodes[index]
+				node.children[j].parent = &document.nodes[i]
+			}
+		}
+		if node.skin != nil {
+			data := node.skin.?
+			data.ptr = &document.skins[data.index]
+			node.skin = data
+		}
+	}
+
+	// Third and fourth node pass
+	document.root_nodes = make([dynamic]^Node, 0, len(document.nodes) / 2)
+	for _, i in document.nodes {
+		node := &document.nodes[i]
+		if node.parent == nil {
+			append(&document.root_nodes, node)
+		}
+		if node.mesh != nil || node.skin != nil {
+			name: string
+			if node.name == "" {
+				name = fmt.aprintf("mesh%d", i)
+			} else {
+				name = strings.clone(node.name)
+			}
+			if node.mesh != nil {
+				document.mesh_nodes[name] = node
+			}
+			if node.skin != nil {
+				document.skin_nodes[name] = node
+			}
+		}
+	}
+	for node in document.root_nodes {
+		set_node_global_transform :: proc(node: ^Node, parent_transform: Mat4f32) {
+			node.global_transform = linalg.matrix_mul(parent_transform, node.local_transform)
+
+			if len(node.children) > 0 {
+				for child in node.children {
+					set_node_global_transform(child, node.global_transform)
+				}
+			}
+		}
+		set_node_global_transform(node, linalg.MATRIX4F32_IDENTITY)
 	}
 
 	// Scenes
@@ -909,6 +964,7 @@ destroy_document :: proc(d: ^Document) {
 		delete(node.children_indices)
 	}
 	delete(d.nodes)
+	delete(d.root_nodes)
 
 	// Free scenes
 	for scene in d.scenes {
@@ -917,6 +973,16 @@ destroy_document :: proc(d: ^Document) {
 		delete(scene.node_indices)
 	}
 	delete(d.scenes)
+
+	for name, _ in d.mesh_nodes {
+		delete(name)
+	}
+	delete(d.mesh_nodes)
+
+	for name, _ in d.skin_nodes {
+		delete(name)
+	}
+	delete(d.skin_nodes)
 }
 
 @(private)
@@ -940,104 +1006,168 @@ to_accesor_kind :: proc(t: string) -> (k: Accessor_Kind) {
 	return
 }
 
-byte_slice_to_accessor_data :: proc(
-	raw: []byte,
-	c_kind: Accessor_Component_Kind,
-	kind: Accessor_Kind,
-) -> (
-	result: Accessor_Data,
-) {
-	switch kind {
+parse_accessor_data :: proc(a: ^Accessor, raw: []byte) {
+	switch a.kind {
 	case .Scalar:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = raw
+			data := raw
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]i16, raw)
+			data := slice.reinterpret([]i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]u16, raw)
+			data := slice.reinterpret([]u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]u32, raw)
+			data := slice.reinterpret([]u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]f32, raw)
+			data := slice.reinterpret([]f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Vector2:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Vector2u8, raw)
+			data := slice.reinterpret([]Vector2u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Vector2i16, raw)
+			data := slice.reinterpret([]Vector2i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Vector2u16, raw)
+			data := slice.reinterpret([]Vector2u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Vector2u32, raw)
+			data := slice.reinterpret([]Vector2u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Vector2f32, raw)
+			data := slice.reinterpret([]Vector2f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Vector3:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Vector3u8, raw)
+			data := slice.reinterpret([]Vector3u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Vector3i16, raw)
+			data := slice.reinterpret([]Vector3i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Vector3u16, raw)
+			data := slice.reinterpret([]Vector3u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Vector3u32, raw)
+			data := slice.reinterpret([]Vector3u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Vector3f32, raw)
+			data := slice.reinterpret([]Vector3f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Vector4:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Vector4u8, raw)
+			data := slice.reinterpret([]Vector4u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Vector4i16, raw)
+			data := slice.reinterpret([]Vector4i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Vector4u16, raw)
+			data := slice.reinterpret([]Vector4u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Vector4u32, raw)
+			data := slice.reinterpret([]Vector4u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Vector4f32, raw)
+			data := slice.reinterpret([]Vector4f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Mat2:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Mat2u8, raw)
+			data := slice.reinterpret([]Mat2u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Mat2i16, raw)
+			data := slice.reinterpret([]Mat2i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Mat2u16, raw)
+			data := slice.reinterpret([]Mat2u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Mat2u32, raw)
+			data := slice.reinterpret([]Mat2u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Mat2f32, raw)
+			data := slice.reinterpret([]Mat2f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Mat3:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Mat3u8, raw)
+			data := slice.reinterpret([]Mat3u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Mat3i16, raw)
+			data := slice.reinterpret([]Mat3i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Mat3u16, raw)
+			data := slice.reinterpret([]Mat3u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Mat3u32, raw)
+			data := slice.reinterpret([]Mat3u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Mat3f32, raw)
+			data := slice.reinterpret([]Mat3f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	case .Mat4:
-		switch c_kind {
+		switch a.component_kind {
 		case .Byte, .Unsigned_Byte:
-			result = slice.reinterpret([]Mat4u8, raw)
+			data := slice.reinterpret([]Mat4u8, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Short:
-			result = slice.reinterpret([]Mat4i16, raw)
+			data := slice.reinterpret([]Mat4i16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Short:
-			result = slice.reinterpret([]Mat4u16, raw)
+			data := slice.reinterpret([]Mat4u16, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Unsigned_Int:
-			result = slice.reinterpret([]Mat4u32, raw)
+			data := slice.reinterpret([]Mat4u32, raw)
+			data = data[:a.count]
+			a.data = data
 		case .Float:
-			result = slice.reinterpret([]Mat4f32, raw)
+			data := slice.reinterpret([]Mat4f32, raw)
+			data = data[:a.count]
+			a.data = data
 		}
 	}
 	return
