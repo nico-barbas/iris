@@ -28,6 +28,13 @@ Error :: enum {
 	Invalid_Mesh_Primitives,
 	Invalid_Primitive_Attributes,
 	Invalid_Texture_Info_Index,
+	Invalid_Animation_Samplers,
+	Invalid_Animation_Sampler_Input,
+	Invalid_Animation_Sampler_Output,
+	Invalid_Animation_Channels,
+	Invalid_Animation_Channel_Sampler,
+	Invalid_Animation_Channel_Target,
+	Invalid_Animation_Channel_Path,
 }
 
 parse_from_file :: proc(
@@ -189,11 +196,7 @@ parse_from_file :: proc(
 			}
 
 			data := accessor.view.byte_slice[accessor.byte_offset:]
-			accessor.data = byte_slice_to_accessor_data(
-				data,
-				accessor.component_kind,
-				accessor.kind,
-			)
+			accessor.data = byte_slice_to_accessor_data(data, accessor.component_kind, accessor.kind)
 			document.accessors[i] = accessor
 		}
 	}
@@ -326,10 +329,7 @@ parse_from_file :: proc(
 				if base_clr_t, has_base_t := pbr_info["baseColorTexture"]; has_base_t {
 					base_color_texture := base_clr_t.(json.Object)
 
-					material.base_color_texture = parse_texture_info(
-						&document,
-						base_color_texture,
-					) or_return
+					material.base_color_texture = parse_texture_info(&document, base_color_texture) or_return
 				} else {
 					material.base_color_texture.present = false
 				}
@@ -393,16 +393,12 @@ parse_from_file :: proc(
 			if emissive_t, has_emissive_t := material_info["emissiveTexture"]; has_emissive_t {
 				emissive_texture := emissive_t.(json.Object)
 
-				material.emissive_texture = parse_texture_info(
-					&document,
-					emissive_texture,
-				) or_return
+				material.emissive_texture = parse_texture_info(&document, emissive_texture) or_return
 			} else {
 				material.emissive_texture.present = false
 			}
 
-			if emissive_f, has_emissive_factor := material_info["emissiveFactor"];
-			   has_emissive_factor {
+			if emissive_f, has_emissive_factor := material_info["emissiveFactor"]; has_emissive_factor {
 				emissive_factor := emissive_f.(json.Array)
 
 				material.emissive_factor = {
@@ -611,6 +607,120 @@ parse_from_file :: proc(
 		}
 	}
 
+	// Animations
+	if json_animations, has_animations := json_doc["animations"]; has_animations {
+		animations := json_animations.(json.Array)
+		document.animations = make([]Animation, len(animations))
+
+		for json_animation, i in animations {
+			anim_info := json_animation.(json.Object)
+
+			animation: Animation
+			animation.name = strings.clone(anim_info["name"].(string) or_else "")
+
+			if json_a_samplers, has_sampler := anim_info["samplers"]; has_sampler {
+				anim_samplers := json_a_samplers.(json.Array)
+				animation.samplers = make([]Animation_Sampler, len(anim_samplers))
+
+				for json_sampler, j in anim_samplers {
+					sampler_info := json_sampler.(json.Object)
+
+					sampler: Animation_Sampler
+					if sampler_input, has_input := sampler_info["input"]; has_input {
+						sampler.input_index = uint(sampler_input.(json.Float))
+						sampler.input = &document.accessors[sampler.input_index]
+					} else {
+						err = .Invalid_Animation_Sampler_Input
+						return
+					}
+
+					if sampler_output, has_output := sampler_info["output"]; has_output {
+						sampler.output_index = uint(sampler_output.(json.Float))
+						sampler.output = &document.accessors[sampler.output_index]
+					} else {
+						err = .Invalid_Animation_Sampler_Output
+						return
+					}
+
+					if interpolation, has_interpolation := sampler_info["interpolation"]; has_interpolation {
+						switch interpolation.(string) {
+						case "LINEAR":
+							sampler.interpolation = .Linear
+						case "STEP":
+							sampler.interpolation = .Step
+						case "CUBICSPLINE":
+							sampler.interpolation = .Cubispline
+						}
+					} else {
+						sampler.interpolation = .Linear
+					}
+
+					animation.samplers[j] = sampler
+				}
+
+			} else {
+				err = .Invalid_Animation_Samplers
+				return
+			}
+
+			if json_a_channels, has_channels := anim_info["channels"]; has_channels {
+				anim_channels := json_a_channels.(json.Array)
+				animation.channels = make([]Animation_Channel, len(anim_channels))
+
+				for json_channel, j in anim_channels {
+					channel_info := json_channel.(json.Object)
+
+					channel: Animation_Channel
+					if channel_sampler, has_sampler := channel_info["sampler"]; has_sampler {
+						channel.sampler_index = uint(channel_sampler.(json.Float))
+						channel.sampler = &animation.samplers[channel.sampler_index]
+					} else {
+						err = .Invalid_Animation_Channel_Sampler
+						return
+					}
+
+					if channel_target, has_target := channel_info["target"]; has_target {
+						target_info := channel_target.(json.Object)
+
+						target: Animation_Channel_Target
+						if target_node, has_node := target_info["node"]; has_node {
+							target.node_index = uint(target_node.(json.Float))
+							target.node = &document.nodes[target.node_index]
+						}
+
+						if target_path, has_path := target_info["path"]; has_path {
+							switch target_path.(string) {
+							case "translation":
+								target.path = .Translation
+							case "rotation":
+								target.path = .Rotation
+							case "scale":
+								target.path = .Scale
+							case "weights":
+								target.path = .Weights
+							}
+						} else {
+							err = .Invalid_Animation_Channel_Path
+							return
+						}
+
+						channel.target = target
+					} else {
+						err = .Invalid_Animation_Channel_Target
+						return
+					}
+
+					animation.channels[j] = channel
+				}
+			} else {
+				err = .Invalid_Animation_Channels
+				return
+			}
+
+			document.animations[i] = animation
+		}
+	}
+
 	if json_scenes, has_scenes := json_doc["scenes"]; has_scenes {
 		scenes := json_scenes.(json.Array)
 		document.scenes = make([]Scene, len(scenes))
@@ -722,6 +832,12 @@ destroy_document :: proc(d: ^Document) {
 	}
 	delete(d.meshes)
 
+	for animation in d.animations {
+		delete(animation.name)
+		delete(animation.samplers)
+		delete(animation.channels)
+	}
+	delete(d.animations)
 
 	// Free nodes
 	for node in d.nodes {
@@ -731,7 +847,7 @@ destroy_document :: proc(d: ^Document) {
 	}
 	delete(d.nodes)
 
-	// Free nodes
+	// Free scenes
 	for scene in d.scenes {
 		delete(scene.name)
 		delete(scene.nodes)

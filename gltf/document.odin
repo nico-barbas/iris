@@ -1,17 +1,18 @@
 package gltf
 
 Document :: struct {
-	buffers:   []Buffer,
-	views:     []Buffer_View,
-	accessors: []Accessor,
-	root:      ^Scene,
-	scenes:    []Scene,
-	nodes:     []Node,
-	meshes:    []Mesh,
-	materials: []Material,
-	images:    []Image,
-	textures:  []Texture,
-	samplers:  []Texture_Sampler,
+	buffers:    []Buffer,
+	views:      []Buffer_View,
+	accessors:  []Accessor,
+	root:       ^Scene,
+	scenes:     []Scene,
+	nodes:      []Node,
+	meshes:     []Mesh,
+	materials:  []Material,
+	images:     []Image,
+	textures:   []Texture,
+	samplers:   []Texture_Sampler,
+	animations: []Animation,
 }
 
 Scene :: struct {
@@ -51,6 +52,45 @@ Node_Mesh_Weights_Data :: struct {
 
 Node_Skin_Data :: struct {}
 Node_Camera_Data :: struct {}
+
+Animation :: struct {
+	name:     string,
+	samplers: []Animation_Sampler,
+	channels: []Animation_Channel,
+}
+
+Animation_Sampler :: struct {
+	interpolation: Animation_Interpolation,
+	input:         ^Accessor,
+	input_index:   uint,
+	output:        ^Accessor,
+	output_index:  uint,
+}
+
+Animation_Interpolation :: enum uint {
+	Linear,
+	Step,
+	Cubispline,
+}
+
+Animation_Channel :: struct {
+	sampler:       ^Animation_Sampler,
+	sampler_index: uint,
+	target:        Animation_Channel_Target,
+}
+
+Animation_Channel_Target :: struct {
+	node:       ^Node,
+	node_index: uint,
+	path:       Animation_Channel_Path,
+}
+
+Animation_Channel_Path :: enum {
+	Translation,
+	Rotation,
+	Scale,
+	Weights,
+}
 
 Mesh :: struct {
 	name:       string,
