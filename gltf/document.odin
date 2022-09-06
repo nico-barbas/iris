@@ -15,10 +15,6 @@ Document :: struct {
 	samplers:   []Texture_Sampler,
 	animations: []Animation,
 	skins:      []Skin,
-
-	// Lookups
-	mesh_nodes: map[string]^Node,
-	skin_nodes: map[string]^Node,
 }
 
 Scene :: struct {
@@ -336,4 +332,16 @@ Accessor_Data :: union {
 	[]Mat4u16,
 	[]Mat4u32,
 	[]Mat4f32,
+}
+
+find_node_with_name :: proc(document: ^Document, name: string) -> (result: ^Node, found: bool) {
+	for _, i in document.nodes {
+		node := &document.nodes[i]
+		if node.name == name {
+			result = node
+			found = true
+			return
+		}
+	}
+	return
 }

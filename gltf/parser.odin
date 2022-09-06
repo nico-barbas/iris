@@ -797,20 +797,6 @@ parse_from_file :: proc(
 		if node.parent == nil {
 			append(&document.root_nodes, node)
 		}
-		if node.mesh != nil || node.skin != nil {
-			name: string
-			if node.name == "" {
-				name = fmt.aprintf("mesh%d", i)
-			} else {
-				name = strings.clone(node.name)
-			}
-			if node.mesh != nil {
-				document.mesh_nodes[name] = node
-			}
-			if node.skin != nil {
-				document.skin_nodes[name] = node
-			}
-		}
 	}
 	for node in document.root_nodes {
 		set_node_global_transform :: proc(node: ^Node, parent_transform: Mat4f32) {
@@ -973,16 +959,6 @@ destroy_document :: proc(d: ^Document) {
 		delete(scene.node_indices)
 	}
 	delete(d.scenes)
-
-	for name, _ in d.mesh_nodes {
-		delete(name)
-	}
-	delete(d.mesh_nodes)
-
-	for name, _ in d.skin_nodes {
-		delete(name)
-	}
-	delete(d.skin_nodes)
 }
 
 @(private)

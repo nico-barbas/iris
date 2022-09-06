@@ -50,6 +50,7 @@ Game :: struct {
 	light:             iris.Light_ID,
 	mesh:              ^iris.Mesh,
 	lantern:           ^iris.Node,
+	rig:               ^iris.Node,
 	// model:             iris.Model,
 	// rig:               iris.Model,
 	model_shader:      ^iris.Shader,
@@ -122,37 +123,39 @@ init :: proc(data: iris.App_Data) {
 	// 	node = root,
 	// )
 
-	// {
-	// 	skeletal_shader_res := iris.shader_resource(
-	// 		iris.Shader_Loader{
-	// 			vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
-	// 			fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
-	// 		},
-	// 	)
-	// 	g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
-	// 	fmt.println(g.skeletal_shader.uniforms)
+	{
+		skeletal_shader_res := iris.shader_resource(
+			iris.Shader_Loader{
+				vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
+				fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
+			},
+		)
+		g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
+		fmt.println(g.skeletal_shader.uniforms)
 
-	// 	rig_document, _err := gltf.parse_from_file(
-	// 		"rig/Rig.gltf",
-	// 		.Gltf_External,
-	// 		context.temp_allocator,
-	// 		context.temp_allocator,
-	// 	)
-	// 	assert(_err == nil)
-	// 	iris.load_resources_from_gltf(&rig_document)
+		rig_document, _err := gltf.parse_from_file(
+			"rig/Rig.gltf",
+			.Gltf_External,
+			context.temp_allocator,
+			context.temp_allocator,
+		)
+		assert(_err == nil)
+		iris.load_resources_from_gltf(&rig_document)
 
 
-	// 	g.rig = iris.load_model_from_gltf_node(
-	// 		loader = &iris.Model_Loader{
-	// 			document = &rig_document,
-	// 			shader = g.skeletal_shader,
-	// 			flags = {.Load_Position, .Load_Normal, .Load_Joints0, .Load_Weights0, .Load_Bones},
-	// 			allocator = context.allocator,
-	// 			temp_allocator = context.temp_allocator,
-	// 		},
-	// 		node = rig_document.root.nodes[0],
-	// 	)
-	// }
+		g.rig = iris.new_node(g.scene, iris.Empty_Node)
+		iris.insert_node(g.scene, g.rig)
+		// g.rig = iris.load_model_from_gltf_node(
+		// 	loader = &iris.Model_Loader{
+		// 		document = &rig_document,
+		// 		shader = g.skeletal_shader,
+		// 		flags = {.Load_Position, .Load_Normal, .Load_Joints0, .Load_Weights0, .Load_Bones},
+		// 		allocator = context.allocator,
+		// 		temp_allocator = context.temp_allocator,
+		// 	},
+		// 	node = rig_document.root.nodes[0],
+		// )
+	}
 
 
 	mesh_res := iris.cube_mesh(1, 1, 1)
