@@ -13,6 +13,7 @@ Document :: struct {
 	textures:   []Texture,
 	samplers:   []Texture_Sampler,
 	animations: []Animation,
+	skins:      []Skin,
 }
 
 Scene :: struct {
@@ -91,6 +92,27 @@ Animation_Channel_Path :: enum {
 	Scale,
 	Weights,
 }
+
+Skin :: struct {
+	name:                  string,
+	skeleton:              ^Node,
+	skeleton_index:        uint,
+	joints:                []^Node,
+	joint_indices:         []uint,
+	inverse_bind_matrices: Skin_Inverse_Bind_Matrices,
+}
+
+Skin_Inverse_Bind_Matrices :: union {
+	Skin_Accessor_Inverse_Bind_Matrices,
+	Skin_Identity_Inverse_Bind_Matrices,
+}
+
+Skin_Accessor_Inverse_Bind_Matrices :: struct {
+	data:  ^Accessor,
+	index: uint,
+}
+
+Skin_Identity_Inverse_Bind_Matrices :: distinct []Mat4f32
 
 Mesh :: struct {
 	name:       string,

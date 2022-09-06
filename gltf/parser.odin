@@ -35,6 +35,7 @@ Error :: enum {
 	Invalid_Animation_Channel_Sampler,
 	Invalid_Animation_Channel_Target,
 	Invalid_Animation_Channel_Path,
+	Invalid_Skin_Joints,
 }
 
 parse_from_file :: proc(
@@ -721,6 +722,55 @@ parse_from_file :: proc(
 		}
 	}
 
+	// Skins
+	if json_skins, has_skins := json_doc["skins"]; has_skins {
+		skins := json_skins.(json.Array)
+		document.skins = make([]Skin, len(skins))
+
+		for json_skin, i in skins {
+			skin_info := json_skin.(json.Object)
+
+			skin: Skin
+			skin.name = strings.clone(skin_info["name"].(string) or_else "")
+
+			if skele, has_skele := skin_info["skeleton"]; has_skele {
+				skin.skeleton_index = uint(skele.(json.Float))
+				skin.skeleton = &document.nodes[skin.skeleton_index]
+			}
+
+			if json_joints, has_joints := skin_info["joints"]; has_joints {
+				joints := json_joints.(json.Array)
+				skin.joints = make([]^Node, len(joints))
+				skin.joint_indices = make([]uint, len(joints))
+
+				for joint, j in joints {
+					index := uint(joint.(json.Float))
+					skin.joint_indices[j] = index
+					skin.joints[j] = &document.nodes[index]
+				}
+			} else {
+				err = .Invalid_Skin_Joints
+				return
+			}
+
+			if ibm, has_ibm := skin_info["inverseBindMatrices"]; has_ibm {
+				accessor_ibm: Skin_Accessor_Inverse_Bind_Matrices
+				accessor_ibm.index = uint(ibm.(json.Float))
+				accessor_ibm.data = &document.accessors[accessor_ibm.index]
+				skin.inverse_bind_matrices = accessor_ibm
+			} else {
+				identity_ibm := make(Skin_Identity_Inverse_Bind_Matrices, len(skin.joints))
+				for j in 0 ..< len(skin.joints) {
+					identity_ibm[j] = MAT4F32_IDENTITY
+				}
+				skin.inverse_bind_matrices = identity_ibm
+			}
+
+			document.skins[i] = skin
+		}
+	}
+
+	// Scenes
 	if json_scenes, has_scenes := json_doc["scenes"]; has_scenes {
 		scenes := json_scenes.(json.Array)
 		document.scenes = make([]Scene, len(scenes))
@@ -832,12 +882,25 @@ destroy_document :: proc(d: ^Document) {
 	}
 	delete(d.meshes)
 
+	// Free animations
 	for animation in d.animations {
 		delete(animation.name)
 		delete(animation.samplers)
 		delete(animation.channels)
 	}
 	delete(d.animations)
+
+	// Free skins
+	for skin in d.skins {
+		delete(skin.name)
+		delete(skin.joints)
+		delete(skin.joint_indices)
+		#partial switch ibm in skin.inverse_bind_matrices {
+		case Skin_Identity_Inverse_Bind_Matrices:
+			delete(ibm)
+		}
+	}
+	delete(d.skins)
 
 	// Free nodes
 	for node in d.nodes {

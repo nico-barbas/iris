@@ -1,5 +1,7 @@
 package gltf
 
+import "core:math/linalg"
+
 Vector2u8 :: [2]u8
 Vector2i16 :: [2]i16
 Vector2u16 :: [2]u16
@@ -35,6 +37,8 @@ Mat4i16 :: matrix[4, 4]i16
 Mat4u16 :: matrix[4, 4]u16
 Mat4u32 :: matrix[4, 4]u32
 Mat4f32 :: matrix[4, 4]f32
+
+MAT4F32_IDENTITY :: linalg.MATRIX4F32_IDENTITY
 
 Quaternion :: quaternion128
 
