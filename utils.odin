@@ -48,16 +48,34 @@ transform :: proc(t := VECTOR_ZERO, r := Quaternion(1), s := VECTOR_ONE) -> Tran
 }
 
 transform_from_matrix :: proc(m: Matrix4) -> (result: Transform) {
-	result.translation = Vector3{m[3][0], m[3][1], m[3][2]}
-	result.rotation = linalg.quaternion_from_matrix4_f32(m)
-	result.scale = Vector3 {
-		0 = linalg.vector_length(Vector3{m[0][0], m[1][0], m[2][0]}),
-		1 = linalg.vector_length(Vector3{m[0][1], m[1][1], m[2][1]}),
-		2 = linalg.vector_length(Vector3{m[0][2], m[1][2], m[2][2]}),
-	}
+	sx := linalg.vector_length(Vector3{m[0][0], m[0][1], m[0][2]})
+	sy := linalg.vector_length(Vector3{m[1][0], m[1][1], m[1][2]})
+	sz := linalg.vector_length(Vector3{m[2][0], m[2][1], m[2][2]})
 	if determinant(m) < 0 {
 		result.scale.x = -result.scale.x
 	}
+
+	result.translation = Vector3{m[3][0], m[3][1], m[3][2]}
+
+	isx := 1 / sx
+	isy := 1 / sy
+	isz := 1 / sz
+
+	_m := m
+	_m[0][0] *= isx
+	_m[0][1] *= isx
+	_m[0][2] *= isx
+
+	_m[1][0] *= isy
+	_m[1][1] *= isy
+	_m[1][2] *= isy
+
+	_m[2][0] *= isz
+	_m[2][1] *= isz
+	_m[2][2] *= isz
+	result.rotation = linalg.quaternion_from_matrix4_f32(_m)
+
+	result.scale = {sx, sy, sz}
 	return
 }
 

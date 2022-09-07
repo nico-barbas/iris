@@ -3,7 +3,7 @@ package main
 import "core:mem"
 import "core:fmt"
 import "core:math"
-import "core:math/linalg"
+// import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
@@ -12,15 +12,20 @@ main :: proc() {
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
-	trs := iris.transform(t = {3, 45, 1}, r = linalg.quaternion_angle_axis_f32(45, {0, 1, 0}), s = {5, 0, 2})
-	mat := linalg.matrix4_from_trs_f32(trs.translation, trs.rotation, trs.scale)
-	fmt.println(mat)
-	trs2 := iris.transform_from_matrix(mat)
-	fmt.println(trs2)
-	// assert(trs.translation == trs2.translation && trs.scale == trs2.scale)
-	mat2 := linalg.matrix4_from_trs_f32(trs2.translation, trs2.rotation, trs2.scale)
-	fmt.println(mat2)
-	assert(mat == mat2)
+	// trs := iris.transform(
+	// 	t = {3, 45, 1},
+	// 	r = linalg.quaternion_angle_axis_f32(45, {0, 1, 0}),
+	// 	s = {5, 1, 2},
+	// )
+	// fmt.println(trs)
+	// mat := linalg.matrix4_from_trs_f32(trs.translation, trs.rotation, trs.scale)
+	// fmt.println(mat)
+	// trs2 := iris.transform_from_matrix(mat)
+	// fmt.println(trs2)
+	// // assert(trs.translation == trs2.translation && trs.scale == trs2.scale)
+	// mat2 := linalg.matrix4_from_trs_f32(trs2.translation, trs2.rotation, trs2.scale)
+	// fmt.println(mat2)
+	// assert(mat == mat2)
 
 	iris.init_app(
 		&iris.App_Config{
@@ -116,7 +121,13 @@ init :: proc(data: iris.App_Data) {
 		iris.model_node_from_gltf(
 			lantern_node,
 			iris.Model_Loader{
-				flags = {.Use_Local_Transform, .Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
+				flags = {
+					.Use_Local_Transform,
+					.Load_Position,
+					.Load_Normal,
+					.Load_Tangent,
+					.Load_TexCoord0,
+				},
 				shader = g.model_shader,
 			},
 			node,
@@ -132,7 +143,10 @@ init :: proc(data: iris.App_Data) {
 
 
 	flat_shader_res := iris.shader_resource(
-		iris.Shader_Loader{vertex_source = FLAT_VERTEX_SHADER, fragment_source = FLAT_FRAGMENT_SHADER},
+		iris.Shader_Loader{
+			vertex_source = FLAT_VERTEX_SHADER,
+			fragment_source = FLAT_FRAGMENT_SHADER,
+		},
 	)
 	flat_material_res := iris.material_resource(
 		iris.Material_Loader{name = "flat", shader = flat_shader_res.data.(^iris.Shader)},
@@ -161,7 +175,7 @@ init :: proc(data: iris.App_Data) {
 		pitch = 45,
 		target = {0, 0.5, 0},
 		target_distance = 10,
-		target_rotation = 0,
+		target_rotation = 90,
 	}
 	update_camera(&g.camera, {}, 0)
 
@@ -187,7 +201,7 @@ init :: proc(data: iris.App_Data) {
 
 		node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
 		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-		iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
+		// iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
 		iris.insert_node(g.scene, g.rig)
 		mesh_node := iris.new_node(g.scene, iris.Model_Node)
 		iris.model_node_from_gltf(
@@ -287,7 +301,11 @@ draw :: proc(data: iris.App_Data) {
 		// iris.draw_model(g.rig, iris.transform(t = {0, 0, 2}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
-		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
+		iris.draw_mesh(
+			g.mesh,
+			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			g.flat_material,
+		)
 
 		iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 	}

@@ -188,7 +188,11 @@ node_offset_transform :: proc(node: ^Node, t: Transform) {
 }
 
 node_local_transform :: proc(node: ^Node, t: Transform) {
-	node.local_transform = linalg.matrix4_from_trs_f32(t = t.translation, r = t.rotation, s = t.scale)
+	node.local_transform = linalg.matrix4_from_trs_f32(
+		t = t.translation,
+		r = t.rotation,
+		s = t.scale,
+	)
 	node.flags += {.Dirty_Transform}
 }
 
@@ -435,7 +439,7 @@ Skin_Joint :: struct {
 	parent:               Maybe(^Skin_Joint),
 	children:             []^Skin_Joint,
 	local_transform:      Transform,
-	root_space_transform: Transform,
+	root_space_transform: Matrix4,
 	inverse_bind:         Matrix4,
 }
 
@@ -471,7 +475,11 @@ skin_node_from_gltf :: proc(skin: ^Skin_Node, node: ^gltf.Node) -> (err: Skin_Lo
 				inverse_bind    = inverse_binds[i],
 			}
 			if len(joint.children) > 0 {
-				skin.joints[i].children = make([]^Skin_Joint, len(joint.children), skin.scene.allocator)
+				skin.joints[i].children = make(
+					[]^Skin_Joint,
+					len(joint.children),
+					skin.scene.allocator,
+				)
 			}
 			skin.joint_lookup[skin_info.joint_indices[i]] = &skin.joints[i]
 		}
@@ -508,15 +516,9 @@ skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {
 			j.local_transform.rotation,
 			j.local_transform.scale,
 		)
-		// parent := linalg.matrix4_from_trs_f32(
-		// 	parent_transform.translation,
-		// 	parent_transform.rotation,
-		// 	parent_transform.scale,
-		// )
-		root_space_mat := parent_transform * local
-		j.root_space_transform = transform_from_matrix(root_space_mat)
+		j.root_space_transform = parent_transform * local
 		for child in j.children {
-			traverse_joint(child, root_space_mat)
+			traverse_joint(child, j.root_space_transform)
 		}
 	}
 	if .Dirty_Joints in skin.derived_flags {
@@ -524,12 +526,7 @@ skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {
 			traverse_joint(root, linalg.MATRIX4F32_IDENTITY)
 		}
 		for joint, i in skin.joints {
-			transform := linalg.matrix4_from_trs_f32(
-				joint.root_space_transform.translation,
-				joint.root_space_transform.rotation,
-				joint.root_space_transform.scale,
-			)
-			skin.joint_matrices[i] = linalg.matrix_mul(skin.global_transform, transform)
+			skin.joint_matrices[i] = skin.global_transform * joint.root_space_transform
 		}
 		skin.derived_flags -= {.Dirty_Joints}
 	}
@@ -539,7 +536,11 @@ skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {
 skin_node_add_animation :: proc(skin: ^Skin_Node, a: ^Animation) {
 	player := Animation_Player {
 		ptr                 = a,
-		channels_info       = make([]Animation_Channel_Info, len(a.channels), skin.scene.allocator),
+		channels_info       = make(
+			[]Animation_Channel_Info,
+			len(a.channels),
+			skin.scene.allocator,
+		),
 		targets             = make([]Animation_Target, len(a.channels), skin.scene.allocator),
 		targets_start_value = make([]Animation_Value, len(a.channels), skin.scene.allocator),
 	}
