@@ -1,5 +1,6 @@
 package iris
 
+import "core:fmt"
 import "core:mem"
 import "core:time"
 import "allocators"
@@ -17,6 +18,7 @@ Resource_Library :: struct {
 	framebuffers:   [dynamic]^Resource,
 	meshes:         [dynamic]^Resource,
 	materials:      map[string]^Resource,
+	animations:     map[string]^Resource,
 	scenes:         map[string]^Resource,
 }
 
@@ -35,6 +37,7 @@ Resource_Data :: union {
 	^Framebuffer,
 	^Mesh,
 	^Material,
+	^Animation,
 	^Scene,
 }
 
@@ -57,6 +60,7 @@ init_library :: proc(lib: ^Resource_Library) {
 	lib.framebuffers.allocator = lib.allocator
 	lib.meshes.allocator = lib.allocator
 	lib.materials.allocator = lib.allocator
+	lib.animations.allocator = lib.allocator
 	lib.scenes.allocator = lib.allocator
 }
 
@@ -103,6 +107,11 @@ close_library :: proc(lib: ^Resource_Library) {
 		free_resource(r)
 	}
 	delete(lib.meshes)
+
+	for _, r in lib.animations {
+		free_resource(r)
+	}
+	delete(lib.animations)
 
 	for _, r in lib.scenes {
 		free_resource(r)
@@ -247,7 +256,19 @@ material_resource :: proc(loader: Material_Loader) -> ^Resource {
 	return resource
 }
 
-scene_resource :: proc() -> ^Resource {
+animation_resource :: proc(loader: Animation_Loader) -> ^Resource {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	data := new_clone(internal_load_empty_animation(loader))
+	resource := new_resource(lib, data)
+
+	lib.animations[data.name] = resource
+	return resource
+}
+
+scene_resource :: proc(name: string) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
@@ -256,7 +277,7 @@ scene_resource :: proc() -> ^Resource {
 	init_scene(data)
 	resource := new_resource(lib, data)
 
-	lib.materials[data.name] = resource
+	lib.scenes[data.name] = resource
 	return resource
 }
 
@@ -313,6 +334,10 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 		destroy_material(r)
 		free(r)
 
+	case ^Animation:
+		destroy_animation(r)
+		free(r)
+
 	case ^Scene:
 		destroy_scene(r)
 		free(r)
@@ -322,11 +347,23 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 
 // glTF resource loading
 load_resources_from_gltf :: proc(document: ^gltf.Document) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
 	for t in document.textures {
 		load_texture_from_gltf(t)
 	}
 	for m in document.materials {
 		load_material_from_gltf(m)
+	}
+	for a, i in document.animations {
+		name: string
+		if a.name == "" {
+			name = fmt.tprintf("animation%d", i)
+		} else {
+			name = a.name
+		}
+		load_animation_from_gltf(name, a)
 	}
 }
 
@@ -367,8 +404,20 @@ texture_from_name :: proc(name: string) -> (result: ^Texture) {
 	for resource in lib.textures {
 		texture := resource.data.(^Texture)
 		if texture.name == name {
-			return texture
+			result = texture
+			return
 		}
 	}
-	return nil
+	return
+}
+
+animation_from_name :: proc(name: string) -> (result: ^Animation, exist: bool) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	resource: ^Resource
+	resource, exist = lib.animations[name]
+	result = resource.data.(^Animation)
+	return
 }

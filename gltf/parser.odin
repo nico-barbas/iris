@@ -1,7 +1,6 @@
 package gltf
 
 import "core:os"
-import "core:fmt"
 import "core:encoding/json"
 import "core:slice"
 import "core:strings"
@@ -801,7 +800,6 @@ parse_from_file :: proc(
 	for node in document.root_nodes {
 		set_node_global_transform :: proc(node: ^Node, parent_transform: Mat4f32) {
 			node.global_transform = linalg.matrix_mul(parent_transform, node.local_transform)
-
 			if len(node.children) > 0 {
 				for child in node.children {
 					set_node_global_transform(child, node.global_transform)

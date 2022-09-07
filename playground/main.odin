@@ -3,7 +3,7 @@ package main
 import "core:mem"
 import "core:fmt"
 import "core:math"
-// import "core:math/linalg"
+import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
@@ -11,6 +11,16 @@ main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
+
+	trs := iris.transform(t = {3, 45, 1}, r = linalg.quaternion_angle_axis_f32(45, {0, 1, 0}), s = {5, 0, 2})
+	mat := linalg.matrix4_from_trs_f32(trs.translation, trs.rotation, trs.scale)
+	fmt.println(mat)
+	trs2 := iris.transform_from_matrix(mat)
+	fmt.println(trs2)
+	// assert(trs.translation == trs2.translation && trs.scale == trs2.scale)
+	mat2 := linalg.matrix4_from_trs_f32(trs2.translation, trs2.rotation, trs2.scale)
+	fmt.println(mat2)
+	assert(mat == mat2)
 
 	iris.init_app(
 		&iris.App_Config{
@@ -80,7 +90,7 @@ init :: proc(data: iris.App_Data) {
 	font_res := iris.font_resource(iris.Font_Loader{path = "ComicMono.ttf", sizes = {32}})
 	g.font = font_res.data.(^iris.Font)
 
-	scene_res := iris.scene_resource()
+	scene_res := iris.scene_resource("main")
 	g.scene = scene_res.data.(^iris.Scene)
 
 	lantern_document, err := gltf.parse_from_file(
@@ -106,69 +116,13 @@ init :: proc(data: iris.App_Data) {
 		iris.model_node_from_gltf(
 			lantern_node,
 			iris.Model_Loader{
-				flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
+				flags = {.Use_Local_Transform, .Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
 				shader = g.model_shader,
 			},
 			node,
 		)
 		iris.insert_node(g.scene, lantern_node, g.lantern)
 	}
-	// g.model = iris.load_model_from_gltf_node(
-	// 	loader = &iris.Model_Loader{
-	// 		document = &lantern_document,
-	// 		shader = g.model_shader,
-	// 		flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
-	// 		allocator = context.allocator,
-	// 		temp_allocator = context.temp_allocator,
-	// 	},
-	// 	node = root,
-	// )
-
-	{
-		skeletal_shader_res := iris.shader_resource(
-			iris.Shader_Loader{
-				vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
-				fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
-			},
-		)
-		g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
-		fmt.println(g.skeletal_shader.uniforms)
-
-		rig_document, _err := gltf.parse_from_file(
-			"rig/Rig.gltf",
-			.Gltf_External,
-			context.temp_allocator,
-			context.temp_allocator,
-		)
-		assert(_err == nil)
-		iris.load_resources_from_gltf(&rig_document)
-
-
-		g.rig = iris.new_node(g.scene, iris.Empty_Node)
-		iris.insert_node(g.scene, g.rig)
-		mesh_node := iris.new_node(g.scene, iris.Model_Node)
-		node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
-		iris.model_node_from_gltf(
-			mesh_node,
-			iris.Model_Loader{
-				flags = {.Load_Position, .Load_Normal, .Load_Joints0, .Load_Weights0, .Load_Bones},
-				shader = g.skeletal_shader,
-			},
-			node,
-		)
-		iris.insert_node(g.scene, mesh_node, g.rig)
-		// g.rig = iris.load_model_from_gltf_node(
-		// 	loader = &iris.Model_Loader{
-		// 		document = &rig_document,
-		// 		shader = g.skeletal_shader,
-		// 		flags = {.Load_Position, .Load_Normal, .Load_Joints0, .Load_Weights0, .Load_Bones},
-		// 		allocator = context.allocator,
-		// 		temp_allocator = context.temp_allocator,
-		// 	},
-		// 	node = rig_document.root.nodes[0],
-		// )
-	}
-
 
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
@@ -178,10 +132,7 @@ init :: proc(data: iris.App_Data) {
 
 
 	flat_shader_res := iris.shader_resource(
-		iris.Shader_Loader{
-			vertex_source = FLAT_VERTEX_SHADER,
-			fragment_source = FLAT_FRAGMENT_SHADER,
-		},
+		iris.Shader_Loader{vertex_source = FLAT_VERTEX_SHADER, fragment_source = FLAT_FRAGMENT_SHADER},
 	)
 	flat_material_res := iris.material_resource(
 		iris.Material_Loader{name = "flat", shader = flat_shader_res.data.(^iris.Shader)},
@@ -216,10 +167,61 @@ init :: proc(data: iris.App_Data) {
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 
+	{
+		skeletal_shader_res := iris.shader_resource(
+			iris.Shader_Loader{
+				vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
+				fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
+			},
+		)
+		g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
+
+		rig_document, _err := gltf.parse_from_file(
+			"rig/Rig.gltf",
+			.Gltf_External,
+			context.temp_allocator,
+			context.temp_allocator,
+		)
+		assert(_err == nil)
+		iris.load_resources_from_gltf(&rig_document)
+
+		node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
+		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
+		iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
+		iris.insert_node(g.scene, g.rig)
+		mesh_node := iris.new_node(g.scene, iris.Model_Node)
+		iris.model_node_from_gltf(
+			mesh_node,
+			iris.Model_Loader{
+				flags = {
+					.Use_Identity,
+					.Load_Position,
+					.Load_Normal,
+					.Load_Joints0,
+					.Load_Weights0,
+					.Load_Bones,
+				},
+				shader = g.skeletal_shader,
+			},
+			node,
+		)
+		iris.insert_node(g.scene, mesh_node, g.rig)
+
+		skin_node := iris.new_node(g.scene, iris.Skin_Node)
+		iris.skin_node_from_gltf(skin_node, node)
+		iris.skin_node_target(skin_node, mesh_node)
+		iris.insert_node(g.scene, skin_node, g.rig)
+
+		animation, _ := iris.animation_from_name("animation0")
+		iris.skin_node_add_animation(skin_node, animation)
+		iris.skin_node_play_animation(skin_node, "animation0")
+	}
+
 }
 
 update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
+	dt := f32(iris.elapsed_time())
 	m_delta := iris.mouse_delta()
 	m_right := iris.mouse_button_state(.Right)
 	m_scroll := iris.mouse_scroll()
@@ -229,7 +231,7 @@ update :: proc(data: iris.App_Data) {
 		update_camera(&g.camera, 0, m_scroll)
 	}
 
-	g.delta += f32(iris.elapsed_time())
+	g.delta += dt
 	if g.delta >= 10 {
 		g.delta = 0.5
 	}
@@ -241,7 +243,7 @@ update :: proc(data: iris.App_Data) {
 		g.lantern,
 		iris.transform(t = iris.Vector3{g.delta / 2, 0, 0}, s = {0.1, 0.1, 0.1}),
 	)
-	iris.update_scene(g.scene, 0.0)
+	iris.update_scene(g.scene, dt)
 	// Animation stuff
 	// {
 	// 	joint_matrices := [2]iris.Matrix4{
@@ -285,11 +287,7 @@ draw :: proc(data: iris.App_Data) {
 		// iris.draw_model(g.rig, iris.transform(t = {0, 0, 2}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
-		iris.draw_mesh(
-			g.mesh,
-			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
-			g.flat_material,
-		)
+		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
 
 		iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 	}
@@ -595,6 +593,7 @@ out VS_OUT {
 } frag;
 
 uniform mat4 matJoints[2];
+uniform mat4 matModelLocal;
 
 void main()
 {
@@ -607,7 +606,7 @@ void main()
 		attribWeights.y * matJoints[int(attribJoints.y)] +
 		attribWeights.z * matJoints[int(attribJoints.z)] +
 		attribWeights.w * matJoints[int(attribJoints.w)];
-	mat4 mvp = projView * matSkin;
+	mat4 mvp = projView * matModelLocal * matSkin;
     gl_Position = mvp*vec4(attribPosition, 1.0);
 }  
 `

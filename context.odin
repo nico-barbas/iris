@@ -81,10 +81,11 @@ Render_Command :: union {
 }
 
 Render_Mesh_Command :: struct {
-	mesh:         ^Mesh,
-	transform:    Matrix4,
-	material:     ^Material,
-	cast_shadows: bool,
+	mesh:             ^Mesh,
+	local_transform:  Matrix4,
+	global_transform: Matrix4,
+	material:         ^Material,
+	cast_shadows:     bool,
 }
 
 Render_Quad_Command :: struct {
@@ -232,7 +233,7 @@ end_render :: proc() {
 	for command in &ctx.commands {
 		switch c in &command {
 		case Render_Mesh_Command:
-			set_shader_uniform(ctx.depth_shader, "matModel", &c.transform[0][0])
+			set_shader_uniform(ctx.depth_shader, "matModel", &c.global_transform[0][0])
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
@@ -258,11 +259,16 @@ end_render :: proc() {
 				bind_shader(c.material.shader)
 				current_shader = c.material.shader.handle
 			}
-			model_mat := c.transform
+			model_mat := c.global_transform
 			mvp := linalg.matrix_mul(ctx.projection_view, model_mat)
-			set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
+			if _, exist := c.material.shader.uniforms["mvp"]; exist {
+				set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
+			}
 			if _, exist := c.material.shader.uniforms["matModel"]; exist {
 				set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matModelLocal"]; exist {
+				set_shader_uniform(c.material.shader, "matModelLocal", &c.local_transform[0][0])
 			}
 			if _, exist := c.material.shader.uniforms["matNormal"]; exist {
 				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(model_mat)

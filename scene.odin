@@ -17,6 +17,7 @@ Scene :: struct {
 }
 
 Node :: struct {
+	scene:            ^Scene,
 	flags:            Node_Flags,
 	local_transform:  Matrix4,
 	global_transform: Matrix4,
@@ -32,6 +33,7 @@ Node_Flag :: enum {
 	Active,
 	Root_Node,
 	Dirty_Transform,
+	Rendered,
 }
 
 Any_Node :: union {
@@ -42,20 +44,6 @@ Any_Node :: union {
 
 Empty_Node :: struct {
 	using base: Node,
-}
-
-Skin_Node :: struct {
-	using base:   Node,
-	target:       ^Model_Node,
-	joints:       []Skin_Joint,
-	joint_lookup: map[uint]^Skin_Joint,
-}
-
-Skin_Joint :: struct {
-	children:         []^Skin_Joint,
-	local_transform:  Transform,
-	global_transform: Transform,
-	inverse_bind:     Matrix4,
 }
 
 Model_Node :: struct {
@@ -85,25 +73,25 @@ destroy_scene :: proc(scene: ^Scene) {
 }
 
 update_scene :: proc(scene: ^Scene, dt: f32) {
-	update_node_transform :: proc(node: ^Node, parent_transform: Matrix4) {
+	traverse_node :: proc(node: ^Node, parent_transform: Matrix4, dt: f32) {
 		if .Dirty_Transform in node.flags {
 			node.flags -= {.Dirty_Transform}
 		}
 		node.global_transform = linalg.matrix_mul(node.local_transform, parent_transform)
+		switch n in node.derived {
+		case ^Empty_Node:
+
+		case ^Model_Node:
+
+		case ^Skin_Node:
+			update_skin_node(n, dt)
+		}
 		for child in node.children {
-			update_node_transform(child, node.global_transform)
+			traverse_node(child, node.global_transform, dt)
 		}
 	}
-	for node in scene.nodes {
-		if .Dirty_Transform in node.flags {
-			parent_transform: Matrix4
-			if .Root_Node in node.flags {
-				parent_transform = linalg.MATRIX4F32_IDENTITY
-			} else {
-				parent_transform = node.parent.global_transform
-			}
-			update_node_transform(node, parent_transform)
-		}
+	for root in scene.roots {
+		traverse_node(root, linalg.MATRIX4F32_IDENTITY, dt)
 	}
 }
 
@@ -111,16 +99,38 @@ render_scene :: proc(scene: ^Scene) {
 	traverse_node :: proc(node: ^Node) {
 		#partial switch n in node.derived {
 		case ^Model_Node:
-			mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
-			for mesh, i in n.meshes {
-				push_draw_command(
-					Render_Mesh_Command{
-						mesh = mesh,
-						transform = mat_model,
-						material = n.materials[i],
-						cast_shadows = true,
-					},
-				)
+			if .Rendered in n.flags {
+				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+				for mesh, i in n.meshes {
+					push_draw_command(
+						Render_Mesh_Command{
+							mesh = mesh,
+							global_transform = mat_model,
+							material = n.materials[i],
+							cast_shadows = true,
+						},
+					)
+				}
+			}
+		case ^Skin_Node:
+			if .Rendered in n.flags {
+				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
+				for mesh, i in n.target.meshes {
+					model_shader := n.target.materials[i].shader
+					if _, exist := model_shader.uniforms["matJoints"]; exist {
+						joint_matrices := skin_node_joint_matrices(n)
+						set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
+					}
+					push_draw_command(
+						Render_Mesh_Command{
+							mesh = mesh,
+							global_transform = mat_model,
+							local_transform = n.target.local_transform,
+							material = n.target.materials[i],
+							cast_shadows = true,
+						},
+					)
+				}
 			}
 		}
 		for child in node.children {
@@ -135,6 +145,7 @@ render_scene :: proc(scene: ^Scene) {
 new_node :: proc(scene: ^Scene, $T: typeid, local := linalg.MATRIX4F32_IDENTITY) -> ^T {
 	node := new(T)
 	node.derived = node
+	node.scene = scene
 
 	node.local_transform = local
 	init_node(scene, node)
@@ -144,17 +155,19 @@ new_node :: proc(scene: ^Scene, $T: typeid, local := linalg.MATRIX4F32_IDENTITY)
 
 init_node :: proc(scene: ^Scene, node: ^Node) {
 	node.children.allocator = scene.allocator
-	node.local_transform = linalg.MATRIX4F32_IDENTITY
-	node.global_transform = linalg.MATRIX4F32_IDENTITY
 	switch n in node.derived {
 	case ^Empty_Node:
 
 	case ^Model_Node:
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
+		n.flags += {.Rendered}
 
 	case ^Skin_Node:
-
+		n.flags -= {.Rendered}
+		n.joint_roots.allocator = scene.allocator
+		n.joint_lookup.allocator = scene.allocator
+		n.animations.allocator = scene.allocator
 	}
 }
 
@@ -170,16 +183,12 @@ insert_node :: proc(scene: ^Scene, node: ^Node, parent: ^Node = nil) {
 
 node_offset_transform :: proc(node: ^Node, t: Transform) {
 	transform := linalg.matrix4_from_trs_f32(t = t.translation, r = t.rotation, s = t.scale)
-	node.local_transform = linalg.matrix_mul(node.local_transform, transform)
+	node.local_transform = linalg.matrix_mul(transform, node.local_transform)
 	node.flags += {.Dirty_Transform}
 }
 
 node_local_transform :: proc(node: ^Node, t: Transform) {
-	node.local_transform = linalg.matrix4_from_trs_f32(
-		t = t.translation,
-		r = t.rotation,
-		s = t.scale,
-	)
+	node.local_transform = linalg.matrix4_from_trs_f32(t = t.translation, r = t.rotation, s = t.scale)
 	node.flags += {.Dirty_Transform}
 }
 
@@ -192,6 +201,9 @@ Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
 
 Model_Loader_Flag :: enum {
 	Flip_Normals,
+	Use_Global_Transform,
+	Use_Local_Transform,
+	Use_Identity,
 	Load_Position,
 	Load_Normal,
 	Load_Tangent,
@@ -219,7 +231,13 @@ model_node_from_gltf :: proc(
 ) {
 	if node.mesh != nil {
 		data := node.mesh.?
-		model.mesh_transform = node.global_transform
+		if .Use_Global_Transform in loader.flags {
+			model.mesh_transform = node.global_transform
+		} else if .Use_Local_Transform in loader.flags {
+			model.mesh_transform = node.local_transform
+		} else {
+			model.mesh_transform = linalg.MATRIX4F32_IDENTITY
+		}
 		for _, i in data.primitives {
 			begin_temp_allocation()
 
@@ -242,128 +260,6 @@ model_node_from_gltf :: proc(
 	}
 	return
 }
-
-// model_node_from_mesh
-
-
-// Model :: struct {
-// 	nodes: [dynamic]_Model_Node,
-// }
-
-// _Model_Node :: struct {
-// 	mesh:      ^Mesh,
-// 	transform: Matrix4,
-// 	material:  ^Material,
-// }
-
-// Model_Bone :: struct {
-// 	id:           uint,
-// 	transform:    Matrix4,
-// 	inverse_bind: Matrix4,
-// }
-
-// Model_Loader :: struct {
-// 	flags:          Model_Loader_Flags,
-// 	shader:         ^Shader,
-// 	model:          ^Model,
-// 	document:       ^gltf.Document,
-// 	allocator:      mem.Allocator,
-// 	temp_allocator: mem.Allocator,
-// }
-
-// Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
-
-// Model_Loader_Flag :: enum {
-// 	Flip_Normals,
-// 	Load_Position,
-// 	Load_Normal,
-// 	Load_Tangent,
-// 	Load_Joints0,
-// 	Load_Weights0,
-// 	Load_TexCoord0,
-
-// 	// Specific data
-// 	Load_Bones,
-// }
-
-// Model_Loading_Error :: enum {
-// 	None,
-// 	Missing_Mesh_Indices,
-// 	Missing_Mesh_Attribute,
-// }
-
-// load_model_from_gltf_node :: proc(loader: ^Model_Loader, node: ^gltf.Node) -> Model {
-// 	traverse_node_tree :: proc(loader: ^Model_Loader, node: ^gltf.Node) {
-// 		if node.mesh != nil {
-// 			data := node.mesh.?
-// 			for _, i in data.primitives {
-// 				begin_temp_allocation()
-// 				mesh_node: _Model_Node
-
-// 				mesh_res, err := load_mesh_from_gltf(loader = loader, p = &data.primitives[i])
-// 				assert(err == nil)
-
-// 				mesh_node.mesh = mesh_res.data.(^Mesh)
-// 				mesh_node.transform = node.global_transform
-
-// 				material, exist := material_from_name(data.primitives[0].material.name)
-// 				if !exist {
-// 					material = load_material_from_gltf(data.primitives[0].material^)
-// 				}
-// 				mesh_node.material = material
-// 				mesh_node.material.shader = loader.shader
-// 				end_temp_allocation()
-// 				append(&loader.model.nodes, mesh_node)
-// 			}
-// 		}
-
-// 		if node.skin != nil && .Load_Bones in loader.flags {
-// 			data := node.skin.?
-// 			ibm: []Matrix4
-// 			switch gltf_ibm in data.inverse_bind_matrices {
-// 			case gltf.Skin_Accessor_Inverse_Bind_Matrices:
-// 				ibm = slice.reinterpret([]Matrix4, gltf_ibm.data.([]gltf.Mat4f32))
-// 			case gltf.Skin_Identity_Inverse_Bind_Matrices:
-// 				ibm = slice.reinterpret([]Matrix4, gltf_ibm)
-// 			}
-// 			for joint, i in data.joints {
-// 				bone := Model_Bone {
-// 					id           = uint(i),
-// 					transform    = joint.global_transform,
-// 					inverse_bind = ibm[i],
-// 				}
-// 				append(&loader.model.bones, bone)
-// 			}
-// 		}
-
-// 		for child in node.children {
-// 			begin_temp_allocation()
-// 			traverse_node_tree(loader, child)
-// 			end_temp_allocation()
-// 		}
-// 	}
-
-// 	model: Model
-// 	if loader.model == nil {
-// 		model.nodes.allocator = loader.allocator
-// 		loader.model = &model
-// 	} else {
-// 		loader.model.nodes.allocator = loader.allocator
-// 	}
-// 	traverse_node_tree(loader, node)
-// 	return loader.model^
-// }
-
-// draw_model :: proc(model: Model, t: Transform) {
-// 	for node in model.nodes {
-// 		model_mat := linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
-// 		model_mat = linalg.matrix_mul(model_mat, node.transform)
-// 		push_draw_command(
-// 			Render_Mesh_Command{mesh = node.mesh, transform = model_mat, material = node.material},
-// 		)
-// 	}
-// }
-
 
 load_mesh_from_gltf :: proc(
 	loader: Model_Loader,
@@ -521,6 +417,36 @@ load_mesh_from_gltf :: proc(
 	return
 }
 
+Skin_Node :: struct {
+	using base:     Node,
+	derived_flags:  Skin_Flags,
+	target:         ^Model_Node,
+	joints:         []Skin_Joint,
+	joint_roots:    [dynamic]^Skin_Joint,
+	joint_lookup:   map[uint]^Skin_Joint,
+	joint_matrices: []Matrix4,
+
+	// Animation data
+	animations:     map[string]Animation_Player,
+	player:         ^Animation_Player,
+}
+
+Skin_Joint :: struct {
+	parent:               Maybe(^Skin_Joint),
+	children:             []^Skin_Joint,
+	local_transform:      Transform,
+	root_space_transform: Transform,
+	inverse_bind:         Matrix4,
+}
+
+Skin_Flags :: distinct bit_set[Skin_Flag]
+
+Skin_Flag :: enum {
+	Dirty_Joints,
+	Dirty_Animation_Start_Values,
+	Playing,
+}
+
 Skin_Loading_Error :: enum {
 	None,
 	Invalid_Node,
@@ -528,27 +454,129 @@ Skin_Loading_Error :: enum {
 
 skin_node_from_gltf :: proc(skin: ^Skin_Node, node: ^gltf.Node) -> (err: Skin_Loading_Error) {
 	if node.skin != nil {
-		skin_data := node.skin.?
+		skin_info := node.skin.?
 		inverse_binds: []Matrix4
-		switch ibm in skin_data.inverse_bind_matrices {
+		switch ibm in skin_info.inverse_bind_matrices {
 		case gltf.Skin_Accessor_Inverse_Bind_Matrices:
 			inverse_binds = slice.reinterpret([]Matrix4, ibm.data.([]gltf.Mat4f32))
 		case gltf.Skin_Identity_Inverse_Bind_Matrices:
-			inverse_binds = ibm
+			inverse_binds = slice.reinterpret([]Matrix4, ibm)
 		}
 
-		skin.joints = make([]Skin_Joint, len(skin_data.joints))
-		for joint, i in skin_data.joints {
-			skin.joints[i] = Skin_Joint{
-				children = make([]^Skin_Joint, len(joint.children))
-				local_transform = joint.local_transform,
-				global_transform = joint.global_transform,
-				inverse_binds = inverse_binds[i],
+		skin.joints = make([]Skin_Joint, len(skin_info.joints), skin.scene.allocator)
+		skin.joint_matrices = make([]Matrix4, len(skin_info.joints), skin.scene.allocator)
+		for joint, i in skin_info.joints {
+			skin.joints[i] = Skin_Joint {
+				local_transform = transform_from_matrix(joint.local_transform),
+				inverse_bind    = inverse_binds[i],
 			}
-			skin.joint_lookup[skin_data.joint_indices[i]] = &skin.joints[i]
+			if len(joint.children) > 0 {
+				skin.joints[i].children = make([]^Skin_Joint, len(joint.children), skin.scene.allocator)
+			}
+			skin.joint_lookup[skin_info.joint_indices[i]] = &skin.joints[i]
 		}
+		for joint_info, i in skin_info.joints {
+			joint := &skin.joints[i]
+			for child_index, j in joint_info.children_indices {
+				joint.children[j] = skin.joint_lookup[child_index]
+				skin.joint_lookup[child_index].parent = joint.children[j]
+			}
+		}
+
+		for joint, i in skin.joints {
+			if joint.parent == nil {
+				append(&skin.joint_roots, &skin.joints[i])
+			}
+		}
+		skin.derived_flags += {.Dirty_Joints}
 	} else {
 		err = .Invalid_Node
-		return
+	}
+	return
+}
+
+skin_node_target :: proc(skin: ^Skin_Node, model: ^Model_Node) {
+	skin.target = model
+	skin.flags += {.Rendered}
+	skin.target.flags -= {.Rendered}
+}
+
+skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {
+	traverse_joint :: proc(j: ^Skin_Joint, parent_transform: Matrix4) {
+		local := linalg.matrix4_from_trs_f32(
+			j.local_transform.translation,
+			j.local_transform.rotation,
+			j.local_transform.scale,
+		)
+		// parent := linalg.matrix4_from_trs_f32(
+		// 	parent_transform.translation,
+		// 	parent_transform.rotation,
+		// 	parent_transform.scale,
+		// )
+		root_space_mat := parent_transform * local
+		j.root_space_transform = transform_from_matrix(root_space_mat)
+		for child in j.children {
+			traverse_joint(child, root_space_mat)
+		}
+	}
+	if .Dirty_Joints in skin.derived_flags {
+		for root in skin.joint_roots {
+			traverse_joint(root, linalg.MATRIX4F32_IDENTITY)
+		}
+		for joint, i in skin.joints {
+			transform := linalg.matrix4_from_trs_f32(
+				joint.root_space_transform.translation,
+				joint.root_space_transform.rotation,
+				joint.root_space_transform.scale,
+			)
+			skin.joint_matrices[i] = linalg.matrix_mul(skin.global_transform, transform)
+		}
+		skin.derived_flags -= {.Dirty_Joints}
+	}
+	return skin.joint_matrices
+}
+
+skin_node_add_animation :: proc(skin: ^Skin_Node, a: ^Animation) {
+	player := Animation_Player {
+		ptr                 = a,
+		channels_info       = make([]Animation_Channel_Info, len(a.channels), skin.scene.allocator),
+		targets             = make([]Animation_Target, len(a.channels), skin.scene.allocator),
+		targets_start_value = make([]Animation_Value, len(a.channels), skin.scene.allocator),
+	}
+	for channel, i in a.channels {
+		if joint, exist := skin.joint_lookup[channel.target_id]; exist {
+			switch channel.kind {
+			case .Translation:
+				player.targets[i] = &joint.local_transform.translation
+				player.targets_start_value[i] = joint.local_transform.translation
+			case .Rotation:
+				player.targets[i] = &joint.local_transform.rotation
+				player.targets_start_value[i] = joint.local_transform.rotation
+			case .Scale:
+				player.targets[i] = &joint.local_transform.scale
+				player.targets_start_value[i] = joint.local_transform.scale
+			}
+		}
+	}
+	skin.animations[a.name] = player
+}
+
+skin_node_play_animation :: proc(skin: ^Skin_Node, name: string) {
+	if _, exist := skin.animations[name]; exist {
+		skin.player = &skin.animations[name]
+		reset_animation(skin.player)
+		skin.derived_flags += {.Playing}
+	} else {
+		log.warnf("%s: Invalid animation name: %s", App_Module.Skin, name)
+	}
+}
+
+update_skin_node :: proc(skin: ^Skin_Node, dt: f32) {
+	if .Playing in skin.derived_flags {
+		complete := advance_animation(skin.player, dt)
+		skin.derived_flags += {.Dirty_Joints}
+		if complete && !skin.player.loop {
+			skin.derived_flags -= {.Playing}
+		}
 	}
 }
