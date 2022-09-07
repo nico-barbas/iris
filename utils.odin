@@ -42,6 +42,17 @@ transform :: proc(t := VECTOR_ZERO, r := Quaternion(1), s := VECTOR_ONE) -> Tran
 	return {translation = t, rotation = r, scale = s}
 }
 
+transform_from_matrix :: proc(m: Matrix4) -> (result: Transform) {
+	result.translation = m[3].xyz
+	result.rotation = linalg.quaternion_from_matrix4_f32(m)
+	result.scale = Vector3 {
+		0 = linalg.vector_length(m[0].xyz),
+		1 = linalg.vector_length(m[1].xyz),
+		2 = linalg.vector_length(m[2].xyz),
+	}
+	return
+}
+
 
 set_viewport :: proc(width, height: int) {
 	gl.Viewport(0, 0, i32(width), i32(height))

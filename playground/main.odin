@@ -51,6 +51,7 @@ Game :: struct {
 	mesh:              ^iris.Mesh,
 	lantern:           ^iris.Node,
 	rig:               ^iris.Node,
+	skin:              ^iris.Node,
 	// model:             iris.Model,
 	// rig:               iris.Model,
 	model_shader:      ^iris.Shader,
@@ -145,6 +146,17 @@ init :: proc(data: iris.App_Data) {
 
 		g.rig = iris.new_node(g.scene, iris.Empty_Node)
 		iris.insert_node(g.scene, g.rig)
+		mesh_node := iris.new_node(g.scene, iris.Model_Node)
+		node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
+		iris.model_node_from_gltf(
+			mesh_node,
+			iris.Model_Loader{
+				flags = {.Load_Position, .Load_Normal, .Load_Joints0, .Load_Weights0, .Load_Bones},
+				shader = g.skeletal_shader,
+			},
+			node,
+		)
+		iris.insert_node(g.scene, mesh_node, g.rig)
 		// g.rig = iris.load_model_from_gltf_node(
 		// 	loader = &iris.Model_Loader{
 		// 		document = &rig_document,
@@ -166,7 +178,10 @@ init :: proc(data: iris.App_Data) {
 
 
 	flat_shader_res := iris.shader_resource(
-		iris.Shader_Loader{vertex_source = FLAT_VERTEX_SHADER, fragment_source = FLAT_FRAGMENT_SHADER},
+		iris.Shader_Loader{
+			vertex_source = FLAT_VERTEX_SHADER,
+			fragment_source = FLAT_FRAGMENT_SHADER,
+		},
 	)
 	flat_material_res := iris.material_resource(
 		iris.Material_Loader{name = "flat", shader = flat_shader_res.data.(^iris.Shader)},
@@ -270,7 +285,11 @@ draw :: proc(data: iris.App_Data) {
 		// iris.draw_model(g.rig, iris.transform(t = {0, 0, 2}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
-		iris.draw_mesh(g.mesh, iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}), g.flat_material)
+		iris.draw_mesh(
+			g.mesh,
+			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			g.flat_material,
+		)
 
 		iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 	}

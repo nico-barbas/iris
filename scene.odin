@@ -45,9 +45,17 @@ Empty_Node :: struct {
 }
 
 Skin_Node :: struct {
-	using base: Node,
-	target:     ^Model_Node,
-	joints:     []Transform,
+	using base:   Node,
+	target:       ^Model_Node,
+	joints:       []Skin_Joint,
+	joint_lookup: map[uint]^Skin_Joint,
+}
+
+Skin_Joint :: struct {
+	children:         []^Skin_Joint,
+	local_transform:  Transform,
+	global_transform: Transform,
+	inverse_bind:     Matrix4,
 }
 
 Model_Node :: struct {
@@ -167,7 +175,11 @@ node_offset_transform :: proc(node: ^Node, t: Transform) {
 }
 
 node_local_transform :: proc(node: ^Node, t: Transform) {
-	node.local_transform = linalg.matrix4_from_trs_f32(t = t.translation, r = t.rotation, s = t.scale)
+	node.local_transform = linalg.matrix4_from_trs_f32(
+		t = t.translation,
+		r = t.rotation,
+		s = t.scale,
+	)
 	node.flags += {.Dirty_Transform}
 }
 
@@ -507,4 +519,36 @@ load_mesh_from_gltf :: proc(
 		},
 	)
 	return
+}
+
+Skin_Loading_Error :: enum {
+	None,
+	Invalid_Node,
+}
+
+skin_node_from_gltf :: proc(skin: ^Skin_Node, node: ^gltf.Node) -> (err: Skin_Loading_Error) {
+	if node.skin != nil {
+		skin_data := node.skin.?
+		inverse_binds: []Matrix4
+		switch ibm in skin_data.inverse_bind_matrices {
+		case gltf.Skin_Accessor_Inverse_Bind_Matrices:
+			inverse_binds = slice.reinterpret([]Matrix4, ibm.data.([]gltf.Mat4f32))
+		case gltf.Skin_Identity_Inverse_Bind_Matrices:
+			inverse_binds = ibm
+		}
+
+		skin.joints = make([]Skin_Joint, len(skin_data.joints))
+		for joint, i in skin_data.joints {
+			skin.joints[i] = Skin_Joint{
+				children = make([]^Skin_Joint, len(joint.children))
+				local_transform = joint.local_transform,
+				global_transform = joint.global_transform,
+				inverse_binds = inverse_binds[i],
+			}
+			skin.joint_lookup[skin_data.joint_indices[i]] = &skin.joints[i]
+		}
+	} else {
+		err = .Invalid_Node
+		return
+	}
 }
