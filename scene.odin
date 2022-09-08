@@ -40,6 +40,7 @@ Any_Node :: union {
 	^Empty_Node,
 	^Model_Node,
 	^Skin_Node,
+	^Canvas_Node,
 }
 
 Empty_Node :: struct {
@@ -74,10 +75,12 @@ destroy_scene :: proc(scene: ^Scene) {
 
 update_scene :: proc(scene: ^Scene, dt: f32) {
 	traverse_node :: proc(node: ^Node, parent_transform: Matrix4, dt: f32) {
+		children_dirty_transform := false
 		if .Dirty_Transform in node.flags {
+			node.global_transform = linalg.matrix_mul(node.local_transform, parent_transform)
 			node.flags -= {.Dirty_Transform}
+			children_dirty_transform = true
 		}
-		node.global_transform = linalg.matrix_mul(node.local_transform, parent_transform)
 		switch n in node.derived {
 		case ^Empty_Node:
 
@@ -85,8 +88,14 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 
 		case ^Skin_Node:
 			update_skin_node(n, dt)
+
+		case ^Canvas_Node:
+			prepare_canvas_node_render(n)
 		}
 		for child in node.children {
+			if children_dirty_transform {
+				child.flags += {.Dirty_Transform}
+			}
 			traverse_node(child, node.global_transform, dt)
 		}
 	}
@@ -97,9 +106,11 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 
 render_scene :: proc(scene: ^Scene) {
 	traverse_node :: proc(node: ^Node) {
-		#partial switch n in node.derived {
-		case ^Model_Node:
-			if .Rendered in n.flags {
+		if .Rendered in node.flags {
+			switch n in node.derived {
+			case ^Empty_Node:
+
+			case ^Model_Node:
 				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 				for mesh, i in n.meshes {
 					push_draw_command(
@@ -111,9 +122,7 @@ render_scene :: proc(scene: ^Scene) {
 						},
 					)
 				}
-			}
-		case ^Skin_Node:
-			if .Rendered in n.flags {
+			case ^Skin_Node:
 				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
 				for mesh, i in n.target.meshes {
 					model_shader := n.target.materials[i].shader
@@ -131,6 +140,14 @@ render_scene :: proc(scene: ^Scene) {
 						},
 					)
 				}
+			case ^Canvas_Node:
+				push_draw_command(
+					Render_Custom_Command{
+						data = n,
+						render_proc = flush_canvas_node_buffers,
+						options = {.Disable_Culling},
+					},
+				)
 			}
 		}
 		for child in node.children {
@@ -144,6 +161,17 @@ render_scene :: proc(scene: ^Scene) {
 
 new_node :: proc(scene: ^Scene, $T: typeid, local := linalg.MATRIX4F32_IDENTITY) -> ^T {
 	node := new(T)
+	node.derived = node
+	node.scene = scene
+
+	node.local_transform = local
+	init_node(scene, node)
+	append(&scene.nodes, node)
+	return node
+}
+
+new_node_from :: proc(scene: ^Scene, from: $T, local := linalg.MATRIX4F32_IDENTITY) -> ^T {
+	node := new_clone(from)
 	node.derived = node
 	node.scene = scene
 
@@ -168,6 +196,10 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		n.joint_roots.allocator = scene.allocator
 		n.joint_lookup.allocator = scene.allocator
 		n.animations.allocator = scene.allocator
+
+	case ^Canvas_Node:
+		n.flags += {.Rendered}
+		init_canvas_node(n)
 	}
 }
 
@@ -526,7 +558,8 @@ skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {
 			traverse_joint(root, linalg.MATRIX4F32_IDENTITY)
 		}
 		for joint, i in skin.joints {
-			skin.joint_matrices[i] = skin.global_transform * joint.root_space_transform
+			skin.joint_matrices[i] =
+				skin.global_transform * joint.root_space_transform * joint.inverse_bind
 		}
 		skin.derived_flags -= {.Dirty_Joints}
 	}
@@ -549,14 +582,12 @@ skin_node_add_animation :: proc(skin: ^Skin_Node, a: ^Animation) {
 			switch channel.kind {
 			case .Translation:
 				player.targets[i] = &joint.local_transform.translation
-				player.targets_start_value[i] = joint.local_transform.translation
 			case .Rotation:
 				player.targets[i] = &joint.local_transform.rotation
-				player.targets_start_value[i] = joint.local_transform.rotation
 			case .Scale:
 				player.targets[i] = &joint.local_transform.scale
-				player.targets_start_value[i] = joint.local_transform.scale
 			}
+			player.targets_start_value[i] = compute_animation_start_value(channel)
 		}
 	}
 	skin.animations[a.name] = player

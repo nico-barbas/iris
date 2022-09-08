@@ -8,8 +8,9 @@ import "core:strings"
 import gl "vendor:OpenGL"
 
 Shader :: struct {
-	handle:   u32,
-	uniforms: map[string]Shader_Uniform_Info,
+	handle:           u32,
+	uniforms:         map[string]Shader_Uniform_Info,
+	uniform_warnings: map[string]bool,
 }
 
 Shader_Uniform_Loc :: distinct i32
@@ -111,6 +112,7 @@ internal_load_shader_from_bytes :: proc(
 		return shader
 	}
 	shader.uniforms = make(map[string]Shader_Uniform_Info, runtime.DEFAULT_RESERVE_CAPACITY, allocator)
+	shader.uniform_warnings.allocator = allocator
 
 	max_name_len: i32
 	cur_name_len: i32
@@ -224,13 +226,17 @@ uniform_kind :: proc(t: u32) -> (kind: Shader_Uniform_Kind) {
 
 set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
-		log.fatalf(
-			"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
-			App_Module.Shader,
-			shader.handle,
-			name,
-			loc,
-		)
+		if exist = name in shader.uniform_warnings; !exist {
+			log.fatalf(
+				"%s: Shader ID[%d]: Failed to retrieve uniform: %s\nCall location: %v",
+				App_Module.Shader,
+				shader.handle,
+				name,
+				loc,
+			)
+			allocator := shader.uniform_warnings.allocator
+			shader.uniform_warnings[strings.clone(name, allocator)] = true
+		}
 		return
 	}
 	bind_shader(shader)

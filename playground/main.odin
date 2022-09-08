@@ -3,7 +3,7 @@ package main
 import "core:mem"
 import "core:fmt"
 import "core:math"
-// import "core:math/linalg"
+import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
@@ -67,6 +67,7 @@ Game :: struct {
 	lantern:           ^iris.Node,
 	rig:               ^iris.Node,
 	skin:              ^iris.Node,
+	canvas:            ^iris.Canvas_Node,
 	// model:             iris.Model,
 	// rig:               iris.Model,
 	model_shader:      ^iris.Shader,
@@ -113,9 +114,14 @@ init :: proc(data: iris.App_Data) {
 	)
 	g.model_shader = model_shader_res.data.(^iris.Shader)
 
-	g.lantern = iris.new_node(g.scene, iris.Empty_Node, root.local_transform)
+	lt := iris.transform(t = {1, 0, 1}, s = {0.1, 0.1, 0.1})
+	lantern_transform := linalg.matrix_mul(
+		linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
+		root.local_transform,
+	)
+	g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
 	iris.insert_node(g.scene, g.lantern)
-	iris.node_local_transform(g.lantern, iris.transform(s = {0.1, 0.1, 0.1}))
+	// iris.node_local_transform(g.lantern, iris.transform(s = {0.1, 0.1, 0.1}))
 	for node in root.children {
 		lantern_node := iris.new_node(g.scene, iris.Model_Node)
 		iris.model_node_from_gltf(
@@ -181,6 +187,70 @@ init :: proc(data: iris.App_Data) {
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 
+	// {
+	// 	skeletal_shader_res := iris.shader_resource(
+	// 		iris.Shader_Loader{
+	// 			vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
+	// 			fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
+	// 		},
+	// 	)
+	// 	g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
+
+	// 	rig_document, _err := gltf.parse_from_file(
+	// 		"rig/Rig.gltf",
+	// 		.Gltf_External,
+	// 		context.temp_allocator,
+	// 		context.temp_allocator,
+	// 	)
+	// 	assert(_err == nil)
+	// 	traverse :: proc(n: ^gltf.Node) {
+	// 		fmt.printf(
+	// 			"node %s:\n%v\n%v\n",
+	// 			n.name,
+	// 			iris.transform_from_matrix(n.local_transform),
+	// 			iris.transform_from_matrix(n.global_transform),
+	// 		)
+	// 		for child in n.children {
+	// 			traverse(child)
+	// 		}
+	// 	}
+	// 	for r in rig_document.root_nodes {
+	// 		traverse(r)
+	// 	}
+	// 	iris.load_resources_from_gltf(&rig_document)
+
+	// 	node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
+	// 	g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
+	// 	// iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
+	// 	iris.insert_node(g.scene, g.rig)
+	// 	mesh_node := iris.new_node(g.scene, iris.Model_Node)
+	// 	iris.model_node_from_gltf(
+	// 		mesh_node,
+	// 		iris.Model_Loader{
+	// 			flags = {
+	// 				.Use_Identity,
+	// 				.Load_Position,
+	// 				.Load_Normal,
+	// 				.Load_Joints0,
+	// 				.Load_Weights0,
+	// 				.Load_Bones,
+	// 			},
+	// 			shader = g.skeletal_shader,
+	// 		},
+	// 		node,
+	// 	)
+	// 	iris.insert_node(g.scene, mesh_node, g.rig)
+
+	// 	skin_node := iris.new_node(g.scene, iris.Skin_Node)
+	// 	iris.skin_node_from_gltf(skin_node, node)
+	// 	iris.skin_node_target(skin_node, mesh_node)
+	// 	iris.insert_node(g.scene, skin_node, g.rig)
+
+	// 	animation, _ := iris.animation_from_name("animation0")
+	// 	iris.skin_node_add_animation(skin_node, animation)
+	// 	iris.skin_node_play_animation(skin_node, "animation0")
+	// }
+
 	{
 		skeletal_shader_res := iris.shader_resource(
 			iris.Shader_Loader{
@@ -191,7 +261,7 @@ init :: proc(data: iris.App_Data) {
 		g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
 
 		rig_document, _err := gltf.parse_from_file(
-			"rig/Rig.gltf",
+			"human_rig/CesiumMan.gltf",
 			.Gltf_External,
 			context.temp_allocator,
 			context.temp_allocator,
@@ -199,10 +269,11 @@ init :: proc(data: iris.App_Data) {
 		assert(_err == nil)
 		iris.load_resources_from_gltf(&rig_document)
 
-		node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
+		node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
 		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
 		// iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
 		iris.insert_node(g.scene, g.rig)
+
 		mesh_node := iris.new_node(g.scene, iris.Model_Node)
 		iris.model_node_from_gltf(
 			mesh_node,
@@ -211,6 +282,7 @@ init :: proc(data: iris.App_Data) {
 					.Use_Identity,
 					.Load_Position,
 					.Load_Normal,
+					.Load_TexCoord0,
 					.Load_Joints0,
 					.Load_Weights0,
 					.Load_Bones,
@@ -231,6 +303,10 @@ init :: proc(data: iris.App_Data) {
 		iris.skin_node_play_animation(skin_node, "animation0")
 	}
 
+	{
+		g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
+		iris.insert_node(g.scene, g.canvas)
+	}
 }
 
 update :: proc(data: iris.App_Data) {
@@ -253,10 +329,6 @@ update :: proc(data: iris.App_Data) {
 	iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
 	iris.set_shader_uniform(g.model_shader, "viewPosition", &g.camera.position)
 
-	iris.node_local_transform(
-		g.lantern,
-		iris.transform(t = iris.Vector3{g.delta / 2, 0, 0}, s = {0.1, 0.1, 0.1}),
-	)
 	iris.update_scene(g.scene, dt)
 	// Animation stuff
 	// {
@@ -307,7 +379,8 @@ draw :: proc(data: iris.App_Data) {
 			g.flat_material,
 		)
 
-		iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
+		// iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
+		iris.draw_text(g.canvas, g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 	}
 	iris.end_render()
 }
@@ -598,6 +671,7 @@ layout (location = 0) in vec3 attribPosition;
 layout (location = 1) in vec3 attribNormal;
 layout (location = 2) in vec4 attribJoints;
 layout (location = 3) in vec4 attribWeights;
+layout (location = 4) in vec2 attribTexCoord;
 
 layout (std140, binding = 0) uniform ProjectionData {
 	mat4 projView;
@@ -608,9 +682,10 @@ out VS_OUT {
 	vec3 normal;
 	vec4 joints;
 	vec4 weights;
+	vec2 texCoord;
 } frag;
 
-uniform mat4 matJoints[2];
+uniform mat4 matJoints[19];
 uniform mat4 matModelLocal;
 
 void main()
@@ -618,6 +693,7 @@ void main()
 	frag.normal = attribNormal;
 	frag.joints = attribJoints;
 	frag.weights = attribWeights;
+	frag.texCoord = attribTexCoord;
 
 	mat4 matSkin = 
 		attribWeights.x * matJoints[int(attribJoints.x)] +
@@ -635,12 +711,16 @@ in VS_OUT {
 	vec3 normal;
 	vec4 joints;
 	vec4 weights;
+	vec2 texCoord;
 } frag;
 
 out vec4 finalColor;
 
+uniform sampler2D texture0;
+
 void main()
 {
-	finalColor = vec4(frag.weights.x * frag.joints.x, frag.weights.y * frag.joints.y, 0.0, 1.0);
+	// finalColor = vec4(frag.weights.xyz * frag.joints.xyz, 1.0);
+	finalColor = texture(texture0, frag.texCoord);
 }
 `

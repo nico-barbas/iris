@@ -73,9 +73,9 @@ reset_animation :: proc(player: ^Animation_Player) {
 		info.delta_timer = 0
 
 		start_value := player.targets_start_value[i]
-		target := player.targets[i]
+		// target := player.targets[i]
 		info.start_value = start_value
-		animation_target_value(target, start_value)
+		// animation_target_value(target, start_value)
 	}
 }
 
@@ -129,6 +129,16 @@ animation_target_value :: proc(target: Animation_Target, value: Animation_Value)
 	case ^Quaternion:
 		t^ = value.(Quaternion)
 	}
+}
+
+@(private)
+compute_animation_start_value :: proc(channel: Animation_Channel) -> (result: Animation_Value) {
+	result = lerp_values(
+		channel.frame_outputs[len(channel.frame_outputs) - 1],
+		channel.frame_outputs[0],
+		0.0,
+	)
+	return
 }
 
 @(private)

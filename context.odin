@@ -11,42 +11,44 @@ RENDER_CTX_DEFAULT_AMBIENT_STR :: 0.4
 RENDER_CTX_DEFAULT_AMBIENT_CLR :: Color{0.45, 0.45, 0.75, 1.0}
 
 Rendering_Context :: struct {
-	render_width:              int,
-	render_height:             int,
-	projection:                Matrix4,
-	view:                      Matrix4,
-	projection_view:           Matrix4,
-	projection_buffer_res:     ^Resource,
-	projection_uniform_buffer: ^Buffer,
+	render_width:                int,
+	render_height:               int,
+	projection:                  Matrix4,
+	view:                        Matrix4,
+	projection_view:             Matrix4,
+	projection_buffer_res:       ^Resource,
+	projection_uniform_buffer:   ^Buffer,
 
 	// Camera state
-	eye:                       Vector3,
-	centre:                    Vector3,
-	up:                        Vector3,
+	eye:                         Vector3,
+	centre:                      Vector3,
+	up:                          Vector3,
 
 	// Lighting states
-	light_dirty:               bool,
-	lights:                    [RENDER_CTX_MAX_LIGHTS]Light,
-	light_count:               int,
-	light_ambient_clr:         Color,
-	light_ambient_strength:    f32,
-	light_uniform_buffer:      ^Buffer,
-	light_buffer_res:          ^Resource,
+	light_dirty:                 bool,
+	lights:                      [RENDER_CTX_MAX_LIGHTS]Light,
+	light_count:                 int,
+	light_ambient_clr:           Color,
+	light_ambient_strength:      f32,
+	light_uniform_buffer:        ^Buffer,
+	light_buffer_res:            ^Resource,
 
 	// Shadow mapping states
-	depth_framebuffer_res:     ^Resource,
-	depth_framebuffer:         ^Framebuffer,
-	depth_shader_res:          ^Resource,
-	depth_shader:              ^Shader,
+	depth_framebuffer_res:       ^Resource,
+	depth_framebuffer:           ^Framebuffer,
+	depth_shader_res:            ^Resource,
+	depth_shader:                ^Shader,
 
-	// 2D rendering states
-	overlay:                   Overlay,
-
+	//
+	framebuffer_blit_shader:     ^Shader,
+	framebuffer_blit_attributes: ^Attributes,
 
 	// Command buffer
-	states:                    [dynamic]^Attributes,
-	commands:                  [dynamic]Render_Command,
-	previous_cmd_count:        int,
+	states:                      [dynamic]^Attributes,
+	commands:                    [dynamic]Render_Command,
+	previous_cmd_count:          int,
+	deferred_commands:           [dynamic]Render_Command,
+	previous_def_cmd_count:      int,
 
 	// Resource management
 	// textures:                  map[string]Texture,
@@ -77,7 +79,8 @@ Render_Uniform_Light_Data :: struct {
 
 Render_Command :: union {
 	Render_Mesh_Command,
-	Render_Quad_Command,
+	Render_Framebuffer_Command,
+	Render_Custom_Command,
 }
 
 Render_Mesh_Command :: struct {
@@ -88,12 +91,32 @@ Render_Mesh_Command :: struct {
 	cast_shadows:     bool,
 }
 
-Render_Quad_Command :: struct {
-	dst:     Rectangle,
-	src:     Rectangle,
-	texture: ^Texture,
-	color:   Color,
+Render_Custom_Command :: struct {
+	data:        rawptr,
+	render_proc: proc(data: rawptr),
+	options:     Render_Command_Options,
 }
+
+Render_Framebuffer_Command :: struct {
+	render_order:  uint,
+	framebuffer:   ^Framebuffer,
+	vertex_buffer: ^Buffer,
+	index_buffer:  ^Buffer,
+}
+
+Render_Command_Options :: distinct bit_set[Render_Command_Option]
+
+Render_Command_Option :: enum {
+	Enable_Culling,
+	Disable_Culling,
+}
+
+// Render_Quad_Command :: struct {
+// 	dst:     Rectangle,
+// 	src:     Rectangle,
+// 	texture: ^Texture,
+// 	color:   Color,
+// }
 
 init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	DEFAULT_FOVY :: 45
@@ -112,7 +135,11 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.up = VECTOR_UP
 
 	ctx.depth_framebuffer_res = framebuffer_resource(
-		Framebuffer_Loader{attachments = {.Depth}, width = ctx.render_width, height = ctx.render_height},
+		Framebuffer_Loader{
+			attachments = {.Depth},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
 	)
 	ctx.depth_framebuffer = ctx.depth_framebuffer_res.data.(^Framebuffer)
 	ctx.depth_shader_res = shader_resource(
@@ -125,7 +152,10 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 
 	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data), true)
 	ctx.projection_uniform_buffer = ctx.projection_buffer_res.data.(^Buffer)
-	set_uniform_buffer_binding(ctx.projection_uniform_buffer, u32(Render_Uniform_Binding.Projection_Data))
+	set_uniform_buffer_binding(
+		ctx.projection_uniform_buffer,
+		u32(Render_Uniform_Binding.Projection_Data),
+	)
 
 	ctx.light_ambient_strength = RENDER_CTX_DEFAULT_AMBIENT_STR
 	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
@@ -133,7 +163,15 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.light_uniform_buffer = ctx.light_buffer_res.data.(^Buffer)
 	set_uniform_buffer_binding(ctx.light_uniform_buffer, u32(Render_Uniform_Binding.Light_Data))
 
-	init_overlay(&ctx.overlay, w, h)
+	// Framebuffer blitting states
+	blit_shader_res := shader_resource(
+		Shader_Loader{
+			vertex_source = BLIT_FRAMEBUFFER_VERTEX_SHADER,
+			fragment_source = BLIT_FRAMEBUFFER_FRAGMENT_SHADER,
+		},
+	)
+	ctx.framebuffer_blit_shader = blit_shader_res.data.(^Shader)
+	ctx.framebuffer_blit_attributes = attributes_from_layout({.Float2, .Float2}, .Interleaved)
 }
 
 close_render_ctx :: proc(ctx: ^Rendering_Context) {
@@ -151,7 +189,7 @@ close_render_ctx :: proc(ctx: ^Rendering_Context) {
 	// }
 	// destroy_framebuffer(ctx.depth_framebuffer)
 
-	close_overlay(&ctx.overlay)
+	// close_overlay(&ctx.overlay)
 }
 
 view_position :: proc(position: Vector3) {
@@ -170,7 +208,14 @@ add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color) -> (id: Light_ID) {
 	id = Light_ID(ctx.light_count)
 	ctx.lights[id] = Light {
 		kind = kind,
-		projection = linalg.matrix_ortho3d_f32(-10, 10, -10, 10, f32(RENDER_CTX_DEFAULT_NEAR), f32(10)),
+		projection = linalg.matrix_ortho3d_f32(
+			-10,
+			10,
+			-10,
+			10,
+			f32(RENDER_CTX_DEFAULT_NEAR),
+			f32(10),
+		),
 		data = Light_Data{position = {p.x, p.y, p.z, 1.0}, color = clr},
 	}
 	ctx.light_count += 1
@@ -193,8 +238,14 @@ light_ambient :: proc(strength: f32, color: Color) {
 start_render :: proc() {
 	ctx := &app.render_ctx
 	ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
+	ctx.deferred_commands = make(
+		[dynamic]Render_Command,
+		0,
+		ctx.previous_def_cmd_count,
+		context.temp_allocator,
+	)
 
-	prepare_overlay_frame(&ctx.overlay)
+	// prepare_overlay_frame(&ctx.overlay)
 }
 
 end_render :: proc() {
@@ -231,18 +282,20 @@ end_render :: proc() {
 	bind_shader(ctx.depth_shader)
 	set_shader_uniform(ctx.depth_shader, "matLightSpace", &ctx.lights[0].projection_view[0][0])
 	for command in &ctx.commands {
-		switch c in &command {
+		#partial switch c in &command {
 		case Render_Mesh_Command:
 			set_shader_uniform(ctx.depth_shader, "matModel", &c.global_transform[0][0])
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
-			link_packed_attributes_vertices(c.mesh.attributes, c.mesh.vertices, c.mesh.attributes_info)
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices,
+				c.mesh.attributes_info,
+			)
 			link_attributes_indices(c.mesh.attributes, c.mesh.indices)
 			triangle_count := c.mesh.indices.info.(Typed_Buffer).cap
 			draw_triangles(triangle_count)
-
-		case Render_Quad_Command:
 		}
 	}
 	default_shader()
@@ -292,7 +345,11 @@ end_render :: proc() {
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
-			link_packed_attributes_vertices(c.mesh.attributes, c.mesh.vertices, c.mesh.attributes_info)
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices,
+				c.mesh.attributes_info,
+			)
 			link_attributes_indices(c.mesh.attributes, c.mesh.indices)
 			triangle_count := c.mesh.indices.info.(Typed_Buffer).cap
 			draw_triangles(triangle_count)
@@ -306,16 +363,69 @@ end_render :: proc() {
 				unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
 			}
 
-		case Render_Quad_Command:
-			push_overlay_quad(&ctx.overlay, c)
+		case Render_Framebuffer_Command:
+
+		case Render_Custom_Command:
+			if .Disable_Culling in c.options {
+				set_backface_culling(false)
+				c.render_proc(c.data)
+				set_backface_culling(true)
+			} else {
+				c.render_proc(c.data)
+			}
 		}
 	}
 	ctx.previous_cmd_count = len(ctx.commands)
 
-	set_backface_culling(false)
-	flush_overlay_buffers(&ctx.overlay)
-	paint_overlay(&ctx.overlay)
-	set_backface_culling(true)
+	for command in ctx.deferred_commands {
+		#partial switch c in command {
+		case Render_Framebuffer_Command:
+			set_backface_culling(false)
+					//odinfmt: disable
+			framebuffer_vertices := [?]f32{
+				-1.0, -1.0, 0.0, 0.0,
+				1.0, -1.0, 1.0, 0.0,
+				1.0,  1.0, 1.0, 1.0,
+				-1.0,  1.0, 0.0, 1.0,
+			}
+			framebuffer_indices := [?]u32{
+				1, 0, 2,
+				2, 0, 3,
+			}
+			//odinfmt: enable
+
+
+			texture_index: u32 = 0
+
+			// Set the shader up
+			bind_shader(ctx.framebuffer_blit_shader)
+			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
+			bind_texture(framebuffer_texture(c.framebuffer, .Color), texture_index)
+			send_buffer_data(c.vertex_buffer, framebuffer_vertices[:])
+			send_buffer_data(c.index_buffer, framebuffer_indices[:])
+
+			// prepare attributes
+			bind_attributes(ctx.framebuffer_blit_attributes)
+			defer {
+				default_attributes()
+				default_shader()
+				unbind_texture(framebuffer_texture(c.framebuffer, .Color))
+			}
+
+			link_interleaved_attributes_vertices(ctx.framebuffer_blit_attributes, c.vertex_buffer)
+			link_attributes_indices(ctx.framebuffer_blit_attributes, c.index_buffer)
+
+			draw_triangles(len(framebuffer_indices))
+			set_backface_culling(true)
+		case:
+			assert(false)
+		}
+	}
+
+	// set_backface_culling(false)
+	// flush_overlay_buffers(&ctx.overlay)
+	// paint_overlay(&ctx.overlay)
+	// set_backface_culling(true)
 }
 
 @(private)
@@ -325,13 +435,21 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 	send_raw_buffer_data(
 		ctx.projection_uniform_buffer,
 		size_of(Render_Uniform_Projection_Data),
-		&Render_Uniform_Projection_Data{projection_view = ctx.projection_view, view_position = ctx.eye},
+		&Render_Uniform_Projection_Data{
+			projection_view = ctx.projection_view,
+			view_position = ctx.eye,
+		},
 	)
 }
 
 @(private)
 push_draw_command :: proc(cmd: Render_Command) {
-	append(&app.render_ctx.commands, cmd)
+	switch c in cmd {
+	case Render_Mesh_Command, Render_Custom_Command:
+		append(&app.render_ctx.commands, cmd)
+	case Render_Framebuffer_Command:
+		append(&app.render_ctx.deferred_commands, cmd)
+	}
 }
 
 // load_shader_from_bytes :: proc(vertex_src, fragment_src: string, name := "") -> Shader {
