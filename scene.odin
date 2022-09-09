@@ -748,6 +748,8 @@ Widget_Background :: struct {
 
 Any_Widget :: union {
 	^Layout_Widget,
+	^List_Widget,
+	^Empty_Widget,
 	^Button_Widget,
 	^Label_Widget,
 }
@@ -774,6 +776,9 @@ init_widget :: proc(widget: ^Widget) {
 	case ^Layout_Widget:
 		w.children.allocator = widget.ui.allocator
 		init_layout(w)
+	case ^List_Widget:
+		w.children.allocator = widget.ui.allocator
+	case ^Empty_Widget:
 	case ^Button_Widget:
 		init_button(w)
 	case ^Label_Widget:
@@ -827,6 +832,8 @@ update_widget_slice :: proc(widgets: []^Widget) {
 update_widget :: proc(widget: ^Widget) {
 	switch w in widget.derived {
 	case ^Layout_Widget:
+		update_widget_slice(w.children[:])
+	case ^List_Widget:
 		update_widget_slice(w.children[:])
 	case ^Button_Widget:
 		update_button(w)
@@ -1020,6 +1027,70 @@ init_layout :: proc(layout: ^Layout_Widget) {
 	} else {
 		layout.next = Vector2{layout.margin, layout.margin}
 	}
+}
+
+List_Widget :: struct {
+	using base:     Widget,
+	options:        List_Options,
+	optional_name:  string,
+	root:           ^Widget,
+	children:       [dynamic]^Widget,
+	next:           Vector2,
+	margin:         f32,
+	padding:        f32,
+	indent:         f32,
+	default_height: f32,
+}
+
+List_Options :: distinct bit_set[List_Option]
+
+List_Option :: enum {
+	Named,
+	Ident_Children,
+	Collapsible,
+	Highlight_Root,
+}
+
+list_add_widget :: proc(list: ^List_Widget, child: ^Widget, height := 0) {
+	h := height if height > 0 else list.default_height
+	child.rect = Rectangle {
+		x      = list.rect.x + list.next.x,
+		y      = list.rect.y + list.next.y,
+		width  = list.rect.width - (list.margin * 2),
+		height = h,
+	}
+	list.next.y += h + list.padding
+	append(&list.children, child)
+	if .Initialized_On_New not_in child.flags {
+		init_widget(child)
+	}
+}
+
+init_list :: proc(list: ^List_Widget) {
+	named := .Named in list.options && list.optional_name != 0
+	if named || .Collapsible in list.options {
+		margin := list.margin
+		padding := list.padding
+		list.padding = 0
+		list.margin = 0
+
+		base := Widget {
+			flags = DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+			background = Widget_Background{style = .None},
+		}
+		if named {
+			list.root = new_widget_from(
+				list.ui,
+				Label_Widget{base = base, text = Text{data = list.optional_name}},
+			)
+		} else {
+			list.root = new_widget_from(list.ui, Empty_Widget{base = base})
+		}
+	}
+}
+
+Empty_Widget :: struct {
+	using base: Widget,
 }
 
 Label_Widget :: struct {

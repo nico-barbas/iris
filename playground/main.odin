@@ -68,8 +68,6 @@ Game :: struct {
 	rig:               ^iris.Node,
 	skin:              ^iris.Node,
 	canvas:            ^iris.Canvas_Node,
-	// model:             iris.Model,
-	// rig:               iris.Model,
 	model_shader:      ^iris.Shader,
 	skeletal_shader:   ^iris.Shader,
 	ground_mesh:       ^iris.Mesh,
