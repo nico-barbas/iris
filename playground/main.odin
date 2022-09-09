@@ -93,7 +93,7 @@ init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
-	font_res := iris.font_resource(iris.Font_Loader{path = "ComicMono.ttf", sizes = {32}})
+	font_res := iris.font_resource(iris.Font_Loader{path = "ComicMono.ttf", sizes = {20}})
 	g.font = font_res.data.(^iris.Font)
 
 	scene_res := iris.scene_resource("main")
@@ -306,6 +306,49 @@ init :: proc(data: iris.App_Data) {
 	{
 		g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
 		iris.insert_node(g.scene, g.canvas)
+		ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
+		iris.insert_node(g.scene, ui_node, g.canvas)
+		iris.ui_node_theme(
+			ui_node,
+			iris.User_Interface_Theme{
+				borders = true,
+				border_color = {0.2, 0.2, 0.2, 1},
+				contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
+				base_color = {0.35, 0.35, 0.35, 1},
+				highlight_color = {0.7, 0.7, 0.8, 1},
+				text_color = 1,
+				text_size = 20,
+				font = g.font,
+				title_style = .Center_Left,
+			},
+		)
+		layout := iris.new_widget_from(
+			ui_node,
+			iris.Layout_Widget{
+				base = iris.Widget{
+					flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
+					rect = {100, 100, 200, 200},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				options = {.Decorated, .Titled, .Close_Widget},
+				optional_title = "Window",
+				format = .Row,
+				origin = .Up,
+				margin = 3,
+			},
+		)
+
+		button := iris.new_widget_from(
+			ui_node,
+			iris.Button_Widget{
+				base = iris.Widget{
+					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				text = iris.Text{data = "button"},
+			},
+		)
+		iris.layout_add_widget(layout, button, 20)
 	}
 }
 
@@ -369,8 +412,6 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.render_scene(g.scene)
-		// iris.draw_model(g.model, iris.transform(s = {0.1, 0.1, 0.1}))
-		// iris.draw_model(g.rig, iris.transform(t = {0, 0, 2}))
 		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
 		iris.draw_mesh(
@@ -378,9 +419,6 @@ draw :: proc(data: iris.App_Data) {
 			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
-
-		// iris.draw_overlay_text(g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
-		iris.draw_text(g.canvas, g.font, "hello world", {0, 0}, 32, {1, 1, 1, 1})
 	}
 	iris.end_render()
 }

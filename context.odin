@@ -380,6 +380,8 @@ end_render :: proc() {
 	for command in ctx.deferred_commands {
 		#partial switch c in command {
 		case Render_Framebuffer_Command:
+			depth(false)
+			defer depth(true)
 			set_backface_culling(false)
 					//odinfmt: disable
 			framebuffer_vertices := [?]f32{

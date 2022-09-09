@@ -26,6 +26,22 @@ set_frontface_culling :: proc(on: bool) {
 	}
 }
 
+blend :: proc(on: bool) {
+	if on {
+		gl.Enable(gl.BLEND)
+	} else {
+		gl.Disable(gl.BLEND)
+	}
+}
+
+depth :: proc(on: bool) {
+	if on {
+		gl.Enable(gl.DEPTH_TEST)
+	} else {
+		gl.Disable(gl.DEPTH_TEST)
+	}
+}
+
 Vector2 :: linalg.Vector2f32
 Vector3 :: linalg.Vector3f32
 VECTOR_ZERO :: Vector3{0, 0, 0}
@@ -94,4 +110,18 @@ Color :: distinct [4]f32
 Rectangle :: struct {
 	x, y:          f32,
 	width, height: f32,
+}
+
+in_rect_bounds :: proc(rect: Rectangle, p: Vector2) -> bool {
+	ok :=
+		(p.x >= rect.x && p.x <= rect.x + rect.width) &&
+		(p.y >= rect.y && p.y <= rect.y + rect.height)
+	return ok
+}
+
+Direction :: enum {
+	Up,
+	Right,
+	Down,
+	Left,
 }

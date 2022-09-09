@@ -56,9 +56,10 @@ App_Module :: enum u8 {
 	Input,
 	Shader,
 	Texture,
-	Buffer,
+	GPU_Memory,
 	Mesh,
 	Skin,
+	Text,
 }
 
 init_app :: proc(config: ^App_Config, allocator := context.allocator) {
@@ -87,12 +88,18 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 		log.fatalf("Could not initialize GLFW..\n")
 		return
 	}
+
+	monitor := glfw.GetPrimaryMonitor()
+	video_mode := glfw.GetVideoMode(monitor)
+	m_x, m_y := glfw.GetMonitorPos(monitor)
+
 	glfw.WindowHint(glfw.DECORATED, 1 if config.decorated else 0)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, DEFAULT_GL_MAJOR_VERSION)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, DEFAULT_GL_MINOR_VERSION)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	glfw.WindowHint(glfw.OPENGL_DEBUG_CONTEXT, 1)
 	glfw.WindowHint(glfw.SAMPLES, 4)
+	glfw.WindowHint(glfw.VISIBLE, 0)
 
 	app.win_handle = glfw.CreateWindow(
 		i32(app.width),
@@ -106,6 +113,13 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 		return
 	}
 
+	glfw.SetWindowPos(
+		app.win_handle,
+		m_x + (video_mode.width - i32(app.width)) / 2,
+		m_y + (video_mode.height - i32(app.height)) / 2,
+	)
+	glfw.ShowWindow(app.win_handle)
+
 	glfw.MakeContextCurrent(app.win_handle)
 	gl.load_up_to(
 		DEFAULT_GL_MAJOR_VERSION,
@@ -118,7 +132,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	gl.Enable(gl.MULTISAMPLE)
 	gl.Enable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE)
 
 	app.viewport_width = app.width
 	app.viewport_height = app.height

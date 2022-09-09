@@ -41,6 +41,7 @@ Any_Node :: union {
 	^Model_Node,
 	^Skin_Node,
 	^Canvas_Node,
+	^User_Interface_Node,
 }
 
 Empty_Node :: struct {
@@ -91,6 +92,9 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 
 		case ^Canvas_Node:
 			prepare_canvas_node_render(n)
+
+		case ^User_Interface_Node:
+			render_ui_node(n)
 		}
 		for child in node.children {
 			if children_dirty_transform {
@@ -148,6 +152,8 @@ render_scene :: proc(scene: ^Scene) {
 						options = {.Disable_Culling},
 					},
 				)
+
+			case ^User_Interface_Node:
 			}
 		}
 		for child in node.children {
@@ -160,7 +166,7 @@ render_scene :: proc(scene: ^Scene) {
 }
 
 new_node :: proc(scene: ^Scene, $T: typeid, local := linalg.MATRIX4F32_IDENTITY) -> ^T {
-	node := new(T)
+	node := new(T, scene.allocator)
 	node.derived = node
 	node.scene = scene
 
@@ -200,6 +206,12 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	case ^Canvas_Node:
 		n.flags += {.Rendered}
 		init_canvas_node(n)
+
+	case ^User_Interface_Node:
+		n.flags += {.Rendered}
+		n.commands.allocator = scene.allocator
+		n.roots.allocator = scene.allocator
+		init_ui_node(n, scene.allocator)
 	}
 }
 
@@ -609,6 +621,476 @@ update_skin_node :: proc(skin: ^Skin_Node, dt: f32) {
 		skin.derived_flags += {.Dirty_Joints}
 		if complete && !skin.player.loop {
 			skin.derived_flags -= {.Playing}
+		}
+	}
+}
+
+
+// User Interface
+
+User_Interface_Node :: struct {
+	using base: Node,
+	arena:      mem.Arena,
+	allocator:  mem.Allocator,
+	dirty:      bool,
+	theme:      User_Interface_Theme,
+	canvas:     ^Canvas_Node,
+	roots:      [dynamic]^Widget,
+	commands:   [dynamic]User_Interface_Command,
+}
+
+User_Interface_Theme :: struct {
+	borders:         bool,
+	border_color:    Color,
+	contrast_values: [len(Contrast_Level)]f32,
+	base_color:      Color,
+	highlight_color: Color,
+	text_color:      Color,
+	text_size:       int,
+	font:            ^Font,
+
+	// Miscelleanous configs
+	title_style:     Text_Style,
+}
+
+Contrast_Level :: enum {
+	Level_Minus_2 = 0,
+	Level_Minus_1 = 1,
+	Level_0       = 2,
+	Level_Plus_1  = 3,
+	Level_Plus_2  = 4,
+}
+
+User_Interface_Command :: union {
+	User_Interface_Rect_Command,
+	User_Interface_Text_Command,
+}
+
+User_Interface_Rect_Command :: struct {
+	rect:  Rectangle,
+	color: Color,
+}
+
+User_Interface_Text_Command :: struct {
+	text:     string,
+	font:     ^Font,
+	position: Vector2,
+	size:     int,
+	color:    Color,
+}
+
+init_ui_node :: proc(node: ^User_Interface_Node, allocator: mem.Allocator) {
+	mem.arena_init(&node.arena, make([]byte, mem.Megabyte * 1, allocator))
+	node.allocator = mem.arena_allocator(&node.arena)
+	node.dirty = true
+}
+
+ui_node_theme :: proc(node: ^User_Interface_Node, theme: User_Interface_Theme) {
+	node.theme = theme
+}
+
+ui_node_dirty :: proc(node: ^User_Interface_Node) {
+	node.dirty = true
+}
+
+render_ui_node :: proc(node: ^User_Interface_Node) {
+	update_widget_slice(node.roots[:])
+	if node.dirty {
+		clear(&node.commands)
+		draw_widget_slice(node.roots[:])
+
+		for command in node.commands {
+			switch c in command {
+			case User_Interface_Rect_Command:
+				draw_rect(node.canvas, c.rect, c.color)
+			case User_Interface_Text_Command:
+				draw_text(node.canvas, c.font, c.text, c.position, c.size, c.color)
+			}
+		}
+		node.dirty = false
+	} else {
+		node.canvas.derived_flags += {.Preserve_Last_Frame}
+	}
+}
+
+Widget :: struct {
+	ui:         ^User_Interface_Node,
+	parent:     ^Widget,
+	id:         Widget_ID,
+	flags:      Widget_Flags,
+	rect:       Rectangle,
+	background: Widget_Background,
+	derived:    Any_Widget,
+}
+
+Widget_ID :: distinct uint
+
+Widget_Flags :: distinct bit_set[Widget_Flag]
+
+Widget_Flag :: enum {
+	Active,
+	Root_Widget,
+	Initialized_On_New,
+	Initialized,
+	Fit_Theme,
+}
+
+Widget_Background :: struct {
+	style:   enum {
+		None,
+		Solid,
+		Texture_Slice,
+	},
+	borders: bool,
+	color:   Color,
+	texture: ^Texture,
+}
+
+Any_Widget :: union {
+	^Layout_Widget,
+	^Button_Widget,
+	^Label_Widget,
+}
+
+new_widget_from :: proc(node: ^User_Interface_Node, from: $T) -> ^T {
+	widget := new_clone(from, node.allocator)
+	widget.derived = widget
+	widget.ui = node
+
+	if .Root_Widget in widget.flags {
+		append(&node.roots, widget)
+	}
+	if .Initialized_On_New in widget.flags {
+		init_widget(widget)
+	}
+	return widget
+}
+
+init_widget :: proc(widget: ^Widget) {
+	if .Fit_Theme in widget.flags {
+		fit_theme(widget.ui.theme, widget)
+	}
+	switch w in widget.derived {
+	case ^Layout_Widget:
+		w.children.allocator = widget.ui.allocator
+		init_layout(w)
+	case ^Button_Widget:
+		init_button(w)
+	case ^Label_Widget:
+		init_text(&w.text, w.rect)
+	}
+	widget.flags += {.Initialized}
+}
+
+@(private)
+fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
+	contrast: f32
+	switch w in widget.derived {
+	case ^Layout_Widget:
+		if .Root_Widget in widget.flags {
+			contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
+		} else if .Child_Handle in w.options {
+			contrast = theme.contrast_values[Contrast_Level.Level_Minus_2]
+		} else {
+			contrast = theme.contrast_values[Contrast_Level.Level_0]
+		}
+		w.background.borders = theme.borders
+	case ^Button_Widget:
+		w.color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
+		w.hover_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
+		w.press_color = theme.highlight_color
+		w.background.borders = theme.borders
+		if w.text != nil {
+			t := w.text.?
+			t.font = theme.font
+			t.size = theme.text_size
+			t.color = theme.text_color
+			w.text = t
+		}
+	case ^Label_Widget:
+		w.text.font = theme.font
+		w.text.size = theme.text_size
+		w.text.color = theme.text_color
+	}
+	widget.background.color.rbg = theme.base_color.rgb * contrast
+	widget.background.color.a = 1
+}
+
+update_widget_slice :: proc(widgets: []^Widget) {
+	for widget in widgets {
+		if .Active in widget.flags {
+			update_widget(widget)
+		}
+	}
+}
+
+update_widget :: proc(widget: ^Widget) {
+	switch w in widget.derived {
+	case ^Layout_Widget:
+		update_widget_slice(w.children[:])
+	case ^Button_Widget:
+		update_button(w)
+	case ^Label_Widget:
+	}
+}
+
+draw_widget_slice :: proc(widgets: []^Widget) {
+	for widget in widgets {
+		if .Active in widget.flags {
+			draw_widget(widget)
+		}
+	}
+}
+
+draw_widget :: proc(widget: ^Widget) {
+	buf := &widget.ui.commands
+	switch w in widget.derived {
+	case ^Layout_Widget:
+		draw_widget_background(buf, w.background, w.rect)
+		for child in w.children {
+			draw_widget(child)
+		}
+	case ^Button_Widget:
+		draw_widget_background(buf, w.background, w.rect)
+		if w.text != nil {
+			t := w.text.?
+			text_cmd := User_Interface_Text_Command {
+				text     = t.data,
+				font     = t.font,
+				position = t.origin,
+				size     = t.size,
+				color    = t.color,
+			}
+			append(buf, text_cmd)
+		}
+	case ^Label_Widget:
+		t := w.text
+		text_cmd := User_Interface_Text_Command {
+			text     = t.data,
+			font     = t.font,
+			position = t.origin,
+			size     = t.size,
+			color    = t.color,
+		}
+		append(buf, text_cmd)
+	}
+}
+
+draw_widget_background :: proc(
+	buf: ^[dynamic]User_Interface_Command,
+	bg: Widget_Background,
+	rect: Rectangle,
+) {
+	switch bg.style {
+	case .None:
+	case .Solid:
+		append(buf, User_Interface_Rect_Command{rect, bg.color})
+	case .Texture_Slice:
+		assert(false)
+	}
+}
+
+Layout_Widget :: struct {
+	using base:     Widget,
+	options:        Layout_Options,
+	optional_title: string,
+	children:       [dynamic]^Widget,
+	format:         Layout_Format,
+	origin:         Direction,
+	next:           Vector2,
+	margin:         f32,
+	padding:        f32,
+	default_size:   f32,
+}
+
+Layout_Format :: enum {
+	Row,
+	Column,
+}
+
+Layout_Options :: distinct bit_set[Layout_Option]
+
+Layout_Option :: enum {
+	Decorated,
+	Titled,
+	Close_Widget,
+	Moveable,
+	Child_Handle,
+}
+
+DEFAULT_LAYOUT_FLAGS :: Widget_Flags{.Active, .Initialized_On_New}
+DEFAULT_LAYOUT_CHILD_FLAGS :: Widget_Flags{.Active}
+DEFAULT_LAYOUT_HANDLE_DIM :: 20
+DEFAULT_LAYOUT_HANDLE_MARGIN :: 2
+DEFAULT_LAYOUT_HANDLE_PADDING :: 2
+
+layout_add_widget :: proc(layout: ^Layout_Widget, child: ^Widget, size: f32 = 0) {
+	s := size if size > 0 else layout.default_size
+	switch layout.format {
+	case .Row:
+		offset := layout.next.y if layout.origin == .Up else -(layout.next.y + s)
+		child.rect = Rectangle {
+			x      = layout.rect.x + layout.next.x,
+			y      = layout.rect.y + offset,
+			width  = layout.rect.width - (layout.margin * 2),
+			height = s,
+		}
+		layout.next.y += s + layout.padding
+	case .Column:
+		offset := layout.next.x
+		if layout.origin == .Right {
+			offset = layout.rect.width - (layout.next.x + s)
+		}
+		child.rect = Rectangle {
+			x      = layout.rect.x + offset,
+			y      = layout.rect.y + layout.next.y,
+			width  = s,
+			height = layout.rect.height - (layout.margin * 2),
+		}
+		layout.next.x += s + layout.padding
+	}
+	append(&layout.children, child)
+	if .Initialized not_in child.flags {
+		init_widget(child)
+	}
+}
+
+layout_remaining_size :: proc(layout: ^Layout_Widget) -> (rem: f32) {
+	switch layout.format {
+	case .Row:
+		rem = layout.rect.height - layout.next.y - layout.margin
+	case .Column:
+		rem = layout.rect.width - layout.next.x - layout.margin
+	}
+	return
+}
+
+init_layout :: proc(layout: ^Layout_Widget) {
+	if .Root_Widget in layout.flags && .Decorated in layout.options {
+		margin := layout.margin
+		padding := layout.padding
+		layout.margin = 0
+		layout.padding = 0
+
+		flags := DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme}
+		base := Widget {
+			flags = flags,
+			background = Widget_Background{style = .Solid},
+		}
+		handle := new_widget_from(
+			layout.ui,
+			Layout_Widget{
+				base = base,
+				options = {.Child_Handle},
+				format = .Column,
+				origin = .Right,
+				margin = DEFAULT_LAYOUT_HANDLE_MARGIN,
+				padding = DEFAULT_LAYOUT_HANDLE_PADDING,
+			},
+		)
+		layout_add_widget(layout, handle, DEFAULT_LAYOUT_HANDLE_DIM)
+
+		if .Close_Widget in layout.options {
+			close_btn := new_widget_from(
+				layout.ui,
+				Button_Widget{base = base, text = Text{data = "X"}},
+			)
+			layout_add_widget(
+				handle,
+				close_btn,
+				DEFAULT_LAYOUT_HANDLE_DIM - (DEFAULT_LAYOUT_HANDLE_MARGIN * 2),
+			)
+		}
+
+		if .Titled in layout.options && layout.optional_title != "" {
+			title := new_widget_from(
+				layout.ui,
+				Label_Widget{
+					base = base,
+					text = Text{data = layout.optional_title, style = layout.ui.theme.title_style},
+				},
+			)
+			title.background.style = .None
+			layout_add_widget(handle, title, layout_remaining_size(handle))
+		}
+
+		layout.margin = margin
+		layout.padding = padding
+		layout.next += margin
+	} else {
+		layout.next = Vector2{layout.margin, layout.margin}
+	}
+}
+
+Label_Widget :: struct {
+	using base: Widget,
+	text:       Text,
+}
+
+Button_Widget :: struct {
+	using base:     Widget,
+	state:          Button_Widget_State,
+	previous_state: Button_Widget_State,
+	color:          Color,
+	hover_color:    Color,
+	press_color:    Color,
+	text:           Maybe(Text),
+
+	//
+	data:           rawptr,
+	callback:       proc(data: rawptr, id: Widget_ID),
+	notify_parent:  ^bool,
+}
+
+Button_Widget_State :: enum {
+	Idle,
+	Hovered,
+	Pressed,
+}
+
+init_button :: proc(btn: ^Button_Widget) {
+	btn.background.color = btn.color
+	if btn.text != nil {
+		t := btn.text.?
+		t.style = .Center
+		init_text(&t, btn.rect)
+		btn.text = t
+	}
+}
+
+update_button :: proc(btn: ^Button_Widget) {
+	btn.previous_state = btn.state
+	m_left := mouse_button_state(.Left)
+	if in_rect_bounds(btn.rect, mouse_position()) {
+		if .Just_Pressed in m_left {
+			btn.state = .Pressed
+		} else {
+			if .Just_Released in m_left {
+				if btn.state == .Pressed {
+					btn.state = .Idle
+					if btn.callback != nil {
+						btn.callback(btn.data, btn.id)
+					}
+					if btn.notify_parent != nil {
+						btn.notify_parent^ = true
+					}
+				}
+			} else {
+				btn.state = .Hovered
+			}
+		}
+	} else {
+		btn.state = .Idle
+	}
+	if btn.state != btn.previous_state {
+		ui_node_dirty(btn.ui)
+		switch btn.state {
+		case .Idle:
+			btn.background.color = btn.color
+		case .Hovered:
+			btn.background.color = btn.hover_color
+		case .Pressed:
+			btn.background.color = btn.press_color
 		}
 	}
 }

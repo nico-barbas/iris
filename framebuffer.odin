@@ -34,8 +34,8 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 		switch a {
 		case .Color:
-			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 			gl.TextureStorage2D(texture.handle, 1, gl.RGBA8, i32(w), i32(h))
 		case .Depth:
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
@@ -88,7 +88,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 
 	status := gl.CheckNamedFramebufferStatus(framebuffer.handle, gl.FRAMEBUFFER)
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.errorf("%s: Framebuffer creation error: %d", App_Module.Buffer, status)
+		log.errorf("%s: Framebuffer creation error: %d", App_Module.GPU_Memory, status)
 	}
 	return framebuffer
 }
