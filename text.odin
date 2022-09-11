@@ -227,7 +227,7 @@ measure_text :: proc(t: ^Text) -> (width: f32, height: f32) {
 	return
 }
 
-init_text :: proc(t: ^Text, p: Text_Position) {
+text_position :: proc(t: ^Text, p: Text_Position) {
 	t.bounds = p
 	update_text_position(t)
 }

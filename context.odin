@@ -18,6 +18,7 @@ Rendering_Context :: struct {
 	projection_view:             Matrix4,
 	projection_buffer_res:       ^Resource,
 	projection_uniform_buffer:   ^Buffer,
+	projection_uniform_memory:   Buffer_Memory,
 
 	// Camera state
 	eye:                         Vector3,
@@ -31,6 +32,7 @@ Rendering_Context :: struct {
 	light_ambient_clr:           Color,
 	light_ambient_strength:      f32,
 	light_uniform_buffer:        ^Buffer,
+	light_uniform_memory:        Buffer_Memory,
 	light_buffer_res:            ^Resource,
 
 	// Shadow mapping states
@@ -100,7 +102,7 @@ Render_Custom_Command :: struct {
 Render_Framebuffer_Command :: struct {
 	render_order:  uint,
 	framebuffer:   ^Framebuffer,
-	vertex_buffer: ^Buffer,
+	vertex_memory: ^Buffer_Memory,
 	index_buffer:  ^Buffer,
 }
 
@@ -152,6 +154,11 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 
 	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data), true)
 	ctx.projection_uniform_buffer = ctx.projection_buffer_res.data.(^Buffer)
+	ctx.projection_uniform_memory = Buffer_Memory {
+		buf    = ctx.projection_uniform_buffer,
+		size   = size_of(Render_Uniform_Projection_Data),
+		offset = 0,
+	}
 	set_uniform_buffer_binding(
 		ctx.projection_uniform_buffer,
 		u32(Render_Uniform_Binding.Projection_Data),
@@ -161,6 +168,11 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
 	ctx.light_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Light_Data), true)
 	ctx.light_uniform_buffer = ctx.light_buffer_res.data.(^Buffer)
+	ctx.light_uniform_memory = Buffer_Memory {
+		buf    = ctx.light_uniform_buffer,
+		size   = size_of(Render_Uniform_Light_Data),
+		offset = 0,
+	}
 	set_uniform_buffer_binding(ctx.light_uniform_buffer, u32(Render_Uniform_Binding.Light_Data))
 
 	// Framebuffer blitting states
@@ -258,7 +270,7 @@ end_render :: proc() {
 		}
 
 		send_raw_buffer_data(
-			ctx.light_uniform_buffer,
+			&ctx.light_uniform_memory,
 			size_of(Render_Uniform_Light_Data),
 			&Render_Uniform_Light_Data{
 				lights = [RENDER_CTX_MAX_LIGHTS]Light_Data{
@@ -403,7 +415,11 @@ end_render :: proc() {
 			bind_shader(ctx.framebuffer_blit_shader)
 			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
 			bind_texture(framebuffer_texture(c.framebuffer, .Color), texture_index)
-			send_buffer_data(c.vertex_buffer, framebuffer_vertices[:])
+			send_raw_buffer_data(
+				c.vertex_memory,
+				len(framebuffer_vertices) * size_of(f32),
+				&framebuffer_vertices[0],
+			)
 			send_buffer_data(c.index_buffer, framebuffer_indices[:])
 
 			// prepare attributes
@@ -414,7 +430,10 @@ end_render :: proc() {
 				unbind_texture(framebuffer_texture(c.framebuffer, .Color))
 			}
 
-			link_interleaved_attributes_vertices(ctx.framebuffer_blit_attributes, c.vertex_buffer)
+			link_interleaved_attributes_vertices(
+				ctx.framebuffer_blit_attributes,
+				c.vertex_memory.buf,
+			)
 			link_attributes_indices(ctx.framebuffer_blit_attributes, c.index_buffer)
 
 			draw_triangles(len(framebuffer_indices))
@@ -435,7 +454,7 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 	ctx.view = linalg.matrix4_look_at_f32(ctx.eye, ctx.centre, ctx.up)
 	ctx.projection_view = linalg.matrix_mul(ctx.projection, ctx.view)
 	send_raw_buffer_data(
-		ctx.projection_uniform_buffer,
+		&ctx.projection_uniform_memory,
 		size_of(Render_Uniform_Projection_Data),
 		&Render_Uniform_Projection_Data{
 			projection_view = ctx.projection_view,

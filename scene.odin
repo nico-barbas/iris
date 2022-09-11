@@ -629,14 +629,17 @@ update_skin_node :: proc(skin: ^Skin_Node, dt: f32) {
 // User Interface
 
 User_Interface_Node :: struct {
-	using base: Node,
-	arena:      mem.Arena,
-	allocator:  mem.Allocator,
-	dirty:      bool,
-	theme:      User_Interface_Theme,
-	canvas:     ^Canvas_Node,
-	roots:      [dynamic]^Widget,
-	commands:   [dynamic]User_Interface_Command,
+	using base:     Node,
+	arena:          mem.Arena,
+	allocator:      mem.Allocator,
+	dirty:          bool,
+	m_pos:          Vector2,
+	previous_m_pos: Vector2,
+	m_delta:        Vector2,
+	theme:          User_Interface_Theme,
+	canvas:         ^Canvas_Node,
+	roots:          [dynamic]^Widget,
+	commands:       [dynamic]User_Interface_Command,
 }
 
 User_Interface_Theme :: struct {
@@ -714,13 +717,13 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 }
 
 Widget :: struct {
-	ui:         ^User_Interface_Node,
-	parent:     ^Widget,
-	id:         Widget_ID,
-	flags:      Widget_Flags,
-	rect:       Rectangle,
-	background: Widget_Background,
-	derived:    Any_Widget,
+	ui:           ^User_Interface_Node,
+	id:           Widget_ID,
+	flags:        Widget_Flags,
+	parent_flags: ^Widget_Flags,
+	rect:         Rectangle,
+	background:   Widget_Background,
+	derived:      Any_Widget,
 }
 
 Widget_ID :: distinct uint
@@ -729,6 +732,7 @@ Widget_Flags :: distinct bit_set[Widget_Flag]
 
 Widget_Flag :: enum {
 	Active,
+	Dirty_Hierarchy,
 	Root_Widget,
 	Initialized_On_New,
 	Initialized,
@@ -749,7 +753,6 @@ Widget_Background :: struct {
 Any_Widget :: union {
 	^Layout_Widget,
 	^List_Widget,
-	^Empty_Widget,
 	^Button_Widget,
 	^Label_Widget,
 }
@@ -778,11 +781,11 @@ init_widget :: proc(widget: ^Widget) {
 		init_layout(w)
 	case ^List_Widget:
 		w.children.allocator = widget.ui.allocator
-	case ^Empty_Widget:
+		init_list(w)
 	case ^Button_Widget:
 		init_button(w)
 	case ^Label_Widget:
-		init_text(&w.text, w.rect)
+		text_position(&w.text, w.rect)
 	}
 	widget.flags += {.Initialized}
 }
@@ -800,6 +803,8 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 			contrast = theme.contrast_values[Contrast_Level.Level_0]
 		}
 		w.background.borders = theme.borders
+	case ^List_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
 	case ^Button_Widget:
 		w.color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.hover_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
@@ -813,6 +818,7 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 			w.text = t
 		}
 	case ^Label_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_0]
 		w.text.font = theme.font
 		w.text.size = theme.text_size
 		w.text.color = theme.text_color
@@ -832,14 +838,48 @@ update_widget_slice :: proc(widgets: []^Widget) {
 update_widget :: proc(widget: ^Widget) {
 	switch w in widget.derived {
 	case ^Layout_Widget:
-		update_widget_slice(w.children[:])
+		update_layout(w)
 	case ^List_Widget:
-		update_widget_slice(w.children[:])
+		update_list(w)
 	case ^Button_Widget:
 		update_button(w)
 	case ^Label_Widget:
 	}
 }
+
+offset_widget_slice :: proc(widgets: []^Widget, offset: Vector2) {
+	for widget in widgets {
+		offset_widget(widget, offset)
+	}
+}
+
+offset_widget :: proc(widget: ^Widget, offset: Vector2) {
+	widget.rect.x += offset.x
+	widget.rect.y += offset.y
+	switch w in &widget.derived {
+	case ^Layout_Widget:
+		offset_widget_slice(w.children[:], offset)
+	case ^List_Widget:
+		offset_widget_slice(w.children[:], offset)
+	case ^Button_Widget:
+		if w.text != nil {
+			t := w.text.?
+			text_position(
+				&t,
+				Rectangle{
+					w.rect.x + w.left_padding,
+					w.rect.y,
+					w.rect.width - w.right_padding,
+					w.rect.height,
+				},
+			)
+			w.text = t
+		}
+	case ^Label_Widget:
+		text_position(&w.text, w.rect)
+	}
+}
+
 
 draw_widget_slice :: proc(widgets: []^Widget) {
 	for widget in widgets {
@@ -857,6 +897,16 @@ draw_widget :: proc(widget: ^Widget) {
 		for child in w.children {
 			draw_widget(child)
 		}
+
+	case ^List_Widget:
+		if .Folded not_in w.states {
+			for child in w.children {
+				draw_widget(child)
+			}
+		} else {
+			draw_widget(w.root)
+		}
+
 	case ^Button_Widget:
 		draw_widget_background(buf, w.background, w.rect)
 		if w.text != nil {
@@ -871,6 +921,7 @@ draw_widget :: proc(widget: ^Widget) {
 			append(buf, text_cmd)
 		}
 	case ^Label_Widget:
+		draw_widget_background(buf, w.background, w.rect)
 		t := w.text
 		text_cmd := User_Interface_Text_Command {
 			text     = t.data,
@@ -881,6 +932,22 @@ draw_widget :: proc(widget: ^Widget) {
 		}
 		append(buf, text_cmd)
 	}
+}
+
+widget_height :: proc(widget: ^Widget) -> (result: f32) {
+	switch w in widget.derived {
+	case ^Layout_Widget, ^Button_Widget, ^Label_Widget:
+		result = widget.rect.height
+	case ^List_Widget:
+		if .Folded not_in w.states {
+			for child in w.children {
+				result += widget_height(child)
+			}
+		} else {
+			result = w.root.rect.height
+		}
+	}
+	return
 }
 
 draw_widget_background :: proc(
@@ -901,6 +968,7 @@ Layout_Widget :: struct {
 	using base:     Widget,
 	options:        Layout_Options,
 	optional_title: string,
+	handle:         ^Layout_Widget,
 	children:       [dynamic]^Widget,
 	format:         Layout_Format,
 	origin:         Direction,
@@ -922,6 +990,7 @@ Layout_Option :: enum {
 	Titled,
 	Close_Widget,
 	Moveable,
+	Moving,
 	Child_Handle,
 }
 
@@ -957,6 +1026,7 @@ layout_add_widget :: proc(layout: ^Layout_Widget, child: ^Widget, size: f32 = 0)
 		layout.next.x += s + layout.padding
 	}
 	append(&layout.children, child)
+	child.parent_flags = &layout.flags
 	if .Initialized not_in child.flags {
 		init_widget(child)
 	}
@@ -984,7 +1054,7 @@ init_layout :: proc(layout: ^Layout_Widget) {
 			flags = flags,
 			background = Widget_Background{style = .Solid},
 		}
-		handle := new_widget_from(
+		layout.handle = new_widget_from(
 			layout.ui,
 			Layout_Widget{
 				base = base,
@@ -995,21 +1065,22 @@ init_layout :: proc(layout: ^Layout_Widget) {
 				padding = DEFAULT_LAYOUT_HANDLE_PADDING,
 			},
 		)
-		layout_add_widget(layout, handle, DEFAULT_LAYOUT_HANDLE_DIM)
+		layout_add_widget(layout, layout.handle, DEFAULT_LAYOUT_HANDLE_DIM)
 
 		if .Close_Widget in layout.options {
 			close_btn := new_widget_from(
 				layout.ui,
-				Button_Widget{base = base, text = Text{data = "X"}},
+				Button_Widget{base = base, text = Text{data = "X", style = .Center}},
 			)
 			layout_add_widget(
-				handle,
+				layout.handle,
 				close_btn,
 				DEFAULT_LAYOUT_HANDLE_DIM - (DEFAULT_LAYOUT_HANDLE_MARGIN * 2),
 			)
 		}
 
 		if .Titled in layout.options && layout.optional_title != "" {
+			base.background.style = .None
 			title := new_widget_from(
 				layout.ui,
 				Label_Widget{
@@ -1018,7 +1089,7 @@ init_layout :: proc(layout: ^Layout_Widget) {
 				},
 			)
 			title.background.style = .None
-			layout_add_widget(handle, title, layout_remaining_size(handle))
+			layout_add_widget(layout.handle, title, layout_remaining_size(layout.handle))
 		}
 
 		layout.margin = margin
@@ -1029,11 +1100,60 @@ init_layout :: proc(layout: ^Layout_Widget) {
 	}
 }
 
+update_layout :: proc(layout: ^Layout_Widget) {
+	if .Root_Widget in layout.flags && .Decorated in layout.options {
+		if .Moveable in layout.options {
+			m_left := mouse_button_state(.Left)
+			if .Moving in layout.options {
+				if .Just_Released in m_left {
+					layout.options -= {.Moving}
+				} else {
+					m_delta := mouse_delta()
+					if m_delta != 0 {
+						offset_widget(layout, m_delta)
+						layout.ui.dirty = true
+					}
+				}
+			} else {
+				if in_rect_bounds(layout.handle.rect, mouse_position()) {
+					if .Just_Pressed in m_left {
+						layout.options += {.Moving}
+					}
+				}
+
+			}
+		}
+	}
+	if .Dirty_Hierarchy in layout.flags {
+		if .Decorated in layout.options {
+			layout.next = {
+				layout.rect.x + layout.margin,
+				layout.rect.y + layout.handle.rect.height + layout.margin,
+			}
+			for child in layout.children[1:] {
+				offset := layout.next - Vector2{child.rect.x, child.rect.y}
+				offset_widget(child, offset)
+				layout.next.y += widget_height(child) + layout.padding
+			}
+		} else {
+			layout.next = {layout.rect.x + layout.margin, layout.rect.y + layout.margin}
+			for child in layout.children {
+				offset := layout.next - Vector2{child.rect.x, child.rect.y}
+				offset_widget(child, offset)
+				layout.next.y += widget_height(child) + layout.padding
+			}
+		}
+		layout.flags -= {.Dirty_Hierarchy}
+	}
+	update_widget_slice(layout.children[:])
+}
+
 List_Widget :: struct {
 	using base:     Widget,
 	options:        List_Options,
 	optional_name:  string,
-	root:           ^Widget,
+	states:         List_States,
+	root:           ^Button_Widget,
 	children:       [dynamic]^Widget,
 	next:           Vector2,
 	margin:         f32,
@@ -1045,52 +1165,114 @@ List_Widget :: struct {
 List_Options :: distinct bit_set[List_Option]
 
 List_Option :: enum {
-	Named,
-	Ident_Children,
-	Collapsible,
-	Highlight_Root,
+	Named_Header,
+	Indent_Children,
+	Foldable,
 }
 
-list_add_widget :: proc(list: ^List_Widget, child: ^Widget, height := 0) {
+List_States :: distinct bit_set[List_State]
+
+List_State :: enum {
+	Folded,
+}
+
+list_add_widget :: proc(list: ^List_Widget, child: ^Widget, height: f32 = 0) {
 	h := height if height > 0 else list.default_height
+	offset := list.next.x
+	width := list.rect.width - (list.margin * 2)
+	if .Indent_Children in list.options {
+		offset += list.indent
+		width -= list.indent
+	}
 	child.rect = Rectangle {
-		x      = list.rect.x + list.next.x,
+		x      = list.rect.x + offset,
 		y      = list.rect.y + list.next.y,
-		width  = list.rect.width - (list.margin * 2),
+		width  = width,
 		height = h,
 	}
 	list.next.y += h + list.padding
+
 	append(&list.children, child)
+	child.parent_flags = &list.flags
+	list.flags += {.Dirty_Hierarchy}
 	if .Initialized_On_New not_in child.flags {
 		init_widget(child)
 	}
 }
 
 init_list :: proc(list: ^List_Widget) {
-	named := .Named in list.options && list.optional_name != 0
-	if named || .Collapsible in list.options {
+	DEFAULT_LIST_ROOT_HEIGHT :: 20
+	named := .Named_Header in list.options && list.optional_name != ""
+	if named || .Foldable in list.options {
 		margin := list.margin
 		padding := list.padding
+		indent := list.indent
 		list.padding = 0
 		list.margin = 0
+		list.indent = 0
 
 		base := Widget {
 			flags = DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
-			background = Widget_Background{style = .None},
+			background = Widget_Background{style = .Solid},
 		}
-		if named {
-			list.root = new_widget_from(
-				list.ui,
-				Label_Widget{base = base, text = Text{data = list.optional_name}},
-			)
-		} else {
-			list.root = new_widget_from(list.ui, Empty_Widget{base = base})
+		list.root = new_widget_from(
+			list.ui,
+			Button_Widget{base = base, data = list, callback = collapse_list},
+		)
+		if .Named_Header in list.options {
+			list.root.text = Text {
+				data  = list.optional_name,
+				style = .Center_Left,
+			}
 		}
+		list_add_widget(list, list.root, DEFAULT_LIST_ROOT_HEIGHT)
+
+		list.margin = margin
+		list.padding = padding
+		list.indent = indent
+		list.next += margin
+	} else {
+		list.next = Vector2{list.margin, list.margin}
+	}
+	if .Root_Widget not_in list.flags && list.parent_flags != nil {
+		f := list.parent_flags^ + {.Dirty_Hierarchy}
+		list.parent_flags^ = f
 	}
 }
 
-Empty_Widget :: struct {
-	using base: Widget,
+update_list :: proc(list: ^List_Widget) {
+	if .Dirty_Hierarchy in list.flags {
+		if .Foldable in list.options {
+			list.next = {
+				list.rect.x + list.margin,
+				list.rect.y + list.root.rect.height + list.margin,
+			}
+			for child in list.children[1:] {
+				next := list.next
+				if .Indent_Children in list.options {
+					next.x += list.indent
+				}
+
+				offset := next - Vector2{child.rect.x, child.rect.y}
+				offset_widget(child, offset)
+				list.next.y += widget_height(child) + list.padding
+			}
+			list.flags -= {.Dirty_Hierarchy}
+		}
+	}
+	update_widget_slice(list.children[:])
+}
+
+collapse_list :: proc(data: rawptr, id: Widget_ID) {
+	list := cast(^List_Widget)data
+	if .Foldable in list.options {
+		list.states ~= {.Folded}
+		if .Root_Widget not_in list.flags && list.parent_flags != nil {
+			f := list.parent_flags^ + {.Dirty_Hierarchy}
+			list.parent_flags^ = f
+		}
+		list.ui.dirty = true
+	}
 }
 
 Label_Widget :: struct {
@@ -1106,6 +1288,8 @@ Button_Widget :: struct {
 	hover_color:    Color,
 	press_color:    Color,
 	text:           Maybe(Text),
+	left_padding:   f32,
+	right_padding:  f32,
 
 	//
 	data:           rawptr,
@@ -1123,8 +1307,15 @@ init_button :: proc(btn: ^Button_Widget) {
 	btn.background.color = btn.color
 	if btn.text != nil {
 		t := btn.text.?
-		t.style = .Center
-		init_text(&t, btn.rect)
+		text_position(
+			&t,
+			Rectangle{
+				btn.rect.x + btn.left_padding,
+				btn.rect.y,
+				btn.rect.width - btn.right_padding,
+				btn.rect.height,
+			},
+		)
 		btn.text = t
 	}
 }
@@ -1133,7 +1324,7 @@ update_button :: proc(btn: ^Button_Widget) {
 	btn.previous_state = btn.state
 	m_left := mouse_button_state(.Left)
 	if in_rect_bounds(btn.rect, mouse_position()) {
-		if .Just_Pressed in m_left {
+		if .Pressed in m_left {
 			btn.state = .Pressed
 		} else {
 			if .Just_Released in m_left {

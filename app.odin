@@ -169,16 +169,17 @@ run_app :: proc() {
 		app.is_running = bool(!glfw.WindowShouldClose(app.win_handle))
 		app.frame_arena.offset = 0
 		app.elapsed_time = time.duration_seconds(time.since(app.last_time))
-		m_x, m_y := glfw.GetCursorPos(app.win_handle)
-		update_input_buffer(&app.input, {f32(m_x), f32(m_y)})
 		app.last_time = time.now()
 		app.update(app.data)
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		app.draw(app.data)
 
-		glfw.PollEvents()
+		update_input_buffer(&app.input)
 		glfw.SwapBuffers(app.win_handle)
+		glfw.PollEvents()
+		m_x, m_y := glfw.GetCursorPos(app.win_handle)
+		update_input_buffer_mouse_position(&app.input, {f32(m_x), f32(m_y)})
 	}
 }
 

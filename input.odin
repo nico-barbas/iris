@@ -32,13 +32,17 @@ Input_State_Kind :: enum {
 Input_Proc :: #type proc(data: App_Data, state: Input_State)
 
 @(private)
-update_input_buffer :: proc(i: ^Input_Buffer, m_pos: Vector2) {
+update_input_buffer :: proc(i: ^Input_Buffer) {
 	i.previous_keys = i.keys
 	i.previous_mouse_buttons = i.mouse_buttons
-	i.previous_mouse_pos = i.mouse_pos
-	i.mouse_pos = m_pos
 	i.previous_mouse_scroll = i.mouse_scroll
 	i.mouse_scroll = 0
+}
+
+@(private)
+update_input_buffer_mouse_position :: proc(i: ^Input_Buffer, m_pos: Vector2) {
+	i.previous_mouse_pos = i.mouse_pos
+	i.mouse_pos = m_pos
 }
 
 Mouse_State :: distinct [len(Mouse_Button)]bool
@@ -78,7 +82,7 @@ mouse_delta :: proc() -> Vector2 {
 
 mouse_button_state :: proc(btn: Mouse_Button) -> (state: Input_State) {
 	current := app.input.mouse_buttons[btn]
-	previous := app.input.mouse_buttons[btn]
+	previous := app.input.previous_mouse_buttons[btn]
 	switch {
 	case current && !previous:
 		state = {.Just_Pressed, .Pressed}

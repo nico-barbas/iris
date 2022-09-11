@@ -328,13 +328,19 @@ init :: proc(data: iris.App_Data) {
 					rect = {100, 100, 200, 200},
 					background = iris.Widget_Background{style = .Solid},
 				},
-				options = {.Decorated, .Titled, .Close_Widget},
+				options = {.Decorated, .Titled, .Moveable, .Close_Widget},
 				optional_title = "Window",
 				format = .Row,
 				origin = .Up,
 				margin = 3,
+				padding = 2,
 			},
 		)
+
+		child_base := iris.Widget {
+			flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+			background = iris.Widget_Background{style = .Solid},
+		}
 
 		button := iris.new_widget_from(
 			ui_node,
@@ -343,10 +349,61 @@ init :: proc(data: iris.App_Data) {
 					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
 					background = iris.Widget_Background{style = .Solid},
 				},
-				text = iris.Text{data = "button"},
+				text = iris.Text{data = "button", style = .Center},
 			},
 		)
 		iris.layout_add_widget(layout, button, 20)
+
+		list := iris.new_widget_from(
+			ui_node,
+			iris.List_Widget{
+				base = child_base,
+				options = {.Named_Header, .Foldable, .Indent_Children},
+				optional_name = "scene",
+				margin = 2,
+				indent = 10,
+			},
+		)
+		iris.layout_add_widget(layout, list, 20)
+
+		for i in 0 ..< 1 {
+			child_base.background.style = .None
+			item := iris.new_widget_from(
+				ui_node,
+				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
+			)
+			iris.list_add_widget(list, item, 20)
+		}
+
+		inner_list := iris.new_widget_from(
+			ui_node,
+			iris.List_Widget{
+				base = child_base,
+				options = {.Named_Header, .Foldable, .Indent_Children},
+				optional_name = "object",
+				margin = 2,
+				indent = 10,
+			},
+		)
+		iris.list_add_widget(list, inner_list, 20)
+
+		for i in 0 ..< 3 {
+			child_base.background.style = .None
+			item := iris.new_widget_from(
+				ui_node,
+				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
+			)
+			iris.list_add_widget(inner_list, item, 20)
+		}
+
+		for i in 0 ..< 1 {
+			child_base.background.style = .None
+			item := iris.new_widget_from(
+				ui_node,
+				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
+			)
+			iris.list_add_widget(list, item, 20)
+		}
 	}
 }
 

@@ -3,28 +3,38 @@ package iris
 import "core:math/linalg"
 
 Canvas_Node :: struct {
-	using base:       Node,
-	width:            int,
-	height:           int,
-	derived_flags:    Canvas_Flags,
+	using base:        Node,
+	width:             int,
+	height:            int,
+	derived_flags:     Canvas_Flags,
 
 	// Graphical states
-	projection:       Matrix4,
-	framebuffer:      ^Framebuffer,
-	attributes:       ^Attributes,
-	vertex_buffer:    ^Buffer,
-	index_buffer:     ^Buffer,
-	paint_shader:     ^Shader,
-	default_texture:  ^Resource,
+	projection:        Matrix4,
+	framebuffer:       ^Framebuffer,
+	attributes:        ^Attributes,
+	vertex_buffer:     ^Buffer,
+	index_buffer:      ^Buffer,
+	paint_shader:      ^Shader,
+	default_texture:   ^Resource,
+	vertex_arena:      Arena_Buffer_Allocator,
+	tri_sub_buffer:    Buffer_Memory,
+	line_sub_buffer:   Buffer_Memory,
 
 	// CPU Buffers
-	vertices:         [dynamic]f32,
-	indices:          [dynamic]u32,
-	textures:         [16]^Texture,
-	texture_count:    int,
-	previous_v_count: int,
-	previous_i_count: int,
-	index_offset:     u32,
+	vertices:          [dynamic]f32,
+	line_vertices:     [dynamic]f32,
+	textures:          [16]^Texture,
+	texture_count:     int,
+	previous_v_count:  int,
+	previous_i_count:  int,
+
+	// Indices
+	tri_indices:       []u32,
+	tri_index_offset:  u32,
+	tri_index_count:   u32,
+	line_indices:      []u32,
+	line_index_offset: u32,
+	line_index_count:  u32,
 }
 
 Canvas_Flags :: distinct bit_set[Canvas_Flag]
@@ -33,32 +43,58 @@ Canvas_Flag :: enum {
 	Preserve_Last_Frame,
 }
 
-Canvas_Draw_Options :: struct {
+Canvas_Quad_Options :: struct {
 	dst:     Rectangle,
 	src:     Rectangle,
 	texture: ^Texture,
 	color:   Color,
 }
 
+Canvas_Line_Options :: struct {
+	p1:    Vector2,
+	p2:    Vector2,
+	color: Color,
+}
+
 @(private)
 init_canvas_node :: proc(canvas: ^Canvas_Node) {
-	OVERLAY_QUAD_CAP :: 1000
-	OVERLAY_VERTEX_CAP :: OVERLAY_QUAD_CAP * 4
-	OVERLAY_INDEX_CAP :: OVERLAY_QUAD_CAP * 6
-	OVERLAY_VERT_LAYOUT :: Vertex_Layout{.Float2, .Float2, .Float1, .Float4}
+	VERTEX_CAP :: 5000
+	QUAD_VERTICES :: 3500
+	LINE_VERTICES :: VERTEX_CAP - QUAD_VERTICES
+	QUAD_CAP :: QUAD_VERTICES / 4
+	LINE_CAP :: LINE_VERTICES / 2
+	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
+	VERTEX_LAYOUT :: Vertex_Layout{.Float2, .Float2, .Float1, .Float4}
+	stride := vertex_layout_length(VERTEX_LAYOUT)
 
 
-	overlay_stride := vertex_layout_length(OVERLAY_VERT_LAYOUT)
 	canvas.projection = linalg.matrix_mul(
 		linalg.matrix_ortho3d_f32(0, f32(canvas.width), f32(canvas.height), 0, 1, 100),
 		linalg.matrix4_translate_f32({0, 0, f32(-1)}),
 	)
-	canvas.attributes = attributes_from_layout(OVERLAY_VERT_LAYOUT, .Interleaved)
+	canvas.attributes = attributes_from_layout(VERTEX_LAYOUT, .Interleaved)
 
-	vertex_buffer_res := typed_buffer_resource(f32, overlay_stride * OVERLAY_VERTEX_CAP)
-	index_buffer_res := typed_buffer_resource(u32, OVERLAY_INDEX_CAP)
+	vertex_buffer_res := raw_buffer_resource(stride * VERTEX_CAP * size_of(f32), true)
+	index_buffer_res := typed_buffer_resource(u32, INDEX_CAP)
 	canvas.vertex_buffer = vertex_buffer_res.data.(^Buffer)
 	canvas.index_buffer = index_buffer_res.data.(^Buffer)
+
+	arena_init(
+		&canvas.vertex_arena,
+		Buffer_Memory{
+			buf = canvas.vertex_buffer,
+			size = stride * VERTEX_CAP * size_of(f32),
+			offset = 0,
+		},
+	)
+	canvas.tri_sub_buffer = arena_allocate(
+		&canvas.vertex_arena,
+		stride * QUAD_VERTICES * size_of(f32),
+	)
+	canvas.line_sub_buffer = arena_allocate(
+		&canvas.vertex_arena,
+		stride * LINE_VERTICES * size_of(f32),
+	)
 
 
 	framebuffer_res := framebuffer_resource(
@@ -103,12 +139,14 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 
 	texture_indices := [16]i32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	set_shader_uniform(canvas.paint_shader, "textures", &texture_indices[0])
+
+	canvas.tri_indices = make([]u32, (QUAD_CAP * 6))
+	canvas.line_indices = make([]u32, (LINE_CAP * 2))
 }
 
 @(private)
 prepare_canvas_node_render :: proc(canvas: ^Canvas_Node) {
 	canvas.vertices = make([dynamic]f32, 0, canvas.previous_v_count, context.temp_allocator)
-	canvas.indices = make([dynamic]u32, 0, canvas.previous_i_count, context.temp_allocator)
 	canvas.texture_count = 1
 }
 
@@ -139,7 +177,6 @@ push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Draw_Options) {
 		texture_index = canvas.texture_count
 		canvas.texture_count += 1
 	}
-	i_off := canvas.index_offset
 			//odinfmt: disable
 			append(
 				&canvas.vertices, 
@@ -148,28 +185,59 @@ push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Draw_Options) {
 				x2, y2, uvx2, uvy2, f32(texture_index), r, g, b, a,
 				x1, y2, uvx1, uvy2, f32(texture_index), r, g, b, a,
 			)
-			append(
-				&canvas.indices,
-				i_off + 1, i_off + 0, i_off + 2,
-				i_off + 2, i_off + 0, i_off + 3,
-			)
+			// append(
+			// 	&canvas.indices,
+			// 	i_off + 1, i_off + 0, i_off + 2,
+			// 	i_off + 2, i_off + 0, i_off + 3,
+			// )
 			//odinfmt: enable
+	i_off := canvas.tri_index_offset
+	start := canvas.tri_index_count
+	canvas.tri_indices[start] = i_off + 1
+	canvas.tri_indices[start + 1] = i_off + 0
+	canvas.tri_indices[start + 2] = i_off + 2
+	canvas.tri_indices[start + 3] = i_off + 2
+	canvas.tri_indices[start + 4] = i_off + 0
+	canvas.tri_indices[start + 5] = i_off + 3
 
 
-	canvas.index_offset += 4
+	canvas.tri_index_offset += 4
+	canvas.tri_index_count += 6
+}
+
+push_canvas_line :: proc(canvas: ^Canvas_Node, c: Canvas_Line_Options) {
+	x1 := c.p1.x
+	x2 := c.p2.x
+	y1 := c.p1.y
+	y2 := c.p2.y
+	r := c.color.r
+	g := c.color.g
+	b := c.color.b
+	a := c.color.a
+	//odinfmt: disable
+	append(
+		&canvas.line_vertices,
+		x1, y1, 0, 0, 0, r, g, b, a,
+		x2, y2, 0, 0, 0, r, g, b, a,
+	)
+	//odinfmt: enable
 }
 
 @(private)
 flush_canvas_node_buffers :: proc(data: rawptr) {
 	canvas := cast(^Canvas_Node)data
 	if .Preserve_Last_Frame not_in canvas.derived_flags {
-		if len(canvas.indices) > 0 {
+		if canvas.tri_index_count > 0 {
 			bind_framebuffer(canvas.framebuffer)
 			clear_framebuffer(canvas.framebuffer)
 			bind_shader(canvas.paint_shader)
 			set_shader_uniform(canvas.paint_shader, "matProj", &canvas.projection[0][0])
-			send_buffer_data(canvas.vertex_buffer, canvas.vertices[:])
-			send_buffer_data(canvas.index_buffer, canvas.indices[:])
+			send_raw_buffer_data(
+				&canvas.tri_sub_buffer,
+				size_of(f32) * len(canvas.vertices),
+				&canvas.vertices[0],
+			)
+			send_buffer_data(canvas.index_buffer, canvas.tri_indices[:canvas.tri_index_count])
 
 
 			bind_texture(canvas.textures[0], u32(0))
@@ -187,20 +255,19 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 			}
 			link_interleaved_attributes_vertices(canvas.attributes, canvas.vertex_buffer)
 			link_attributes_indices(canvas.attributes, canvas.index_buffer)
-			draw_triangles(len(canvas.indices))
+			draw_triangles(int(canvas.tri_index_count))
 		}
 	}
 	push_draw_command(
 		Render_Framebuffer_Command{
 			render_order = 1,
 			framebuffer = canvas.framebuffer,
-			vertex_buffer = canvas.vertex_buffer,
+			vertex_memory = &canvas.tri_sub_buffer,
 			index_buffer = canvas.index_buffer,
 		},
 	)
 	canvas.previous_v_count = len(canvas.vertices)
-	canvas.previous_i_count = len(canvas.indices)
-	canvas.index_offset = 0
+	canvas.tri_index_offset = 0
 	canvas.derived_flags -= {.Preserve_Last_Frame}
 }
 

@@ -95,8 +95,8 @@ send_buffer_data :: proc(buffer: ^Buffer, data: $T/[]$E) {
 	gl.NamedBufferData(buffer.handle, len(data) * info.element_size, &data[0], gl.STATIC_DRAW)
 }
 
-send_raw_buffer_data :: proc(buffer: ^Buffer, size: int, data: rawptr) {
-	info, ok := buffer.info.(Raw_Buffer)
+send_raw_buffer_data :: proc(dst: ^Buffer_Memory, size: int, data: rawptr) {
+	info, ok := dst.buf.info.(Raw_Buffer)
 	if !ok {
 		log.fatalf(
 			"%s: Invalid Buffer access, trying to send raw data to typed buffer",
@@ -104,11 +104,12 @@ send_raw_buffer_data :: proc(buffer: ^Buffer, size: int, data: rawptr) {
 		)
 		assert(false)
 	}
-	if size > info.size {
-		log.fatalf("%s: Data is too large for buffer [%d]", App_Module.GPU_Memory, buffer.handle)
+	if size > dst.size {
+		log.fatalf("%s: Data is too large for buffer [%d]", App_Module.GPU_Memory, dst.buf.handle)
 		assert(false)
 	}
-	gl.NamedBufferData(buffer.handle, size, data, gl.STATIC_DRAW)
+	// gl.NamedBufferData(dst.buf.handle, size, data, gl.STATIC_DRAW)
+	gl.NamedBufferSubData(dst.buf.handle, dst.offset, size, data)
 }
 
 set_uniform_buffer_binding :: proc(buffer: ^Buffer, binding_point: u32) {
@@ -147,6 +148,7 @@ arena_allocate :: proc(a: ^Arena_Buffer_Allocator, size: int) -> (memory: Buffer
 	if size > (a.size - a.used) {
 		log.fatalf(
 			"%s: Areana allocator out of memory:\n\tsize: %d\n\tused: %d\n\trequested: %d\n",
+			App_Module.GPU_Memory,
 			a.size,
 			a.used,
 			size,
@@ -154,6 +156,7 @@ arena_allocate :: proc(a: ^Arena_Buffer_Allocator, size: int) -> (memory: Buffer
 		intrinsics.trap()
 	}
 	memory = Buffer_Memory {
+		buf    = a.buf,
 		size   = size,
 		offset = a.offset + a.used,
 	}
