@@ -4,8 +4,25 @@ import "core:math/linalg"
 import gl "vendor:OpenGL"
 
 @(private)
-draw_triangles :: proc(count: int) {
-	gl.DrawElements(gl.TRIANGLES, i32(count), gl.UNSIGNED_INT, nil)
+draw_triangles :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
+	gl.DrawElementsBaseVertex(
+		gl.TRIANGLES,
+		i32(count),
+		gl.UNSIGNED_INT,
+		rawptr(byte_offset),
+		i32(index_offset),
+	)
+}
+
+@(private)
+draw_lines :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
+	gl.DrawElementsBaseVertex(
+		gl.LINES,
+		i32(count),
+		gl.UNSIGNED_INT,
+		rawptr(byte_offset),
+		i32(index_offset),
+	)
 }
 
 set_backface_culling :: proc(on: bool) {

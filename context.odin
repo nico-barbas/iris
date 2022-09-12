@@ -420,7 +420,15 @@ end_render :: proc() {
 				len(framebuffer_vertices) * size_of(f32),
 				&framebuffer_vertices[0],
 			)
-			send_buffer_data(c.index_buffer, framebuffer_indices[:])
+			send_raw_buffer_data(
+				&Buffer_Memory{
+					buf = c.index_buffer,
+					size = len(framebuffer_vertices) * size_of(u32),
+					offset = 0,
+				},
+				len(framebuffer_vertices) * size_of(u32),
+				&framebuffer_indices[0],
+			)
 
 			// prepare attributes
 			bind_attributes(ctx.framebuffer_blit_attributes)

@@ -474,6 +474,8 @@ draw :: proc(data: iris.App_Data) {
 			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
+
+		iris.draw_line(g.canvas, {300, 300}, {340, 600}, {1, 1, 1, 1})
 	}
 	iris.end_render()
 }

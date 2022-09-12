@@ -710,7 +710,7 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 				draw_text(node.canvas, c.font, c.text, c.position, c.size, c.color)
 			}
 		}
-		node.dirty = false
+		// node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}

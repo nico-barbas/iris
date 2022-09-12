@@ -95,8 +95,8 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 
 clear_framebuffer :: proc(f: ^Framebuffer) {
 	if .Color in f.attachments {
-		rgb := f.clear_colors[Framebuffer_Attachment.Color].xyz
-		gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, 0, &rgb[0])
+		rgba := f.clear_colors[Framebuffer_Attachment.Color].rgba
+		gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, 0, &rgba[0])
 	}
 	if .Depth in f.attachments {
 		d: f32 = 1
