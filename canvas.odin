@@ -344,8 +344,16 @@ draw_text :: proc(
 ) {
 	face := &f.faces[size]
 	cursor_pos := point
-	for r, _ in text {
+	if len(text) > 1 {
+		cursor_pos.x += f32(face.glyphs[text[0]].left_bearing)
+	}
+	for r in text {
 		glyph := face.glyphs[r]
+		if r == ' ' {
+			cursor_pos.x += f32(glyph.advance)
+			continue
+		}
+
 		rect := Rectangle{
 			cursor_pos.x,
 			cursor_pos.y + f32(glyph.y_offset),

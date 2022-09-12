@@ -2,7 +2,6 @@ package main
 
 import "core:mem"
 import "core:fmt"
-import "core:math"
 import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
@@ -61,7 +60,6 @@ main :: proc() {
 
 Game :: struct {
 	scene:             ^iris.Scene,
-	camera:            Camera,
 	light:             iris.Light_ID,
 	mesh:              ^iris.Mesh,
 	lantern:           ^iris.Node,
@@ -70,21 +68,11 @@ Game :: struct {
 	canvas:            ^iris.Canvas_Node,
 	model_shader:      ^iris.Shader,
 	skeletal_shader:   ^iris.Shader,
-	ground_mesh:       ^iris.Mesh,
-	// material:      iris.Material,
+	terrain:           ^iris.Node,
 	delta:             f32,
 	flat_material:     ^iris.Material,
 	flat_lit_material: ^iris.Material,
 	font:              ^iris.Font,
-}
-
-Camera :: struct {
-	pitch:           f32,
-	yaw:             f32,
-	position:        iris.Vector3,
-	target:          iris.Vector3,
-	target_distance: f32,
-	target_rotation: f32,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -141,9 +129,6 @@ init :: proc(data: iris.App_Data) {
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
 
-	ground_res := iris.plane_mesh(10, 10, 3, 3)
-	g.ground_mesh = ground_res.data.(^iris.Mesh)
-
 
 	flat_shader_res := iris.shader_resource(
 		iris.Shader_Loader{
@@ -174,13 +159,41 @@ init :: proc(data: iris.App_Data) {
 		).data.(^iris.Texture),
 	)
 
-	g.camera = Camera {
+	ground_res := iris.plane_mesh(50, 50, 50, 50)
+	g.terrain = iris.model_node_from_mesh(
+		g.scene,
+		ground_res.data.(^iris.Mesh),
+		g.flat_lit_material,
+		iris.transform(),
+	)
+	iris.insert_node(g.scene, g.terrain)
+
+
+	camera := iris.new_node_from(g.scene, iris.Camera_Node {
 		pitch = 45,
 		target = {0, 0.5, 0},
 		target_distance = 10,
 		target_rotation = 90,
-	}
-	update_camera(&g.camera, {}, 0)
+		min_pitch = 10,
+		max_pitch = 170,
+		min_distance = 2,
+		distance_speed = 1,
+		position_speed = 1,
+		rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
+			m_right := iris.mouse_button_state(.Right)
+			if .Pressed in m_right {
+				trigger = true
+				delta = iris.mouse_delta()
+			}
+			return
+		},
+		distance_proc = proc() -> (trigger: bool, displacement: f32) {
+			displacement = f32(iris.mouse_scroll())
+			trigger = displacement != 0
+			return
+		},
+	})
+	iris.insert_node(g.scene, camera)
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 
@@ -204,7 +217,6 @@ init :: proc(data: iris.App_Data) {
 
 		node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
 		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-		// iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
 		iris.insert_node(g.scene, g.rig)
 
 		mesh_node := iris.new_node(g.scene, iris.Model_Node)
@@ -279,14 +291,6 @@ init :: proc(data: iris.App_Data) {
 update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	dt := f32(iris.elapsed_time())
-	m_delta := iris.mouse_delta()
-	m_right := iris.mouse_button_state(.Right)
-	m_scroll := iris.mouse_scroll()
-	if .Pressed in m_right {
-		update_camera(&g.camera, m_delta, 0)
-	} else if m_scroll != 0 {
-		update_camera(&g.camera, 0, m_scroll)
-	}
 
 	g.delta += dt
 	if g.delta >= 10 {
@@ -294,33 +298,8 @@ update :: proc(data: iris.App_Data) {
 	}
 
 	iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
-	iris.set_shader_uniform(g.model_shader, "viewPosition", &g.camera.position)
 
 	iris.update_scene(g.scene, dt)
-}
-
-update_camera :: proc(c: ^Camera, m_delta: iris.Vector2, m_scroll: f64) {
-	SCROLL_SPEED :: 1
-	MIN_TARGET_DISTANCE :: 2
-	MAX_PITCH :: 170
-	MIN_PITCH :: 10
-
-	c.target_distance = max(c.target_distance - f32(m_scroll), MIN_TARGET_DISTANCE)
-	c.target_rotation += (m_delta.x * 0.5)
-	c.pitch -= (m_delta.y * 0.5)
-	c.pitch = clamp(c.pitch, MIN_PITCH, MAX_PITCH)
-
-	pitch_in_rad := math.to_radians(c.pitch)
-	target_rot_in_rad := math.to_radians(c.target_rotation)
-	h_dist := c.target_distance * math.sin(pitch_in_rad)
-	v_dist := c.target_distance * math.cos(pitch_in_rad)
-	c.position = {
-		c.target.x - (h_dist * math.cos(target_rot_in_rad)),
-		c.target.y + (v_dist),
-		c.target.z - (h_dist * math.sin(target_rot_in_rad)),
-	}
-	iris.view_position(c.position)
-	iris.view_target(c.target)
 }
 
 draw :: proc(data: iris.App_Data) {
@@ -328,7 +307,6 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.render_scene(g.scene)
-		iris.draw_mesh(g.ground_mesh, iris.transform(), g.flat_lit_material)
 
 		iris.draw_mesh(
 			g.mesh,

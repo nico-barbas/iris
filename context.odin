@@ -51,12 +51,6 @@ Rendering_Context :: struct {
 	previous_cmd_count:          int,
 	deferred_commands:           [dynamic]Render_Command,
 	previous_def_cmd_count:      int,
-
-	// Resource management
-	// textures:                  map[string]Texture,
-	// materials:                 map[string]Material,
-	// shaders:                   map[string]Shader,
-	// buffers:                   [dynamic]Buffer,
 }
 
 Render_Uniform_Binding :: enum u32 {
@@ -112,13 +106,6 @@ Render_Command_Option :: enum {
 	Enable_Culling,
 	Disable_Culling,
 }
-
-// Render_Quad_Command :: struct {
-// 	dst:     Rectangle,
-// 	src:     Rectangle,
-// 	texture: ^Texture,
-// 	color:   Color,
-// }
 
 init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	DEFAULT_FOVY :: 45
@@ -187,21 +174,6 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 }
 
 close_render_ctx :: proc(ctx: ^Rendering_Context) {
-	// for _, i in ctx.states {
-	// 	destroy_attributes_state(&ctx.states[i])
-	// }
-	// for name in ctx.textures {
-	// 	destroy_texture(&ctx.textures[name])
-	// }
-	// for name in ctx.shaders {
-	// 	destroy_shader(&ctx.shaders[name])
-	// }
-	// for buffer in ctx.buffers {
-	// 	destroy_buffer(buffer)
-	// }
-	// destroy_framebuffer(ctx.depth_framebuffer)
-
-	// close_overlay(&ctx.overlay)
 }
 
 view_position :: proc(position: Vector3) {
@@ -221,12 +193,12 @@ add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color) -> (id: Light_ID) {
 	ctx.lights[id] = Light {
 		kind = kind,
 		projection = linalg.matrix_ortho3d_f32(
-			-10,
-			10,
+			-17.5,
+			17.5,
 			-10,
 			10,
 			f32(RENDER_CTX_DEFAULT_NEAR),
-			f32(10),
+			f32(20),
 		),
 		data = Light_Data{position = {p.x, p.y, p.z, 1.0}, color = clr},
 	}
@@ -256,8 +228,6 @@ start_render :: proc() {
 		ctx.previous_def_cmd_count,
 		context.temp_allocator,
 	)
-
-	// prepare_overlay_frame(&ctx.overlay)
 }
 
 end_render :: proc() {
@@ -287,8 +257,11 @@ end_render :: proc() {
 		ctx.light_dirty = false
 	}
 
+	set_viewport(ctx.render_width, ctx.render_height)
+	compute_projection(ctx)
+
 	// Compute the scene's depth map
-	// set_frontface_culling(true)
+	set_backface_culling(true)
 	bind_framebuffer(ctx.depth_framebuffer)
 	clear_framebuffer(ctx.depth_framebuffer)
 	bind_shader(ctx.depth_shader)
@@ -312,10 +285,7 @@ end_render :: proc() {
 	}
 	default_shader()
 	default_framebuffer()
-	// set_backface_culling(true)
 
-	compute_projection(ctx)
-	set_viewport(ctx.render_width, ctx.render_height)
 	current_shader: u32 = 0
 	for command in &ctx.commands {
 		switch c in &command {
@@ -480,72 +450,6 @@ push_draw_command :: proc(cmd: Render_Command) {
 		append(&app.render_ctx.deferred_commands, cmd)
 	}
 }
-
-// load_shader_from_bytes :: proc(vertex_src, fragment_src: string, name := "") -> Shader {
-// 	ctx := &app.render_ctx
-// 	shader := internal_load_shader_from_bytes(
-// 		vertex_src = vertex_src,
-// 		fragment_src = fragment_src,
-// 		allocator = app.ctx.allocator,
-// 	)
-// 	shader_name: string
-// 	if name == "" {
-// 		shader_name = fmt.tprintf("raw_shader_%d", len(ctx.shaders))
-// 	} else {
-// 		shader_name = name
-// 	}
-// 	ctx.shaders[shader_name] = shader
-// 	return shader
-// }
-
-
-// load_materials_from_gltf :: proc(document: ^gltf.Document) {
-// 	ctx := &app.render_ctx
-// 	for material in document.materials {
-// 		if _, exist := ctx.materials[material.name]; !exist {
-// 			name := strings.clone(material.name, app.ctx.allocator)
-// 			m: Material
-// 			if material.base_color_texture.present {
-// 				path := material.base_color_texture.texture.source.reference.(string)
-// 				if texture, has_texture := ctx.textures[path]; has_texture {
-// 					set_material_map(&m, .Diffuse, texture)
-// 				} else {
-// 					assert(false)
-// 				}
-// 			}
-// 			if material.normal_texture.present {
-// 				path := material.normal_texture.texture.source.reference.(string)
-// 				if texture, has_texture := ctx.textures[path]; has_texture {
-// 					set_material_map(&m, .Normal, texture)
-// 				}
-// 			}
-// 			fmt.println(m)
-// 			ctx.materials[name] = m
-// 		}
-// 	}
-// }
-
-// load_textures_from_gltf :: proc(document: ^gltf.Document) {
-// 	ctx := &app.render_ctx
-// 	for texture in document.textures {
-// 		if _, ok := texture.source.reference.(string); !ok {
-// 			unimplemented("Image from buffer view")
-// 		}
-// 		path := texture.source.reference.(string)
-// 		if _, exist := ctx.textures[path]; !exist {
-// 			name := strings.clone(path, app.ctx.allocator)
-// 			ctx.textures[name] = load_texture_from_file(path, app.ctx.allocator)
-// 		}
-// 	}
-// }
-
-// get_material :: proc(name: string) -> Material {
-// 	if material, exist := app.render_ctx.materials[name]; exist {
-// 		return material
-// 	}
-// 	fmt.println(name, app.render_ctx.materials)
-// 	unreachable()
-// }
 
 @(private)
 LIGHT_DEPTH_VERTEX_SHADER :: `

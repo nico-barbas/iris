@@ -3,6 +3,7 @@ package iris
 import "core:log"
 import "core:mem"
 import "core:slice"
+import "core:math"
 import "core:math/linalg"
 
 import "gltf"
@@ -39,6 +40,7 @@ Node_Flag :: enum {
 
 Any_Node :: union {
 	^Empty_Node,
+	^Camera_Node,
 	^Model_Node,
 	^Skin_Node,
 	^Canvas_Node,
@@ -47,13 +49,6 @@ Any_Node :: union {
 
 Empty_Node :: struct {
 	using base: Node,
-}
-
-Model_Node :: struct {
-	using base:     Node,
-	mesh_transform: Matrix4,
-	meshes:         [dynamic]^Mesh,
-	materials:      [dynamic]^Material,
 }
 
 init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
@@ -86,6 +81,9 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		switch n in node.derived {
 		case ^Empty_Node:
 
+		case ^Camera_Node:
+			update_camera_node(n, false)
+
 		case ^Model_Node:
 
 		case ^Skin_Node:
@@ -113,7 +111,7 @@ render_scene :: proc(scene: ^Scene) {
 	traverse_node :: proc(node: ^Node) {
 		if .Rendered in node.flags {
 			switch n in node.derived {
-			case ^Empty_Node:
+			case ^Empty_Node, ^Camera_Node:
 
 			case ^Model_Node:
 				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
@@ -193,6 +191,20 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	switch n in node.derived {
 	case ^Empty_Node:
 		node.name = "Node"
+	case ^Camera_Node:
+		node.name = "Camera"
+		n.max_pitch = 190 if n.max_pitch == 0 else n.max_pitch
+		if n.rotation_proc == nil {
+			n.rotation_proc = proc() -> (bool, Vector2) {return false, 0}
+		}
+		if n.distance_proc == nil {
+			n.distance_proc = proc() -> (bool, f32) {return false, 0}
+		}
+		if n.position_proc == nil {
+			n.position_proc = proc() -> (bool, Vector3) {return false, 0}
+		}
+		update_camera_node(n, true)
+
 	case ^Model_Node:
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
@@ -243,6 +255,67 @@ node_local_transform :: proc(node: ^Node, t: Transform) {
 		s = t.scale,
 	)
 	node.flags += {.Dirty_Transform}
+}
+
+Camera_Node :: struct {
+	using base:      Node,
+	pitch:           f32,
+	yaw:             f32,
+	position:        Vector3,
+	target:          Vector3,
+	target_distance: f32,
+	target_rotation: f32,
+
+	// Input states
+	min_pitch:       f32,
+	max_pitch:       f32,
+	min_distance:    f32,
+	distance_speed:  f32,
+	position_speed:  f32,
+	rotation_proc:   proc() -> (trigger: bool, delta: Vector2),
+	distance_proc:   proc() -> (trigger: bool, displacement: f32),
+	position_proc:   proc() -> (trigger: bool, displacement: Vector3),
+}
+
+update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
+	dirty: bool
+	r_delta: Vector2
+	d_delta: f32
+	p_delta: Vector3
+
+	d: bool
+	d, r_delta = camera.rotation_proc()
+	dirty |= d
+	d, d_delta = camera.distance_proc()
+	dirty |= d
+	d, p_delta = camera.position_proc()
+	dirty |= d
+
+	if dirty || force_refresh {
+		camera.target_distance = max(camera.target_distance - d_delta, camera.min_distance)
+		camera.target_rotation += (r_delta.x * 0.5)
+		camera.pitch -= (r_delta.y * 0.5)
+		camera.pitch = clamp(camera.pitch, camera.min_pitch, camera.max_pitch)
+
+		pitch_in_rad := math.to_radians(camera.pitch)
+		target_rot_in_rad := math.to_radians(camera.target_rotation)
+		h_dist := camera.target_distance * math.sin(pitch_in_rad)
+		v_dist := camera.target_distance * math.cos(pitch_in_rad)
+		camera.position = {
+			camera.target.x - (h_dist * math.cos(target_rot_in_rad)),
+			camera.target.y + (v_dist),
+			camera.target.z - (h_dist * math.sin(target_rot_in_rad)),
+		}
+		view_position(camera.position)
+		view_target(camera.target)
+	}
+}
+
+Model_Node :: struct {
+	using base:     Node,
+	mesh_transform: Matrix4,
+	meshes:         [dynamic]^Mesh,
+	materials:      [dynamic]^Material,
 }
 
 Model_Loader :: struct {
@@ -470,7 +543,22 @@ load_mesh_from_gltf :: proc(
 	return
 }
 
-// model_node_from_mesh :: proc(mesh: ^Mesh, transform)
+model_node_from_mesh :: proc(
+	scene: ^Scene,
+	mesh: ^Mesh,
+	material: ^Material,
+	transform: Transform,
+) -> ^Model_Node {
+	model := new_node(scene, Model_Node)
+	append(&model.meshes, mesh)
+	append(&model.materials, material)
+	model.mesh_transform = linalg.matrix4_from_trs_f32(
+		transform.translation,
+		transform.rotation,
+		transform.scale,
+	)
+	return model
+}
 
 Skin_Node :: struct {
 	using base:     Node,

@@ -2,7 +2,6 @@ package iris
 
 import "core:os"
 import "core:log"
-// import "core:fmt"
 import "core:runtime"
 import "core:strings"
 import gl "vendor:OpenGL"
@@ -47,7 +46,10 @@ Shader_Loader :: struct {
 }
 
 @(private)
-internal_load_shader_from_file :: proc(l: Shader_Loader, allocator := context.allocator) -> Shader {
+internal_load_shader_from_file :: proc(
+	l: Shader_Loader,
+	allocator := context.allocator,
+) -> Shader {
 	v_raw, v_ok := os.read_entire_file(l.vertex_path, context.temp_allocator)
 	f_raw, f_ok := os.read_entire_file(l.fragment_path, context.temp_allocator)
 
@@ -111,7 +113,11 @@ internal_load_shader_from_bytes :: proc(
 	if u_count == 0 {
 		return shader
 	}
-	shader.uniforms = make(map[string]Shader_Uniform_Info, runtime.DEFAULT_RESERVE_CAPACITY, allocator)
+	shader.uniforms = make(
+		map[string]Shader_Uniform_Info,
+		runtime.DEFAULT_RESERVE_CAPACITY,
+		allocator,
+	)
 	shader.uniform_warnings.allocator = allocator
 
 	max_name_len: i32
@@ -121,10 +127,20 @@ internal_load_shader_from_bytes :: proc(
 	gl.GetProgramiv(shader.handle, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name_len)
 	for i in 0 ..< u_count {
 		buf := make([]u8, max_name_len, context.temp_allocator)
-		gl.GetActiveUniform(shader.handle, u32(i), max_name_len, &cur_name_len, &size, &type, &buf[0])
+		gl.GetActiveUniform(
+			shader.handle,
+			u32(i),
+			max_name_len,
+			&cur_name_len,
+			&size,
+			&type,
+			&buf[0],
+		)
 		u_name := format_uniform_name(buf, cur_name_len, type)
 		shader.uniforms[u_name] = Shader_Uniform_Info {
-			loc   = Shader_Uniform_Loc(gl.GetUniformLocation(shader.handle, cstring(raw_data(buf)))),
+			loc   = Shader_Uniform_Loc(
+				gl.GetUniformLocation(shader.handle, cstring(raw_data(buf))),
+			),
 			kind  = uniform_kind(type),
 			count = int(size),
 		}
@@ -305,3 +321,5 @@ bind_shader :: proc(shader: ^Shader) {
 default_shader :: proc() {
 	gl.UseProgram(0)
 }
+
+// Runtime Shader meta programming pass
