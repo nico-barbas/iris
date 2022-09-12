@@ -96,7 +96,7 @@ send_buffer_data :: proc(buffer: ^Buffer, data: $T/[]$E) {
 }
 
 send_raw_buffer_data :: proc(dst: ^Buffer_Memory, size: int, data: rawptr) {
-	info, ok := dst.buf.info.(Raw_Buffer)
+	_, ok := dst.buf.info.(Raw_Buffer)
 	if !ok {
 		log.fatalf(
 			"%s: Invalid Buffer access, trying to send raw data to typed buffer",

@@ -366,7 +366,7 @@ init :: proc(data: iris.App_Data) {
 		)
 		iris.layout_add_widget(layout, list, 20)
 
-		for i in 0 ..< 1 {
+		for _ in 0 ..< 1 {
 			child_base.background.style = .None
 			item := iris.new_widget_from(
 				ui_node,
@@ -387,7 +387,7 @@ init :: proc(data: iris.App_Data) {
 		)
 		iris.list_add_widget(list, inner_list, 20)
 
-		for i in 0 ..< 3 {
+		for _ in 0 ..< 3 {
 			child_base.background.style = .None
 			item := iris.new_widget_from(
 				ui_node,
@@ -396,7 +396,7 @@ init :: proc(data: iris.App_Data) {
 			iris.list_add_widget(inner_list, item, 20)
 		}
 
-		for i in 0 ..< 1 {
+		for _ in 0 ..< 1 {
 			child_base.background.style = .None
 			item := iris.new_widget_from(
 				ui_node,

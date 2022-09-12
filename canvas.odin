@@ -151,7 +151,7 @@ prepare_canvas_node_render :: proc(canvas: ^Canvas_Node) {
 }
 
 @(private)
-push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Draw_Options) {
+push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Quad_Options) {
 	x1 := c.dst.x
 	x2 := c.dst.x + c.dst.width
 	y1 := c.dst.y
@@ -268,6 +268,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 	)
 	canvas.previous_v_count = len(canvas.vertices)
 	canvas.tri_index_offset = 0
+	canvas.tri_index_count = 0
 	canvas.derived_flags -= {.Preserve_Last_Frame}
 }
 
@@ -279,7 +280,7 @@ default_canvas_texture :: proc(canvas: ^Canvas_Node) -> ^Texture {
 draw_rect :: proc(canvas: ^Canvas_Node, r: Rectangle, clr: Color) {
 	push_canvas_quad(
 		canvas,
-		Canvas_Draw_Options{
+		Canvas_Quad_Options{
 			dst = r,
 			src = {x = 0, y = 0, width = 1, height = 1},
 			color = clr,
@@ -289,7 +290,7 @@ draw_rect :: proc(canvas: ^Canvas_Node, r: Rectangle, clr: Color) {
 }
 
 draw_sub_texture :: proc(canvas: ^Canvas_Node, t: ^Texture, dst, src: Rectangle, clr: Color) {
-	push_canvas_quad(canvas, Canvas_Draw_Options{dst = dst, src = src, color = clr, texture = t})
+	push_canvas_quad(canvas, Canvas_Quad_Options{dst = dst, src = src, color = clr, texture = t})
 }
 
 draw_text :: proc(
