@@ -17,6 +17,7 @@ Scene :: struct {
 }
 
 Node :: struct {
+	name:             string,
 	scene:            ^Scene,
 	flags:            Node_Flags,
 	local_transform:  Matrix4,
@@ -191,27 +192,31 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	node.children.allocator = scene.allocator
 	switch n in node.derived {
 	case ^Empty_Node:
-
+		node.name = "Node"
 	case ^Model_Node:
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
+		node.name = "Model"
 
 	case ^Skin_Node:
 		n.flags -= {.Rendered}
 		n.joint_roots.allocator = scene.allocator
 		n.joint_lookup.allocator = scene.allocator
 		n.animations.allocator = scene.allocator
+		node.name = "Skin"
 
 	case ^Canvas_Node:
 		n.flags += {.Rendered}
 		init_canvas_node(n)
+		node.name = "Canvas"
 
 	case ^User_Interface_Node:
 		n.flags += {.Rendered}
 		n.commands.allocator = scene.allocator
 		n.roots.allocator = scene.allocator
 		init_ui_node(n, scene.allocator)
+		node.name = "User Interface"
 	}
 }
 
@@ -293,9 +298,9 @@ model_node_from_gltf :: proc(
 			assert(err == nil)
 			mesh := mesh_res.data.(^Mesh)
 
-			material, exist := material_from_name(data.primitives[0].material.name)
+			material, exist := material_from_name(data.primitives[i].material.name)
 			if !exist {
-				material = load_material_from_gltf(data.primitives[0].material^)
+				material = load_material_from_gltf(data.primitives[i].material^)
 			}
 			material.shader = loader.shader
 
@@ -464,6 +469,8 @@ load_mesh_from_gltf :: proc(
 	)
 	return
 }
+
+// model_node_from_mesh :: proc(mesh: ^Mesh, transform)
 
 Skin_Node :: struct {
 	using base:     Node,
@@ -667,11 +674,13 @@ Contrast_Level :: enum {
 User_Interface_Command :: union {
 	User_Interface_Rect_Command,
 	User_Interface_Text_Command,
+	User_Interface_Line_Command,
 }
 
 User_Interface_Rect_Command :: struct {
-	rect:  Rectangle,
-	color: Color,
+	outline: bool,
+	rect:    Rectangle,
+	color:   Color,
 }
 
 User_Interface_Text_Command :: struct {
@@ -681,6 +690,8 @@ User_Interface_Text_Command :: struct {
 	size:     int,
 	color:    Color,
 }
+
+User_Interface_Line_Command :: distinct Canvas_Line_Options
 
 init_ui_node :: proc(node: ^User_Interface_Node, allocator: mem.Allocator) {
 	mem.arena_init(&node.arena, make([]byte, mem.Megabyte * 1, allocator))
@@ -705,15 +716,119 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 		for command in node.commands {
 			switch c in command {
 			case User_Interface_Rect_Command:
-				draw_rect(node.canvas, c.rect, c.color)
+				if c.outline {
+					draw_line(
+						node.canvas,
+						{c.rect.x, c.rect.y},
+						{c.rect.x, c.rect.y + c.rect.height},
+						c.color,
+					)
+					draw_line(
+						node.canvas,
+						{c.rect.x, c.rect.y + c.rect.height},
+						{c.rect.x + c.rect.width, c.rect.y + c.rect.height},
+						c.color,
+					)
+					draw_line(
+						node.canvas,
+						{c.rect.x + c.rect.width, c.rect.y + c.rect.height},
+						{c.rect.x + c.rect.width, c.rect.y},
+						c.color,
+					)
+					draw_line(
+						node.canvas,
+						{c.rect.x + c.rect.width, c.rect.y},
+						{c.rect.x, c.rect.y},
+						c.color,
+					)
+				} else {
+					draw_rect(node.canvas, c.rect, c.color)
+				}
 			case User_Interface_Text_Command:
 				draw_text(node.canvas, c.font, c.text, c.position, c.size, c.color)
+			case User_Interface_Line_Command:
+				push_canvas_line(node.canvas, Canvas_Line_Options(c))
 			}
 		}
-		// node.dirty = false
+		node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}
+}
+
+scene_graph_to_list :: proc(parent: ^Widget, scene: ^Scene, node_size: f32) -> ^List_Widget {
+	DEFAULT_BASE :: Widget {
+		flags = DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+		background = Widget_Background{style = .Solid},
+	}
+
+	list := new_widget_from(
+		parent.ui,
+		List_Widget{
+			base = DEFAULT_BASE,
+			options = {.Named_Header, .Foldable, .Indent_Children, .Tree_View},
+			optional_name = "scene",
+			padding = 2,
+			indent = 10,
+		},
+	)
+	#partial switch p in parent.derived {
+	case ^Layout_Widget:
+		layout_add_widget(p, list, node_size)
+	case ^List_Widget:
+		list_add_widget(p, list, node_size)
+	case:
+		assert(false)
+	}
+
+	node_to_widget :: proc(parent: ^Widget, node: ^Node, node_size: f32, base := DEFAULT_BASE) {
+		if len(node.children) > 0 {
+			list := new_widget_from(
+				parent.ui,
+				List_Widget{
+					base = base,
+					options = {.Named_Header, .Foldable, .Indent_Children, .Tree_View},
+					optional_name = node.name,
+					padding = 2,
+					indent = node_size,
+				},
+			)
+
+			#partial switch p in parent.derived {
+			case ^Layout_Widget:
+				layout_add_widget(p, list, node_size)
+			case ^List_Widget:
+				list_add_widget(p, list, node_size)
+			case:
+				assert(false)
+			}
+
+			for child in node.children {
+				node_to_widget(list, child, node_size)
+			}
+		} else {
+			widget := new_widget_from(
+				parent.ui,
+				Label_Widget{base = base, text = Text{data = node.name}},
+			)
+			widget.background.style = .None
+			#partial switch p in parent.derived {
+			case ^Layout_Widget:
+				layout_add_widget(p, widget, node_size)
+			case ^List_Widget:
+				list_add_widget(p, widget, node_size)
+			case:
+				assert(false)
+			}
+		}
+
+		return
+	}
+
+	for root in scene.roots {
+		node_to_widget(list, root, node_size)
+	}
+	return list
 }
 
 Widget :: struct {
@@ -740,14 +855,15 @@ Widget_Flag :: enum {
 }
 
 Widget_Background :: struct {
-	style:   enum {
+	style:        enum {
 		None,
 		Solid,
 		Texture_Slice,
 	},
-	borders: bool,
-	color:   Color,
-	texture: ^Texture,
+	borders:      bool,
+	border_color: Color,
+	color:        Color,
+	texture:      ^Texture,
 }
 
 Any_Widget :: union {
@@ -805,6 +921,9 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 		w.background.borders = theme.borders
 	case ^List_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
+		w.line_color.rgb =
+			theme.base_color.rgb * theme.contrast_values[Contrast_Level.Level_Plus_1]
+		w.line_color.a = 1
 	case ^Button_Widget:
 		w.color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.hover_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
@@ -824,6 +943,7 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 		w.text.color = theme.text_color
 	}
 	widget.background.color.rbg = theme.base_color.rgb * contrast
+	widget.background.border_color = theme.border_color
 	widget.background.color.a = 1
 }
 
@@ -900,8 +1020,34 @@ draw_widget :: proc(widget: ^Widget) {
 
 	case ^List_Widget:
 		if .Folded not_in w.states {
-			for child in w.children {
+			for child, i in w.children {
 				draw_widget(child)
+				if .Tree_View in w.options && i > 0 {
+					p := Vector2{w.rect.x + w.next.x, child.rect.y + w.root.rect.height / 2}
+					append(
+						buf,
+						User_Interface_Line_Command{
+							p1 = p,
+							p2 = p + Vector2{w.indent - 1, 0},
+							color = w.line_color,
+						},
+					)
+				}
+			}
+			if .Tree_View in w.options {
+				line_padding := 2 + w.padding
+				if w.background.borders {
+					line_padding += 1
+				}
+				p := Vector2{w.root.rect.x + w.next.x, w.root.rect.y + w.root.rect.height}
+				append(
+					buf,
+					User_Interface_Line_Command{
+						p1 = p + Vector2{0, line_padding},
+						p2 = p + Vector2{0, w.line_height},
+						color = w.line_color,
+					},
+				)
 			}
 		} else {
 			draw_widget(w.root)
@@ -943,8 +1089,10 @@ widget_height :: proc(widget: ^Widget) -> (result: f32) {
 			for child in w.children {
 				result += widget_height(child)
 			}
+			w.rect.height = result
 		} else {
 			result = w.root.rect.height
+			w.rect.height = result
 		}
 	}
 	return
@@ -958,9 +1106,12 @@ draw_widget_background :: proc(
 	switch bg.style {
 	case .None:
 	case .Solid:
-		append(buf, User_Interface_Rect_Command{rect, bg.color})
+		append(buf, User_Interface_Rect_Command{false, rect, bg.color})
 	case .Texture_Slice:
 		assert(false)
+	}
+	if bg.borders {
+		append(buf, User_Interface_Rect_Command{true, rect, bg.border_color})
 	}
 }
 
@@ -1126,13 +1277,13 @@ update_layout :: proc(layout: ^Layout_Widget) {
 	}
 	if .Dirty_Hierarchy in layout.flags {
 		if .Decorated in layout.options {
-			layout.next = {
-				layout.rect.x + layout.margin,
-				layout.rect.y + layout.handle.rect.height + layout.margin,
-			}
+			layout.next = {layout.margin, layout.handle.rect.height + layout.margin}
 			for child in layout.children[1:] {
-				offset := layout.next - Vector2{child.rect.x, child.rect.y}
-				offset_widget(child, offset)
+				next := layout.next + Vector2{layout.rect.x, layout.rect.y}
+				offset := next - Vector2{child.rect.x, child.rect.y}
+				if offset != 0 {
+					offset_widget(child, offset)
+				}
 				layout.next.y += widget_height(child) + layout.padding
 			}
 		} else {
@@ -1160,6 +1311,8 @@ List_Widget :: struct {
 	padding:        f32,
 	indent:         f32,
 	default_height: f32,
+	line_height:    f32,
+	line_color:     Color,
 }
 
 List_Options :: distinct bit_set[List_Option]
@@ -1168,6 +1321,7 @@ List_Option :: enum {
 	Named_Header,
 	Indent_Children,
 	Foldable,
+	Tree_View,
 }
 
 List_States :: distinct bit_set[List_State]
@@ -1243,19 +1397,28 @@ init_list :: proc(list: ^List_Widget) {
 update_list :: proc(list: ^List_Widget) {
 	if .Dirty_Hierarchy in list.flags {
 		if .Foldable in list.options {
-			list.next = {
-				list.rect.x + list.margin,
-				list.rect.y + list.root.rect.height + list.margin,
+			list.next = {list.margin, list.root.rect.height + list.margin}
+			if list.margin == 0 {
+				list.next.y += list.padding
 			}
-			for child in list.children[1:] {
-				next := list.next
+			list.line_height = 0
+			for child, i in list.children[1:] {
+				next := list.next + {list.rect.x, list.rect.y}
 				if .Indent_Children in list.options {
 					next.x += list.indent
 				}
 
 				offset := next - Vector2{child.rect.x, child.rect.y}
 				offset_widget(child, offset)
-				list.next.y += widget_height(child) + list.padding
+				height := widget_height(child)
+				list.next.y += height + list.padding
+				if i == len(list.children) - 2 {
+					LAST_CHILD_PADDING :: 3
+					list.line_height += list.root.rect.height / 2
+					list.line_height += LAST_CHILD_PADDING
+				} else {
+					list.line_height += height + list.padding
+				}
 			}
 			list.flags -= {.Dirty_Hierarchy}
 		}

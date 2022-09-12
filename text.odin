@@ -33,6 +33,8 @@ Font_Glyph :: struct {
 	codepoint:     rune,
 	advance:       f64,
 	left_bearing:  f64,
+	right_bearing: f64,
+	kernings:      []f64,
 	x, y:          f64,
 	width, height: f64,
 	y_offset:      f64,
@@ -93,6 +95,14 @@ make_face_from_slice :: proc(font: []byte, pixel_size: int, start, end: rune) ->
 		stbtt.GetCodepointHMetrics(&info, r, &adv, &lsb)
 		glyph.advance = math.round_f64(f64(adv) * face.scale)
 		glyph.left_bearing = math.round_f64(f64(lsb) * face.scale)
+
+		glyph.kernings = make([]f64, end - start)
+		for _, j in face.glyphs {
+			r2 := start + rune(j)
+
+			k := stbtt.GetCodepointKernAdvance(&info, r, r2)
+			glyph.kernings[j] = f64(k) * face.scale
+		}
 	}
 
 	bitmap: []byte
@@ -129,6 +139,8 @@ make_face_from_slice :: proc(font: []byte, pixel_size: int, start, end: rune) ->
 
 		glyph.width = f64(x2 - x1)
 		glyph.height = f64(y2 - y1)
+		glyph.right_bearing = (glyph.left_bearing + glyph.width) - glyph.advance
+
 
 		y := int(face.ascent) + int(y1)
 		offset := x + int(glyph.left_bearing) + ((row_y + y) * bitmap_width)
@@ -144,9 +156,9 @@ make_face_from_slice :: proc(font: []byte, pixel_size: int, start, end: rune) ->
 		)
 		glyph.x = f64(x) + glyph.left_bearing
 		glyph.y = f64(row_y + y)
-		glyph.y_offset = f64(y)
+		glyph.y_offset = f64(y1)
 
-		x += int(glyph.advance)
+		x += int(glyph.advance) + 2
 	}
 
 	// FIXME: temp
@@ -221,8 +233,8 @@ measure_text :: proc(t: ^Text) -> (width: f32, height: f32) {
 		for c in t.data {
 			glyph := face.glyphs[c]
 			width += f32(glyph.advance)
+			height = max(height, f32(glyph.height))
 		}
-		height = f32(face.ascent)
 	}
 	return
 }
@@ -251,11 +263,14 @@ update_text_position :: proc(t: ^Text) {
 		case .Origin:
 			t.origin = {p.x, p.y}
 		case .Center:
-			t.origin = Vector2{p.x + (p.width - w) / 2 - 1, p.y + (p.height - h) / 2 - 1}
+			t.origin = Vector2{p.x + (p.width - w) / 2, p.y + (p.height - h) / 2}
 		case .Center_Right:
-			t.origin = Vector2{p.x + (p.width - w) - 1, p.y + (p.height - h) / 2 - 1}
+			t.origin = Vector2{p.x + (p.width - w) - 1, p.y + (p.height - h) / 2}
 		case .Center_Left:
-			t.origin = Vector2{p.x + 1, p.y + (p.height - h) / 2 - 1}
+			t.origin = Vector2{p.x + 1, p.y + (p.height - h) / 2}
 		}
+		t.origin.y += h
+		t.origin.x = math.round(t.origin.x)
+		t.origin.y = math.round(t.origin.y)
 	}
 }

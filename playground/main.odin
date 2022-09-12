@@ -91,7 +91,7 @@ init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
-	font_res := iris.font_resource(iris.Font_Loader{path = "ComicMono.ttf", sizes = {20}})
+	font_res := iris.font_resource(iris.Font_Loader{path = "Roboto-Regular.ttf", sizes = {20}})
 	g.font = font_res.data.(^iris.Font)
 
 	scene_res := iris.scene_resource("main")
@@ -119,7 +119,6 @@ init :: proc(data: iris.App_Data) {
 	)
 	g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
 	iris.insert_node(g.scene, g.lantern)
-	// iris.node_local_transform(g.lantern, iris.transform(s = {0.1, 0.1, 0.1}))
 	for node in root.children {
 		lantern_node := iris.new_node(g.scene, iris.Model_Node)
 		iris.model_node_from_gltf(
@@ -185,70 +184,6 @@ init :: proc(data: iris.App_Data) {
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 
-	// {
-	// 	skeletal_shader_res := iris.shader_resource(
-	// 		iris.Shader_Loader{
-	// 			vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
-	// 			fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
-	// 		},
-	// 	)
-	// 	g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
-
-	// 	rig_document, _err := gltf.parse_from_file(
-	// 		"rig/Rig.gltf",
-	// 		.Gltf_External,
-	// 		context.temp_allocator,
-	// 		context.temp_allocator,
-	// 	)
-	// 	assert(_err == nil)
-	// 	traverse :: proc(n: ^gltf.Node) {
-	// 		fmt.printf(
-	// 			"node %s:\n%v\n%v\n",
-	// 			n.name,
-	// 			iris.transform_from_matrix(n.local_transform),
-	// 			iris.transform_from_matrix(n.global_transform),
-	// 		)
-	// 		for child in n.children {
-	// 			traverse(child)
-	// 		}
-	// 	}
-	// 	for r in rig_document.root_nodes {
-	// 		traverse(r)
-	// 	}
-	// 	iris.load_resources_from_gltf(&rig_document)
-
-	// 	node, _ := gltf.find_node_with_name(&rig_document, "Cylinder")
-	// 	g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-	// 	// iris.node_offset_transform(g.rig, iris.transform(t = {0, 4.5, 0}))
-	// 	iris.insert_node(g.scene, g.rig)
-	// 	mesh_node := iris.new_node(g.scene, iris.Model_Node)
-	// 	iris.model_node_from_gltf(
-	// 		mesh_node,
-	// 		iris.Model_Loader{
-	// 			flags = {
-	// 				.Use_Identity,
-	// 				.Load_Position,
-	// 				.Load_Normal,
-	// 				.Load_Joints0,
-	// 				.Load_Weights0,
-	// 				.Load_Bones,
-	// 			},
-	// 			shader = g.skeletal_shader,
-	// 		},
-	// 		node,
-	// 	)
-	// 	iris.insert_node(g.scene, mesh_node, g.rig)
-
-	// 	skin_node := iris.new_node(g.scene, iris.Skin_Node)
-	// 	iris.skin_node_from_gltf(skin_node, node)
-	// 	iris.skin_node_target(skin_node, mesh_node)
-	// 	iris.insert_node(g.scene, skin_node, g.rig)
-
-	// 	animation, _ := iris.animation_from_name("animation0")
-	// 	iris.skin_node_add_animation(skin_node, animation)
-	// 	iris.skin_node_play_animation(skin_node, "animation0")
-	// }
-
 	{
 		skeletal_shader_res := iris.shader_resource(
 			iris.Shader_Loader{
@@ -310,7 +245,7 @@ init :: proc(data: iris.App_Data) {
 			ui_node,
 			iris.User_Interface_Theme{
 				borders = true,
-				border_color = {0.2, 0.2, 0.2, 1},
+				border_color = {1, 1, 1, 1},
 				contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
 				base_color = {0.35, 0.35, 0.35, 1},
 				highlight_color = {0.7, 0.7, 0.8, 1},
@@ -325,7 +260,7 @@ init :: proc(data: iris.App_Data) {
 			iris.Layout_Widget{
 				base = iris.Widget{
 					flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
-					rect = {100, 100, 200, 200},
+					rect = {100, 100, 200, 400},
 					background = iris.Widget_Background{style = .Solid},
 				},
 				options = {.Decorated, .Titled, .Moveable, .Close_Widget},
@@ -337,73 +272,7 @@ init :: proc(data: iris.App_Data) {
 			},
 		)
 
-		child_base := iris.Widget {
-			flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
-			background = iris.Widget_Background{style = .Solid},
-		}
-
-		button := iris.new_widget_from(
-			ui_node,
-			iris.Button_Widget{
-				base = iris.Widget{
-					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
-					background = iris.Widget_Background{style = .Solid},
-				},
-				text = iris.Text{data = "button", style = .Center},
-			},
-		)
-		iris.layout_add_widget(layout, button, 20)
-
-		list := iris.new_widget_from(
-			ui_node,
-			iris.List_Widget{
-				base = child_base,
-				options = {.Named_Header, .Foldable, .Indent_Children},
-				optional_name = "scene",
-				margin = 2,
-				indent = 10,
-			},
-		)
-		iris.layout_add_widget(layout, list, 20)
-
-		for _ in 0 ..< 1 {
-			child_base.background.style = .None
-			item := iris.new_widget_from(
-				ui_node,
-				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
-			)
-			iris.list_add_widget(list, item, 20)
-		}
-
-		inner_list := iris.new_widget_from(
-			ui_node,
-			iris.List_Widget{
-				base = child_base,
-				options = {.Named_Header, .Foldable, .Indent_Children},
-				optional_name = "object",
-				margin = 2,
-				indent = 10,
-			},
-		)
-		iris.list_add_widget(list, inner_list, 20)
-
-		for _ in 0 ..< 3 {
-			child_base.background.style = .None
-			item := iris.new_widget_from(
-				ui_node,
-				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
-			)
-			iris.list_add_widget(inner_list, item, 20)
-		}
-
-		for _ in 0 ..< 1 {
-			child_base.background.style = .None
-			item := iris.new_widget_from(
-				ui_node,
-				iris.Label_Widget{base = child_base, text = iris.Text{data = "item"}},
-			)
-			iris.list_add_widget(list, item, 20)
-		}
+		iris.scene_graph_to_list(layout, g.scene, 20)
 	}
 }
 
@@ -428,14 +297,6 @@ update :: proc(data: iris.App_Data) {
 	iris.set_shader_uniform(g.model_shader, "viewPosition", &g.camera.position)
 
 	iris.update_scene(g.scene, dt)
-	// Animation stuff
-	// {
-	// 	joint_matrices := [2]iris.Matrix4{
-	// 		g.rig.bones[0].transform * g.rig.bones[0].inverse_bind,
-	// 		g.rig.bones[1].transform * g.rig.bones[1].inverse_bind,
-	// 	}
-	// 	iris.set_shader_uniform(g.skeletal_shader, "matJoints", &joint_matrices[0])
-	// }
 }
 
 update_camera :: proc(c: ^Camera, m_delta: iris.Vector2, m_scroll: f64) {
@@ -474,8 +335,6 @@ draw :: proc(data: iris.App_Data) {
 			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
-
-		iris.draw_line(g.canvas, {300, 300}, {340, 600}, {1, 1, 1, 1})
 	}
 	iris.end_render()
 }

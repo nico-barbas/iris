@@ -1,6 +1,5 @@
 package iris
 
-import "core:log"
 import "core:math/linalg"
 
 Canvas_Node :: struct {
@@ -68,7 +67,6 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	log.debug(INDEX_CAP * size_of(u32))
 	VERTEX_LAYOUT :: Vertex_Layout{.Float2, .Float2, .Float1, .Float4}
 	stride := vertex_layout_length(VERTEX_LAYOUT)
 
@@ -340,28 +338,28 @@ draw_text :: proc(
 	canvas: ^Canvas_Node,
 	f: ^Font,
 	text: string,
-	p: Vector2,
+	point: Vector2,
 	size: int,
 	clr: Color,
 ) {
 	face := &f.faces[size]
-	cursor_pos := p.x
-	for r in text {
+	cursor_pos := point
+	for r, _ in text {
 		glyph := face.glyphs[r]
-		r := Rectangle{
-			cursor_pos + f32(glyph.left_bearing),
-			p.y + f32(glyph.y_offset),
+		rect := Rectangle{
+			cursor_pos.x,
+			cursor_pos.y + f32(glyph.y_offset),
 			f32(glyph.width),
 			f32(glyph.height),
 		}
 		draw_sub_texture(
 			canvas,
 			face.texture,
-			r,
+			rect,
 			{f32(glyph.x), f32(glyph.y), f32(glyph.width), f32(glyph.height)},
 			clr,
 		)
-		cursor_pos += f32(glyph.advance)
+		cursor_pos.x += f32(glyph.width)
 	}
 }
 
