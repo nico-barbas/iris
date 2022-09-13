@@ -13,13 +13,11 @@ out VS_OUT {
     vec3 texCoord;
 } frag;
 
-uniform mat4 matModel;
+uniform mat4 mvp;
 
 void main() {
     frag.texCoord = attribPosition;
-    mat4 matStaticView = mat4(mat3(matView));
-    vec3 position = matStaticView * attribPosition;
-    gl_Position = matProj * vec4(position, 1.0);
+    gl_Position = mvp * vec4(attribPosition, 1.0);
 }
 
 [Fragment]

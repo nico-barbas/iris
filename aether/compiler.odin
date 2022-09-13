@@ -174,19 +174,31 @@ build_shaders :: proc(
 		)
 		file_path = strings.join({file_path, ".shader"}, "", context.temp_allocator)
 		os.remove(file_path)
-		out, f_err := os.open(file_path, os.O_CREATE)
-		if f_err != os.ERROR_NONE {
-			err = .Failed_To_Write_File
-			return
-		}
-		offset: int
-		for line in compiler.source {
-			n, w_err := os.write_at(out, transmute([]byte)line, i64(offset))
-			if w_err != os.ERROR_NONE {
+
+		when ODIN_OS == .Windows {
+			out, f_err := os.open(file_path, os.O_CREATE)
+			if f_err != os.ERROR_NONE {
 				err = .Failed_To_Write_File
 				return
 			}
-			offset += int(n)
+			offset: int
+			for line in compiler.source {
+				n, w_err := os.write_at(out, transmute([]byte)line, i64(offset))
+				if w_err != os.ERROR_NONE {
+					err = .Failed_To_Write_File
+					return
+				}
+				offset += int(n)
+			}
+		} else when ODIN_OS == .Linux {
+			builder: strings.Builder
+			strings.builder_init_len_cap(&builder, 0, mem.Megabyte * 5, context.temp_allocator)
+			for line in compiler.source {
+				strings.write_string(&builder, line)
+			}
+
+			out_data := strings.to_string(builder)
+			os.write_entire_file(file_path, transmute([]byte)out_data)
 		}
 	}
 	return

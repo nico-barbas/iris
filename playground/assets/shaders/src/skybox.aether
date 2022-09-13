@@ -17,7 +17,7 @@ uniform mat4 matModel;
 
 void main() {
     frag.texCoord = attribPosition;
-    mat4 matStaticView = mat4(mat3(matView));
+    mat3 matStaticView = mat3(matView);
     vec3 position = matStaticView * attribPosition;
     gl_Position = matProj * vec4(position, 1.0);
 }
