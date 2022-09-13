@@ -310,6 +310,11 @@ end_render :: proc() {
 				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
 				set_shader_uniform(c.material.shader, "matNormal", &normal_mat[0][0])
 			}
+			if _, exist := c.material.shader.uniforms["matNormalLocal"]; exist {
+				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
+				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+				set_shader_uniform(c.material.shader, "matNormalLocal", &normal_mat[0][0])
+			}
 
 			unit_index: u32
 			for kind in Material_Map {

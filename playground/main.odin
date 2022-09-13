@@ -11,21 +11,6 @@ main :: proc() {
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
-	// trs := iris.transform(
-	// 	t = {3, 45, 1},
-	// 	r = linalg.quaternion_angle_axis_f32(45, {0, 1, 0}),
-	// 	s = {5, 1, 2},
-	// )
-	// fmt.println(trs)
-	// mat := linalg.matrix4_from_trs_f32(trs.translation, trs.rotation, trs.scale)
-	// fmt.println(mat)
-	// trs2 := iris.transform_from_matrix(mat)
-	// fmt.println(trs2)
-	// // assert(trs.translation == trs2.translation && trs.scale == trs2.scale)
-	// mat2 := linalg.matrix4_from_trs_f32(trs2.translation, trs2.rotation, trs2.scale)
-	// fmt.println(mat2)
-	// assert(mat == mat2)
-
 	iris.init_app(
 		&iris.App_Config{
 			width = 1600,
@@ -66,8 +51,6 @@ Game :: struct {
 	rig:               ^iris.Node,
 	skin:              ^iris.Node,
 	canvas:            ^iris.Canvas_Node,
-	model_shader:      ^iris.Shader,
-	skeletal_shader:   ^iris.Shader,
 	terrain:           ^iris.Node,
 	delta:             f32,
 	flat_material:     ^iris.Material,
@@ -96,11 +79,6 @@ init :: proc(data: iris.App_Data) {
 	iris.load_resources_from_gltf(&lantern_document)
 	root := lantern_document.root.nodes[0]
 
-	model_shader_res := iris.shader_resource(
-		iris.Shader_Loader{vertex_source = VERTEX_SHADER, fragment_source = FRAGMENT_SHADER},
-	)
-	g.model_shader = model_shader_res.data.(^iris.Shader)
-
 	lt := iris.transform(t = {1, 0, 1}, s = {0.1, 0.1, 0.1})
 	lantern_transform := linalg.matrix_mul(
 		linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
@@ -120,7 +98,8 @@ init :: proc(data: iris.App_Data) {
 					.Load_Tangent,
 					.Load_TexCoord0,
 				},
-				shader = g.model_shader,
+				mode = .Lit,
+				rigged = false,
 			},
 			node,
 		)
@@ -130,36 +109,13 @@ init :: proc(data: iris.App_Data) {
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
 
-
-	flat_shader_res := iris.shader_resource(
-		iris.Shader_Loader{
-			vertex_source = FLAT_VERTEX_SHADER,
-			fragment_source = FLAT_FRAGMENT_SHADER,
-		},
-	)
+	flat_shader, f_exist := iris.shader_from_name("unlit")
+	assert(f_exist)
 	flat_material_res := iris.material_resource(
-		iris.Material_Loader{name = "flat", shader = flat_shader_res.data.(^iris.Shader)},
+		iris.Material_Loader{name = "flat", shader = flat_shader},
 	)
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
-	// output, out_err := aether.split_shader_stages(
-	// 	"shaders/build/flat_lit.shader",
-	// 	context.allocator,
-	// )
-	// if out_err != .None {
-	// 	fmt.println(out_err)
-	// }
-	// fmt.println(aether.stage_source(&output, .Vertex))
-	// fmt.println(aether.stage_source(&output, .Fragment))
-	// flat_lit_shader_res := iris.shader_resource(
-	// 	iris.Shader_Loader{
-	// 		vertex_source = aether.stage_source(&output, .Vertex),
-	// 		fragment_source = aether.stage_source(&output, .Fragment),
-	// 	},
-	// )
-	// flat_lit_material_res := iris.material_resource(
-	// 	iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader_res.data.(^iris.Shader)},
-	// )
 	flat_lit_shader, exist := iris.shader_from_name("flat_lit")
 	assert(exist)
 	flat_lit_material_res := iris.material_resource(
@@ -213,14 +169,6 @@ init :: proc(data: iris.App_Data) {
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
 
 	{
-		skeletal_shader_res := iris.shader_resource(
-			iris.Shader_Loader{
-				vertex_source = FLAT_SKELETAL_VERTEX_SHADER,
-				fragment_source = FLAT_SKELETAL_FRAGMENT_SHADER,
-			},
-		)
-		g.skeletal_shader = skeletal_shader_res.data.(^iris.Shader)
-
 		rig_document, _err := gltf.parse_from_file(
 			"human_rig/CesiumMan.gltf",
 			.Gltf_External,
@@ -247,7 +195,8 @@ init :: proc(data: iris.App_Data) {
 					.Load_Weights0,
 					.Load_Bones,
 				},
-				shader = g.skeletal_shader,
+				mode = .Flat_Lit,
+				rigged = true,
 			},
 			node,
 		)
@@ -340,332 +289,3 @@ close :: proc(data: iris.App_Data) {
 on_escape_key :: proc(data: iris.App_Data, state: iris.Input_State) {
 	iris.close_app_on_next_frame()
 }
-
-VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec4 attribTangent;
-layout (location = 3) in vec2 attribTexCoord;
-
-layout (std140, binding = 0) uniform ProjectionData {
-	mat4 projView;
-	vec3 viewPosition;
-};
-
-struct Light {
-	uint on;
-	vec3 position;
-	vec3 color;
-};
-layout (std140, binding = 1) uniform Lights {
-	Light lights[4];
-	mat4 matLightSpace;
-	vec3 ambientClr;
-	float ambientStrength;
-};
-
-out VS_OUT {
-	vec3 position;
-	vec3 normal;
-	vec2 texCoord;
-	vec3 tanLightPosition;
-	vec3 tanViewPosition;
-	vec3 tanPosition;
-	vec4 lightSpacePosition;
-} frag;
-
-// builtin uniforms
-uniform mat4 mvp;
-uniform mat4 matModel;
-uniform mat3 matNormal;
-
-void main()
-{
-	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
-	frag.normal = matNormal * attribNormal;
-	frag.texCoord = attribTexCoord;
-	frag.lightSpacePosition = matLightSpace * matModel * vec4(attribPosition, 1.0);
-
-	vec3 t = normalize(matNormal * vec3(attribTangent));
-	vec3 n = normalize(matNormal * attribNormal);
-	t =  normalize(t - dot(t, n) * n);
-	vec3 b = cross(n, t);
-
-	mat3 tbn = transpose(mat3(t, b, n));
-	frag.tanLightPosition = tbn * lights[0].position;
-	frag.tanViewPosition = tbn * viewPosition;
-	frag.tanPosition = tbn * frag.position;
-
-    gl_Position = mvp * vec4(attribPosition, 1.0);
-}  
-`
-FRAGMENT_SHADER :: `
-#version 450 core
-in VS_OUT {
-	vec3 position;
-	vec3 normal;
-	vec2 texCoord;
-	vec3 tanLightPosition;
-	vec3 tanViewPosition;
-	vec3 tanPosition;
-	vec4 lightSpacePosition;
-} frag;
-
-out vec4 finalColor;
-
-// Builtin uniforms.
-uniform sampler2D texture0;
-uniform sampler2D texture1; 
-uniform sampler2D mapShadow;
-
-struct Light {
-	uint on;
-	vec3 position;
-	vec3 color;
-};
-layout (std140, binding = 1) uniform Lights {
-	Light lights[4];
-	mat4 matLightSpace;
-	vec3 ambientClr;
-	float ambientStrength;
-};
-
-float computeShadowValue(vec4 lightSpacePosition, float bias);
-
-void main()
-{
-	vec4 texelClr = texture(texture0, frag.texCoord);
-	
-	vec3 normal = texture(texture1, frag.texCoord).rgb;
-	normal = normalize(normal * 2.0 - 1.0);
-	vec3 lightDir = normalize(frag.tanLightPosition - frag.tanPosition);
-	float diffuseValue = max(dot(lightDir, normal), 0.0);
-	vec3 diffuse = diffuseValue * lights[0].color;
-
-	vec3 ambient = ambientStrength * ambientClr;
-
-	vec3 viewDir = normalize(frag.tanViewPosition - frag.tanPosition);
-	vec3 reflectDir = reflect(-lightDir, normal);
-	float specValue = max(dot(viewDir, reflectDir), 0.0);
-	specValue = pow(specValue, 32);
-	vec3 specular = 0.5 * (specValue * lights[0].color);
-	
-	float bias = 0.05 * (1.0 - dot(normal, lightDir));
-	bias = max(bias, 0.005);
-	float shadowValue = computeShadowValue(frag.lightSpacePosition, bias);
-
-	vec3 result = (ambient + ((1.0 - shadowValue) * (diffuse + specular))) * texelClr.rgb;
-
-	finalColor = vec4(result, 1.0);
-}
-
-float computeShadowValue(vec4 lightSpacePosition, float bias) {
-	vec3 projCoord = lightSpacePosition.xyz / lightSpacePosition.w;
-	if (projCoord.z > 1.0) {
-		return 0.0;
-	}
-	projCoord = projCoord * 0.5 + 0.5;
-	float lightDepth = texture(mapShadow, projCoord.xy).r;
-	float currentDepth = projCoord.z;
-
-	float result = currentDepth - bias > lightDepth ? 1.0 : 0.0;
-	return result;
-}
-`
-
-FLAT_LIT_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec2 attribTexCoord;
-
-out VS_OUT {
-	vec3 position;
-	vec3 normal;
-	vec2 texCoord;
-	vec4 lightSpacePosition;
-} frag;
-
-uniform mat4 mvp;
-uniform mat4 matModel;
-uniform mat3 matNormal;
-
-struct Light {
-	uint on;
-	vec3 position;
-	vec3 color;
-};
-layout (std140, binding = 1) uniform Lights {
-	Light lights[4];
-	mat4 matLightSpace;
-	vec3 ambientClr;
-	float ambientStrength;
-};
-
-void main()
-{
-	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
-	frag.normal = matNormal * attribNormal; 
-	frag.texCoord = attribTexCoord;
-	frag.lightSpacePosition = matLightSpace * matModel * vec4(attribPosition, 1.0);
-
-    gl_Position = mvp*vec4(attribPosition, 1.0);
-}  
-`
-
-FLAT_LIT_FRAGMENT_SHADER :: `
-#version 450 core
-in VS_OUT {
-	vec3 position;
-	vec3 normal;
-	vec2 texCoord;
-	vec4 lightSpacePosition;
-} frag;
-
-out vec4 finalColor;
-
-// builtin uniforms;
-uniform sampler2D texture0;
-uniform sampler2D mapShadow;
-
-struct Light {
-	uint on;
-	vec3 position;
-	vec3 color;
-};
-layout (std140, binding = 1) uniform Lights {
-	Light lights[4];
-	mat4 matLightSpace;
-	vec3 ambientClr;
-	float ambientStrength;
-};
-
-float computeShadowValue(vec4 lightSpacePosition, float bias);
-
-void main()
-{
-	vec4 texelClr = texture(texture0, frag.texCoord);
-
-	vec3 normal = normalize(frag.normal);
-	vec3 lightDir = normalize(lights[0].position - frag.position);
-	float diffuseValue = max(dot(lightDir, normal), 0.0);
-	vec3 diffuse = diffuseValue * lights[0].color.rgb;
-
-	vec3 ambient = ambientStrength * ambientClr;
-
-	float bias = 0.05 * (1.0 - dot(normal, lightDir));
-	bias = max(bias, 0.005);
-	float shadowValue = computeShadowValue(frag.lightSpacePosition, bias);
-
-	vec3 result = (ambient + ((1.0 - shadowValue) * diffuse)) * texelClr.rgb;
-
-	finalColor = vec4(result, 1.0);
-}
-
-float computeShadowValue(vec4 lightSpacePosition, float bias) {
-	vec3 projCoord = lightSpacePosition.xyz / lightSpacePosition.w;
-	if (projCoord.z > 1.0) {
-		return 0.0;
-	}
-	projCoord = projCoord * 0.5 + 0.5;
-	float currentDepth = projCoord.z;
-
-	float result = 0.0;
-	vec2 texelSize = 1.0 / textureSize(mapShadow, 0);
-	for (int x = -1; x <= 1; x += 1) {
-		for (int y = -1; y <= 1; y += 1) {
-			vec2 pcfCoord = projCoord.xy + vec2(x, y) * texelSize;
-			float pcfDepth = texture(mapShadow, pcfCoord).r;
-			result += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
-		}
-	}
-	result /= 9.0;
-	return result;
-}
-`
-
-
-FLAT_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-
-uniform mat4 mvp;
-
-void main()
-{
-    gl_Position = mvp*vec4(attribPosition, 1.0);
-}  
-`
-
-FLAT_FRAGMENT_SHADER :: `
-#version 450 core
-
-out vec4 finalColor;
-
-void main()
-{
-	finalColor = vec4(1.0, 0.0, 0.0, 1.0);
-}
-`
-
-
-FLAT_SKELETAL_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec4 attribJoints;
-layout (location = 3) in vec4 attribWeights;
-layout (location = 4) in vec2 attribTexCoord;
-
-layout (std140, binding = 0) uniform ProjectionData {
-	mat4 projView;
-	vec3 viewPosition;
-};
-
-out VS_OUT {
-	vec3 normal;
-	vec4 joints;
-	vec4 weights;
-	vec2 texCoord;
-} frag;
-
-uniform mat4 matJoints[19];
-uniform mat4 matModelLocal;
-
-void main()
-{
-	frag.normal = attribNormal;
-	frag.joints = attribJoints;
-	frag.weights = attribWeights;
-	frag.texCoord = attribTexCoord;
-
-	mat4 matSkin = 
-		attribWeights.x * matJoints[int(attribJoints.x)] +
-		attribWeights.y * matJoints[int(attribJoints.y)] +
-		attribWeights.z * matJoints[int(attribJoints.z)] +
-		attribWeights.w * matJoints[int(attribJoints.w)];
-	mat4 mvp = projView * matModelLocal * matSkin;
-    gl_Position = mvp*vec4(attribPosition, 1.0);
-}  
-`
-
-FLAT_SKELETAL_FRAGMENT_SHADER :: `
-#version 450 core
-in VS_OUT {
-	vec3 normal;
-	vec4 joints;
-	vec4 weights;
-	vec2 texCoord;
-} frag;
-
-out vec4 finalColor;
-
-uniform sampler2D texture0;
-
-void main()
-{
-	// finalColor = vec4(frag.weights.xyz * frag.joints.xyz, 1.0);
-	finalColor = texture(texture0, frag.texCoord);
-}
-`

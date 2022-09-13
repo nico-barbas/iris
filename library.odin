@@ -387,7 +387,7 @@ load_shaders_from_dir :: proc(dir: string) {
 		if !strings.has_suffix(path, ".shader") {
 			continue
 		}
-		output, err := aether.split_shader_stages(path, context.allocator)
+		output, err := aether.split_shader_stages(path, context.temp_allocator)
 
 		if err != .None {
 			log.errorf("%s: [%s] Failed to load shader %s", App_Module.IO, err, path)

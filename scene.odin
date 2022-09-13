@@ -320,7 +320,8 @@ Model_Node :: struct {
 
 Model_Loader :: struct {
 	flags:  Model_Loader_Flags,
-	shader: ^Shader,
+	mode:   Model_Rendering_Mode,
+	rigged: bool,
 }
 
 Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
@@ -341,11 +342,53 @@ Model_Loader_Flag :: enum {
 	Load_Bones,
 }
 
+// Model_Rendering_Flags :: distinct bit_set[Model_Rendering_Flag]
+// MODEL_LIT :: Model_Rendering_Flags{.Normal_Mapping, .Shadow_Mapping, .Per_Pixel_Lighting}
+// MODEL_FLAT_LIT :: Model_Rendering_Flags{.Shadow_Mapping, .Per_Pixel_Lighting}
+// MODEL_SKELETAL_FLAT_LIT :: MODEL_FLAT_LIT + {.Skeletal_Animation}
+
+Model_Rendering_Mode :: enum {
+	// Skeletal_Animation,
+	// Normal_Mapping,
+	// Shadow_Mapping,
+	// Per_Pixel_Lighting,
+	Lit,
+	Flat_Lit,
+	Unlit,
+}
+
 Model_Loading_Error :: enum {
 	None,
 	Invalid_Node,
 	Missing_Mesh_Indices,
 	Missing_Mesh_Attribute,
+}
+
+@(private)
+model_shader :: proc(mode: Model_Rendering_Mode, rigged := false) -> ^Shader {
+	name: string
+	if !rigged {
+		switch mode {
+		case .Lit:
+			name = "lit"
+		case .Flat_Lit:
+			name = "flat_lit"
+		case .Unlit:
+			name = "unlit"
+		}
+	} else {
+		switch mode {
+		case .Lit:
+			name = "skeletal_lit"
+		case .Flat_Lit:
+			name = "skeletal_flat_lit"
+		case .Unlit:
+			name = "skeletal_unlit"
+		}
+	}
+	shader, exist := shader_from_name(name)
+	assert(exist)
+	return shader
 }
 
 model_node_from_gltf :: proc(
@@ -364,6 +407,7 @@ model_node_from_gltf :: proc(
 		} else {
 			model.mesh_transform = linalg.MATRIX4F32_IDENTITY
 		}
+		shader := model_shader(loader.mode, loader.rigged)
 		for _, i in data.primitives {
 			begin_temp_allocation()
 
@@ -375,7 +419,7 @@ model_node_from_gltf :: proc(
 			if !exist {
 				material = load_material_from_gltf(data.primitives[i].material^)
 			}
-			material.shader = loader.shader
+			material.shader = shader
 
 			end_temp_allocation()
 			append(&model.meshes, mesh)
