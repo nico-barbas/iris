@@ -7,6 +7,7 @@ import "core:strings"
 import gl "vendor:OpenGL"
 
 Shader :: struct {
+	name:             string,
 	handle:           u32,
 	uniforms:         map[string]Shader_Uniform_Info,
 	uniform_warnings: map[string]bool,
@@ -39,6 +40,7 @@ Shader_Uniform_Kind :: enum {
 }
 
 Shader_Loader :: struct {
+	name:            string,
 	vertex_source:   string,
 	fragment_source: string,
 	vertex_path:     string,
@@ -75,6 +77,10 @@ internal_load_shader_from_bytes :: proc(
 ) -> (
 	shader: Shader,
 ) {
+	if l.name != "" {
+		shader.name = strings.clone(l.name)
+	}
+
 	vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.vertex_path)
 	defer gl.DeleteShader(vertex_handle)
 	fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.fragment_path)
@@ -307,6 +313,7 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := 
 }
 
 destroy_shader :: proc(shader: ^Shader) {
+	delete(shader.name)
 	for k, _ in shader.uniforms {
 		delete(k)
 	}
@@ -321,5 +328,3 @@ bind_shader :: proc(shader: ^Shader) {
 default_shader :: proc() {
 	gl.UseProgram(0)
 }
-
-// Runtime Shader meta programming pass

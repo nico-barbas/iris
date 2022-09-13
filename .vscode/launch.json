@@ -22,6 +22,17 @@
             "cwd": "${workspaceFolder}",
             "environment": [],
             "console": "externalTerminal"
+        },
+        {
+            "name": "(Windows) Debug Aether",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/playground/shaders/aether.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "externalTerminal"
         }
     ]
 }

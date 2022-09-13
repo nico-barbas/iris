@@ -1,6 +1,5 @@
 package iris
 
-// import "core:fmt"
 import "core:os"
 import "core:mem"
 import "core:log"

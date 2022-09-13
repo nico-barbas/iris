@@ -79,6 +79,7 @@ init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
+	iris.load_shaders_from_dir("shaders/build")
 	font_res := iris.font_resource(iris.Font_Loader{path = "Roboto-Regular.ttf", sizes = {20}})
 	g.font = font_res.data.(^iris.Font)
 
@@ -141,14 +142,28 @@ init :: proc(data: iris.App_Data) {
 	)
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
-	flat_lit_shader_res := iris.shader_resource(
-		iris.Shader_Loader{
-			vertex_source = FLAT_LIT_VERTEX_SHADER,
-			fragment_source = FLAT_LIT_FRAGMENT_SHADER,
-		},
-	)
+	// output, out_err := aether.split_shader_stages(
+	// 	"shaders/build/flat_lit.shader",
+	// 	context.allocator,
+	// )
+	// if out_err != .None {
+	// 	fmt.println(out_err)
+	// }
+	// fmt.println(aether.stage_source(&output, .Vertex))
+	// fmt.println(aether.stage_source(&output, .Fragment))
+	// flat_lit_shader_res := iris.shader_resource(
+	// 	iris.Shader_Loader{
+	// 		vertex_source = aether.stage_source(&output, .Vertex),
+	// 		fragment_source = aether.stage_source(&output, .Fragment),
+	// 	},
+	// )
+	// flat_lit_material_res := iris.material_resource(
+	// 	iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader_res.data.(^iris.Shader)},
+	// )
+	flat_lit_shader, exist := iris.shader_from_name("flat_lit")
+	assert(exist)
 	flat_lit_material_res := iris.material_resource(
-		iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader_res.data.(^iris.Shader)},
+		iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader},
 	)
 	g.flat_lit_material = flat_lit_material_res.data.(^iris.Material)
 	iris.set_material_map(
@@ -554,7 +569,6 @@ float computeShadowValue(vec4 lightSpacePosition, float bias) {
 		return 0.0;
 	}
 	projCoord = projCoord * 0.5 + 0.5;
-	// float lightDepth = texture(mapShadow, projCoord.xy).r;
 	float currentDepth = projCoord.z;
 
 	float result = 0.0;
@@ -567,7 +581,6 @@ float computeShadowValue(vec4 lightSpacePosition, float bias) {
 		}
 	}
 	result /= 9.0;
-	// float result = currentDepth - bias > lightDepth ? 1.0 : 0.0;
 	return result;
 }
 `

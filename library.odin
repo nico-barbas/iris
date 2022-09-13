@@ -1,10 +1,14 @@
 package iris
 
+import "core:log"
 import "core:fmt"
 import "core:mem"
 import "core:time"
+import "core:strings"
+import "core:path/filepath"
 import "allocators"
 import "gltf"
+import "aether"
 
 Resource_Library :: struct {
 	free_list:      allocators.Free_List_Allocator,
@@ -202,6 +206,7 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	} else {
 		unreachable()
 	}
+
 	resource := new_resource(lib, data)
 
 	append(&lib.shaders, resource)
@@ -367,9 +372,46 @@ load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	}
 }
 
+load_shaders_from_dir :: proc(dir: string) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	matches, glob_err := filepath.glob(fmt.tprintf("%s/*", dir), context.temp_allocator)
+
+	if glob_err != nil {
+		log.fatalf("%s: Failed to load Shaders from directory %s", App_Module.Shader, dir)
+		assert(false)
+	}
+	for path in matches {
+		if !strings.has_suffix(path, ".shader") {
+			continue
+		}
+		output, err := aether.split_shader_stages(path, context.allocator)
+
+		if err != .None {
+			log.errorf("%s: [%s] Failed to load shader %s", App_Module.IO, err, path)
+			continue
+		}
+
+		loader := Shader_Loader {
+			name            = filepath.stem(path),
+			vertex_source   = aether.stage_source(&output, .Vertex),
+			fragment_source = aether.stage_source(&output, .Fragment),
+		}
+		shader_resource(loader)
+	}
+}
+
+
 // Searching procedures
 @(private)
-attributes_from_layout :: proc(layout: Vertex_Layout, format: Attribute_Format) -> (result: ^Attributes) {
+attributes_from_layout :: proc(
+	layout: Vertex_Layout,
+	format: Attribute_Format,
+) -> (
+	result: ^Attributes,
+) {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
@@ -383,6 +425,22 @@ attributes_from_layout :: proc(layout: Vertex_Layout, format: Attribute_Format) 
 	resource := attributes_resource(layout, format)
 	attributes := resource.data.(^Attributes)
 	return attributes
+}
+
+shader_from_name :: proc(name: string) -> (result: ^Shader, exist: bool) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	for resource in lib.shaders {
+		shader := resource.data.(^Shader)
+		if shader.name == name {
+			result = shader
+			exist = true
+			return
+		}
+	}
+	return
 }
 
 material_from_name :: proc(name: string) -> (result: ^Material, exist: bool) {
