@@ -168,8 +168,13 @@ build_shaders :: proc(
 		resolve_directives(&compiler) or_return
 
 		file_name := filepath.stem(path)
-		file_path := filepath.join(elems = {build_dir, file_name})
-		out, f_err := os.open(strings.join({file_path, ".shader"}, ""), os.O_CREATE)
+		file_path := filepath.join(
+			elems = {build_dir, file_name},
+			allocator = context.temp_allocator,
+		)
+		file_path = strings.join({file_path, ".shader"}, "", context.temp_allocator)
+		os.remove(file_path)
+		out, f_err := os.open(file_path, os.O_CREATE)
 		if f_err != os.ERROR_NONE {
 			err = .Failed_To_Write_File
 			return

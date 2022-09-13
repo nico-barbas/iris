@@ -119,14 +119,12 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 
 	canvas.default_texture = texture_resource(
 		loader = Texture_Loader{
-			data = {0xff, 0xff, 0xff, 0xff},
 			filter = .Nearest,
 			wrap = .Repeat,
-			channels = 4,
 			width = 1,
 			height = 1,
+			info = Byte_Texture_Info{data = {0xff, 0xff, 0xff, 0xff}, channels = 4, bitmap = true},
 		},
-		is_bitmap = true,
 	)
 	canvas.textures[0] = canvas.default_texture.data.(^Texture)
 	canvas.texture_count = 1

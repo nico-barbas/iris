@@ -81,9 +81,9 @@ internal_load_shader_from_bytes :: proc(
 		shader.name = strings.clone(l.name)
 	}
 
-	vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.vertex_path)
+	vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.name)
 	defer gl.DeleteShader(vertex_handle)
-	fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.fragment_path)
+	fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.name)
 	defer gl.DeleteShader(vertex_handle)
 
 	switch {

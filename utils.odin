@@ -59,6 +59,21 @@ depth :: proc(on: bool) {
 	}
 }
 
+depth_mode :: proc(mode: Depth_Test_Mode) {
+	gl.DepthFunc(u32(mode))
+}
+
+Depth_Test_Mode :: enum {
+	Never         = 0x0200,
+	Less          = 0x0201,
+	Equal         = 0x0202,
+	Less_Equal    = 0x0203,
+	Greate        = 0x0204,
+	Not_Equal     = 0x0205,
+	Greater_Equal = 0x0206,
+	Always        = 0x0207,
+}
+
 Vector2 :: linalg.Vector2f32
 Vector3 :: linalg.Vector3f32
 VECTOR_ZERO :: Vector3{0, 0, 0}

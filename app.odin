@@ -62,7 +62,8 @@ App_Module :: enum u8 {
 }
 
 init_app :: proc(config: ^App_Config, allocator := context.allocator) {
-	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 500
+	DEFAULT_ALLOCATOR_SIZE :: mem.Megabyte * 500
+	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 1000
 	DEFAULT_GL_MAJOR_VERSION :: 4
 	DEFAULT_GL_MINOR_VERSION :: 5
 
@@ -71,7 +72,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	app.ctx = context
 	app.ctx.allocator = allocator
 
-	mem.arena_init(&app.arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
+	mem.arena_init(&app.arena, make([]byte, DEFAULT_ALLOCATOR_SIZE, allocator))
 	mem.arena_init(&app.frame_arena, make([]byte, DEFAULT_FRAME_ALLOCATOR_SIZE, allocator))
 	app.ctx.allocator = mem.arena_allocator(&app.arena)
 	app.ctx.temp_allocator = mem.arena_allocator(&app.frame_arena)

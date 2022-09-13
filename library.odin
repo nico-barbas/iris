@@ -172,20 +172,25 @@ attributes_resource :: proc(layout: Vertex_Layout, format: Attribute_Format) -> 
 	return resource
 }
 
-texture_resource :: proc(loader: Texture_Loader, is_bitmap := false) -> ^Resource {
+texture_resource :: proc(loader: Texture_Loader) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
 	data: Resource_Data
-	if loader.data == nil {
+	switch i in loader.info {
+	case File_Texture_Info:
 		data = new_clone(internal_load_texture_from_file(loader))
-	} else {
-		if is_bitmap {
+	case Byte_Texture_Info:
+		if i.bitmap {
 			data = new_clone(internal_load_texture_from_bitmap(loader))
 		} else {
 			data = new_clone(internal_load_texture_from_bytes(loader))
 		}
+	case File_Cubemap_Info:
+		data = new_clone(internal_load_cubemap_from_files(loader))
+	case Byte_Cubemap_Info:
+		data = new_clone(internal_load_cubemap_from_bytes(loader))
 	}
 	resource := new_resource(lib, data)
 

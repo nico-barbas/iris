@@ -61,6 +61,8 @@ Render_Uniform_Binding :: enum u32 {
 @(private)
 Render_Uniform_Projection_Data :: struct {
 	projection_view: Matrix4,
+	projection:      Matrix4,
+	view:            Matrix4,
 	view_position:   Vector3,
 }
 
@@ -294,6 +296,10 @@ end_render :: proc() {
 				bind_shader(c.material.shader)
 				current_shader = c.material.shader.handle
 			}
+			if c.material.double_face {
+				set_backface_culling(false)
+				depth_mode(.Less_Equal)
+			}
 			model_mat := c.global_transform
 			mvp := linalg.matrix_mul(ctx.projection_view, model_mat)
 			if _, exist := c.material.shader.uniforms["mvp"]; exist {
@@ -319,7 +325,14 @@ end_render :: proc() {
 			unit_index: u32
 			for kind in Material_Map {
 				if kind in c.material.maps {
-					texture_uniform_name := fmt.tprintf("texture%d", u32(kind))
+					texture := c.material.textures[kind]
+					texture_uniform_name: string
+					switch texture.kind {
+					case .Texture:
+						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
+					case .Cubemap:
+						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
+					}
 					bind_texture(c.material.textures[kind], unit_index)
 					set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
 					unit_index += 1
@@ -348,6 +361,11 @@ end_render :: proc() {
 			}
 			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
 				unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
+			}
+
+			if c.material.double_face {
+				set_backface_culling(true)
+				depth_mode(.Less)
 			}
 
 		case Render_Framebuffer_Command:
@@ -441,6 +459,8 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 		size_of(Render_Uniform_Projection_Data),
 		&Render_Uniform_Projection_Data{
 			projection_view = ctx.projection_view,
+			projection = ctx.projection,
+			view = ctx.view,
 			view_position = ctx.eye,
 		},
 	)

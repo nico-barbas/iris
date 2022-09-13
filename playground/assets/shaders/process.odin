@@ -4,7 +4,7 @@ import "core:os"
 import "core:mem"
 import "core:fmt"
 import "core:path/filepath"
-import aether "../../aether"
+import aether "../../../aether"
 
 builtins := map[string]aether.Procedure_Include {
 	"computeShadowValue" = {

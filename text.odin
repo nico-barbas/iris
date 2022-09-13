@@ -173,14 +173,12 @@ make_face_from_slice :: proc(font: []byte, pixel_size: int, start, end: rune) ->
 	}
 	texture_res := texture_resource(
 		loader = Texture_Loader{
-			data = rgba_bmp,
-			channels = 4,
 			filter = .Nearest,
 			wrap = .Repeat,
 			width = bitmap_width,
 			height = bitmap_height,
+			info = Byte_Texture_Info{data = rgba_bmp, channels = 4, bitmap = true},
 		},
-		is_bitmap = true,
 	)
 	face.texture = texture_res.data.(^Texture)
 	return face

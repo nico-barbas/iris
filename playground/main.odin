@@ -55,6 +55,7 @@ Game :: struct {
 	delta:             f32,
 	flat_material:     ^iris.Material,
 	flat_lit_material: ^iris.Material,
+	skybox_material:   ^iris.Material,
 	font:              ^iris.Font,
 }
 
@@ -126,7 +127,38 @@ init :: proc(data: iris.App_Data) {
 		g.flat_lit_material,
 		.Diffuse,
 		iris.texture_resource(
-			iris.Texture_Loader{path = "cube_texture.png", filter = .Linear, wrap = .Repeat},
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "cube_texture.png"},
+				filter = .Linear,
+				wrap = .Repeat,
+			},
+		).data.(^iris.Texture),
+	)
+
+	skybox_shader, s_exist := iris.shader_from_name("skybox")
+	assert(s_exist)
+	skybox_material_res := iris.material_resource(
+		iris.Material_Loader{name = "skybox", shader = skybox_shader, double_face = true},
+	)
+	g.skybox_material = skybox_material_res.data.(^iris.Material)
+	iris.set_material_map(
+		g.skybox_material,
+		.Diffuse,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				filter = .Linear,
+				wrap = .Repeat,
+				info = iris.File_Cubemap_Info{
+					paths = [6]string{
+						"skybox/front.png",
+						"skybox/back.png",
+						"skybox/top.png",
+						"skybox/bottom.png",
+						"skybox/left.png",
+						"skybox/right.png",
+					},
+				},
+			},
 		).data.(^iris.Texture),
 	)
 
@@ -277,6 +309,7 @@ draw :: proc(data: iris.App_Data) {
 			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
+		iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)
 	}
 	iris.end_render()
 }

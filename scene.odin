@@ -342,16 +342,7 @@ Model_Loader_Flag :: enum {
 	Load_Bones,
 }
 
-// Model_Rendering_Flags :: distinct bit_set[Model_Rendering_Flag]
-// MODEL_LIT :: Model_Rendering_Flags{.Normal_Mapping, .Shadow_Mapping, .Per_Pixel_Lighting}
-// MODEL_FLAT_LIT :: Model_Rendering_Flags{.Shadow_Mapping, .Per_Pixel_Lighting}
-// MODEL_SKELETAL_FLAT_LIT :: MODEL_FLAT_LIT + {.Skeletal_Animation}
-
 Model_Rendering_Mode :: enum {
-	// Skeletal_Animation,
-	// Normal_Mapping,
-	// Shadow_Mapping,
-	// Per_Pixel_Lighting,
 	Lit,
 	Flat_Lit,
 	Unlit,
