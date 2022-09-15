@@ -451,7 +451,7 @@ load_mesh_from_gltf :: proc(
 		return
 	}
 	// vertices := make([dynamic]f32, 0, len(p.attributes) * 2 * 1000, context.temp_allocator)
-	// layout := make([dynamic]Accessor, 0, len(p.attributes), context.temp_allocator)
+	// layout := make([dynamic]Buffer_Data_Type, 0, len(p.attributes), context.temp_allocator)
 	// offsets := make([dynamic]int, 0, len(p.attributes), context.temp_allocator)
 	indices: []u32
 	mesh_loader: Mesh_Loader
@@ -472,7 +472,7 @@ load_mesh_from_gltf :: proc(
 	mesh_loader.indices = Buffer_Source {
 		data = &indices[0],
 		byte_size = size_of(u32) * len(indices),
-		accessor = Accessor{kind = .Unsigned_32, format = .Scalar},
+		accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
 	}
 	mesh_loader.index_count = len(indices)
 
@@ -483,7 +483,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Position] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector3},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -499,7 +499,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Normal] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector3},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -515,7 +515,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Tangent] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -538,7 +538,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Joint] = Buffer_Source {
 				data = &joints[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -554,7 +554,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Weight] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -570,7 +570,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.attributes[Attribute_Kind.Tex_Coord] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Accessor{kind = .Float_32, format = .Vector2},
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -578,105 +578,6 @@ load_mesh_from_gltf :: proc(
 			return
 		}
 	}
-
-	// count: uint
-	// offset: int
-	// if .Load_Position in loader.flags {
-	// 	if gltf_position, has_position := p.attributes[gltf.POSITION]; has_position {
-	// 		offset = int(count) * size_of(f32)
-	// 		count += gltf_position.data.count * kind_to_float_count(gltf_position.data.kind)
-	// 		data := gltf_position.data.data.([]gltf.Vector3f32)
-	// 		position := slice.reinterpret([]f32, data)
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector3})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..position)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
-
-	// if .Load_Normal in loader.flags {
-	// 	if gltf_normal, has_normal := p.attributes[gltf.NORMAL]; has_normal {
-	// 		offset = int(count) * size_of(f32)
-	// 		count += gltf_normal.data.count * kind_to_float_count(gltf_normal.data.kind)
-	// 		data := gltf_normal.data.data.([]gltf.Vector3f32)
-	// 		normal := slice.reinterpret([]f32, data)
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector3})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..normal)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
-
-	// if .Load_Tangent in loader.flags {
-	// 	if gltf_tangent, has_tangent := p.attributes[gltf.TANGENT]; has_tangent {
-	// 		offset = int(count) * size_of(f32)
-	// 		count += gltf_tangent.data.count * kind_to_float_count(gltf_tangent.data.kind)
-	// 		data := gltf_tangent.data.data.([]gltf.Vector4f32)
-	// 		tangent := slice.reinterpret([]f32, data)
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector4})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..tangent)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
-
-	// if .Load_Joints0 in loader.flags {
-	// 	if gltf_joints, has_joints := p.attributes[gltf.JOINTS_0]; has_joints {
-	// 		offset = int(count) * size_of(f32)
-	// 		temp_count := count
-	// 		count += gltf_joints.data.count * kind_to_float_count(gltf_joints.data.kind)
-	// 		data := gltf_joints.data.data.([]gltf.Vector4u16)
-	// 		joints := make([]f32, len(data) * 4, context.temp_allocator)
-	// 		for joint_ids, i in data {
-	// 			joints[i * 4] = f32(joint_ids.x)
-	// 			joints[i * 4 + 1] = f32(joint_ids.y)
-	// 			joints[i * 4 + 2] = f32(joint_ids.z)
-	// 			joints[i * 4 + 3] = f32(joint_ids.w)
-	// 		}
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector4})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..joints)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
-
-	// if .Load_Weights0 in loader.flags {
-	// 	if gltf_weights, has_weights := p.attributes[gltf.WEIGHTS_0]; has_weights {
-	// 		offset = int(count) * size_of(f32)
-	// 		count += gltf_weights.data.count * kind_to_float_count(gltf_weights.data.kind)
-	// 		data := gltf_weights.data.data.([]gltf.Vector4f32)
-	// 		weights := slice.reinterpret([]f32, data)
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector4})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..weights)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
-
-	// if .Load_TexCoord0 in loader.flags {
-	// 	if gltf_texcoord, has_texcoord := p.attributes[gltf.TEXCOORD_0]; has_texcoord {
-	// 		offset = int(count) * size_of(f32)
-	// 		count += gltf_texcoord.data.count * kind_to_float_count(gltf_texcoord.data.kind)
-	// 		data := gltf_texcoord.data.data.([]gltf.Vector2f32)
-	// 		texcoord := slice.reinterpret([]f32, data)
-	// 		append(&layout, Accessor{kind = .Float_32, format = .Vector2})
-	// 		append(&offsets, offset)
-	// 		append(&vertices, ..texcoord)
-	// 	} else {
-	// 		err = .Missing_Mesh_Attribute
-	// 		return
-	// 	}
-	// }
 
 	resource = mesh_resource(mesh_loader)
 	return

@@ -53,6 +53,7 @@ Stage_Kind :: enum {
 	Invalid,
 	Vertex,
 	Fragment,
+	Compute,
 }
 
 Procedure_Include :: struct {

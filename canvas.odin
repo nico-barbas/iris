@@ -67,11 +67,11 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	VERTEX_LAYOUT :: []Accessor{
-		Accessor{kind = .Float_32, format = .Vector2},
-		Accessor{kind = .Float_32, format = .Vector2},
-		Accessor{kind = .Float_32, format = .Scalar},
-		Accessor{kind = .Float_32, format = .Vector4},
+	VERTEX_LAYOUT :: []Buffer_Data_Type{
+		Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+		Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+		Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+		Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 	}
 	stride := (
 		buffer_len_of[.Vector2] +
@@ -140,19 +140,19 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 
 	paint_shader_res := shader_resource(
 		Shader_Loader{
-			vertex_source = OVERLAY_VERTEX_SHADER,
-			fragment_source = OVERLAY_FRAGMENT_SHADER,
+			name = "paint_canvas",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{
+					source = OVERLAY_VERTEX_SHADER,
+				},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					source = OVERLAY_FRAGMENT_SHADER,
+				},
+			},
 		},
 	)
 	canvas.paint_shader = paint_shader_res.data.(^Shader)
-
-	// blit_shader_res := shader_resource(
-	// 	Shader_Loader{
-	// 		vertex_source = BLIT_FRAMEBUFFER_VERTEX_SHADER,
-	// 		fragment_source = BLIT_FRAMEBUFFER_FRAGMENT_SHADER,
-	// 	},
-	// )
-	// canvas.blit_shader = blit_shader_res.data.(^Shader)
 
 	texture_indices := [16]i32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	set_shader_uniform(canvas.paint_shader, "textures", &texture_indices[0])
@@ -274,7 +274,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.tri_indices[0],
 					byte_size = int(size_of(u32) * canvas.tri_index_count),
-					accessor = Accessor{kind = .Unsigned_32, format = .Scalar},
+					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
 				},
 			)
 			send_buffer_data(
@@ -282,7 +282,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.vertices[0],
 					byte_size = size_of(f32) * len(canvas.vertices),
-					accessor = Accessor{kind = .Float_32, format = .Scalar},
+					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
 				},
 			)
 			draw_triangles(int(canvas.tri_index_count))
@@ -293,7 +293,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.line_indices[0],
 					byte_size = int(size_of(u32) * canvas.line_index_count),
-					accessor = Accessor{kind = .Unsigned_32, format = .Scalar},
+					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
 				},
 			)
 			send_buffer_data(
@@ -301,7 +301,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.line_vertices[0],
 					byte_size = size_of(f32) * len(canvas.line_vertices),
-					accessor = Accessor{kind = .Float_32, format = .Scalar},
+					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
 				},
 			)
 			draw_lines(

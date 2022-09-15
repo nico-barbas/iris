@@ -160,7 +160,7 @@ typed_buffer_resource :: proc($T: typeid, cap: int, reserve := false) -> ^Resour
 	return resource
 }
 
-attributes_resource :: proc(layout: []Accessor, format: Attribute_Format) -> ^Resource {
+attributes_resource :: proc(layout: []Buffer_Data_Type, format: Attribute_Format) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
@@ -204,12 +204,11 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	context.temp_allocator = lib.temp_allocator
 
 	data: Resource_Data
-	if loader.vertex_source != "" && loader.fragment_source != "" {
+	switch loader.kind {
+	case .Byte:
 		data = new_clone(internal_load_shader_from_bytes(loader))
-	} else if loader.vertex_path != "" && loader.fragment_path != "" {
+	case .File:
 		data = new_clone(internal_load_shader_from_file(loader))
-	} else {
-		unreachable()
 	}
 
 	resource := new_resource(lib, data)
@@ -410,9 +409,16 @@ load_shaders_from_dir :: proc(dir: string) {
 		}
 
 		loader := Shader_Loader {
-			name            = filepath.stem(path),
-			vertex_source   = aether.stage_source(&output, .Vertex),
-			fragment_source = aether.stage_source(&output, .Fragment),
+			name = filepath.stem(path),
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{
+					source = aether.stage_source(&output, .Vertex),
+				},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					source = aether.stage_source(&output, .Fragment),
+				},
+			},
 		}
 		shader_resource(loader)
 	}
@@ -422,7 +428,7 @@ load_shaders_from_dir :: proc(dir: string) {
 // Searching procedures
 @(private)
 attributes_from_layout :: proc(
-	layout: []Accessor,
+	layout: []Buffer_Data_Type,
 	format: Attribute_Format,
 ) -> (
 	result: ^Attributes,

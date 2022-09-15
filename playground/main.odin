@@ -2,7 +2,6 @@ package main
 
 import "core:mem"
 import "core:fmt"
-// import "core:slice"
 import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"

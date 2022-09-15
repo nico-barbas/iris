@@ -3,73 +3,15 @@ package iris
 import "core:slice"
 import gl "vendor:OpenGL"
 
-// Vertex_Layout :: distinct []Vertex_Format
-
-// Vertex_Format :: enum u8 {
-// 	Float1 = 1,
-// 	Float2 = 2,
-// 	Float3 = 3,
-// 	Float4 = 4,
-// }
-
-// vertex_layout_equal :: proc(l1, l2: Vertex_Layout) -> bool {
-// 	if len(l1) != len(l2) {
-// 		return false
-// 	}
-// 	for i in 0 ..< len(l1) {
-// 		if l1[i] != l2[i] {
-// 			return false
-// 		}
-// 	}
-// 	return true
-// }
-
-// vertex_layout_size :: proc(layout: Vertex_Layout) -> int {
-// 	size := 0
-// 	for format in layout {
-// 		size += vertex_format_size(format)
-// 	}
-// 	return size
-// }
-
-// vertex_layout_length :: proc(layout: Vertex_Layout) -> int {
-// 	length := 0
-// 	for format in layout {
-// 		length += int(u8(format))
-// 	}
-// 	return length
-// }
-
-// vertex_format_size :: proc(format: Vertex_Format) -> int {
-// 	switch format {
-// 	case .Float1:
-// 		return size_of(f32) * 1
-// 	case .Float2:
-// 		return size_of(f32) * 2
-// 	case .Float3:
-// 		return size_of(f32) * 3
-// 	case .Float4:
-// 		return size_of(f32) * 4
-// 	case:
-// 		return 0
-// 	}
-// }
-
-
 Attributes :: struct {
 	handle: u32,
 	format: Attribute_Format,
-	layout: []Accessor,
+	layout: []Buffer_Data_Type,
 	info:   union {
 		Interleaved_Attributes,
 		Packed_Attributes,
 		Array_Attributes,
 	},
-}
-
-Accessor :: struct {
-	kind:   Buffer_Data_Kind,
-	format: Buffer_Data_Format,
 }
 
 Interleaved_Attributes :: struct {
@@ -100,7 +42,7 @@ Attribute_Kind :: enum {
 	Color,
 }
 
-attribute_layout_size :: proc(layout: []Accessor) -> (size: int) {
+attribute_layout_size :: proc(layout: []Buffer_Data_Type) -> (size: int) {
 	for accessor in layout {
 		size += accesor_size(accessor)
 	}
@@ -108,12 +50,12 @@ attribute_layout_size :: proc(layout: []Accessor) -> (size: int) {
 }
 
 @(private)
-accesor_size :: proc(a: Accessor) -> int {
+accesor_size :: proc(a: Buffer_Data_Type) -> int {
 	return buffer_size_of[a.kind] * buffer_len_of[a.format]
 }
 
 @(private)
-attribute_layout_equal :: proc(l1, l2: []Accessor) -> bool {
+attribute_layout_equal :: proc(l1, l2: []Buffer_Data_Type) -> bool {
 	if len(l1) != len(l2) {
 		return false
 	}
@@ -128,8 +70,10 @@ attribute_layout_equal :: proc(l1, l2: []Accessor) -> bool {
 }
 
 @(private)
-internal_make_attributes :: proc(layout: []Accessor, format: Attribute_Format) -> Attributes {
-	// l := cast([]Vertex_Format)layout
+internal_make_attributes :: proc(
+	layout: []Buffer_Data_Type,
+	format: Attribute_Format,
+) -> Attributes {
 	attributes := Attributes {
 		layout = slice.clone(layout),
 		format = format,

@@ -9,93 +9,140 @@ import gl "vendor:OpenGL"
 Shader :: struct {
 	name:             string,
 	handle:           u32,
+	stages:           Shader_Stages,
 	uniforms:         map[string]Shader_Uniform_Info,
 	uniform_warnings: map[string]bool,
 }
 
-Shader_Uniform_Loc :: distinct i32
+Shader_Stages :: distinct bit_set[Shader_Stage]
+
+Shader_Stage :: enum i32 {
+	None,
+	Fragment,
+	Vertex,
+	Geometry,
+	Compute,
+	Tessalation_Eval,
+	Tessalation_Control,
+}
+
+@(private)
+gl_shader_type :: proc(s: Shader_Stage) -> gl.Shader_Type {
+	switch s {
+	case .None:
+		return .NONE
+	case .Fragment:
+		return .FRAGMENT_SHADER
+	case .Vertex:
+		return .VERTEX_SHADER
+	case .Geometry:
+		return .GEOMETRY_SHADER
+	case .Compute:
+		return .COMPUTE_SHADER
+	case .Tessalation_Eval:
+		return .TESS_EVALUATION_SHADER
+	case .Tessalation_Control:
+		return .TESS_CONTROL_SHADER
+	}
+	return .SHADER_LINK
+}
+
+Uniform_Location :: distinct i32
 
 Shader_Uniform_Info :: struct {
-	loc:   Shader_Uniform_Loc,
-	kind:  Shader_Uniform_Kind,
+	loc:   Uniform_Location,
+	type:  Buffer_Data_Type,
 	count: int,
 }
 
-Shader_Uniform_Kind :: enum {
-	Int,
-	Vec2Int,
-	Vec3Int,
-	Vec4Int,
-	Uint,
-	Vec2Uint,
-	Vec3Uint,
-	Vec4Uint,
-	Float,
-	Vec2Float,
-	Vec3Float,
-	Vec4Float,
-	Matrix2,
-	Matrix3,
-	Matrix4,
+Shader_Loader :: struct {
+	name:   string,
+	kind:   enum {
+		File,
+		Byte,
+	},
+	stages: [len(Shader_Stage)]Maybe(Shader_Stage_Loader),
 }
 
-Shader_Loader :: struct {
-	name:            string,
-	vertex_source:   string,
-	fragment_source: string,
-	vertex_path:     string,
-	fragment_path:   string,
+Shader_Stage_Loader :: struct {
+	file_path: string,
+	source:    string,
 }
 
 @(private)
 internal_load_shader_from_file :: proc(
-	l: Shader_Loader,
+	loader: Shader_Loader,
 	allocator := context.allocator,
 ) -> Shader {
-	v_raw, v_ok := os.read_entire_file(l.vertex_path, context.temp_allocator)
-	f_raw, f_ok := os.read_entire_file(l.fragment_path, context.temp_allocator)
-
-	if !(v_ok && f_ok) {
-		log.fatalf(
-			"%s: Failed to read shader source file:\n\t- %s\n\t- %s\n",
-			App_Module.IO,
-			l.vertex_path,
-			l.fragment_path,
-		)
-		return {}
+	l := loader
+	stage_count: int
+	for s, i in l.stages {
+		if s != nil {
+			stage := s.?
+			source, ok := os.read_entire_file(stage.file_path, context.temp_allocator)
+			if !ok {
+				log.fatalf(
+					"%s: Failed to read shader source file:\n\t- %s\n",
+					App_Module.IO,
+					stage.file_path,
+				)
+				return {}
+			}
+			stage.source = string(source)
+			l.stages[i] = stage
+			stage_count += 1
+		}
 	}
-	loader := l
-	loader.vertex_source = string(v_raw)
-	loader.fragment_source = string(f_raw)
+
+	if stage_count == 0 {
+		assert(false)
+	}
 	return internal_load_shader_from_bytes(loader)
 }
 
 @(private)
 internal_load_shader_from_bytes :: proc(
-	l: Shader_Loader,
+	loader: Shader_Loader,
 	allocator := context.allocator,
 ) -> (
 	shader: Shader,
 ) {
-	if l.name != "" {
-		shader.name = strings.clone(l.name)
-	}
-
-	vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.name)
-	defer gl.DeleteShader(vertex_handle)
-	fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.name)
-	defer gl.DeleteShader(vertex_handle)
-
-	switch {
-	case vertex_handle == 0:
-		log.debug("Failed to compile fragment shader")
-	case fragment_handle == 0:
-		log.debug("Failed to compile fragment shader")
+	if loader.name != "" {
+		shader.name = strings.clone(loader.name)
 	}
 
 	shader.handle = gl.CreateProgram()
-	gl.AttachShader(shader.handle, vertex_handle)
-	gl.AttachShader(shader.handle, fragment_handle)
+	for s, i in loader.stages {
+		if s != nil {
+			stage := s.?
+			stage_handle := compile_shader_source(
+				stage.source,
+				gl_shader_type(Shader_Stage(i)),
+				loader.name,
+			)
+			defer gl.DeleteShader(stage_handle)
+
+			if stage_handle == 0 {
+				log.debug("Failed to compile fragment shader")
+			}
+			gl.AttachShader(shader.handle, stage_handle)
+		}
+	}
+
+	// vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.name)
+	// defer gl.DeleteShader(vertex_handle)
+	// fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.name)
+	// defer gl.DeleteShader(vertex_handle)
+
+	// switch {
+	// case vertex_handle == 0:
+	// 	log.debug("Failed to compile fragment shader")
+	// case fragment_handle == 0:
+	// 	log.debug("Failed to compile fragment shader")
+	// }
+
+	// gl.AttachShader(shader.handle, vertex_handle)
+	// gl.AttachShader(shader.handle, fragment_handle)
 	gl.LinkProgram(shader.handle)
 	compile_ok: i32
 	gl.GetProgramiv(shader.handle, gl.LINK_STATUS, &compile_ok)
@@ -144,10 +191,8 @@ internal_load_shader_from_bytes :: proc(
 		)
 		u_name := format_uniform_name(buf, cur_name_len, type)
 		shader.uniforms[u_name] = Shader_Uniform_Info {
-			loc   = Shader_Uniform_Loc(
-				gl.GetUniformLocation(shader.handle, cstring(raw_data(buf))),
-			),
-			kind  = uniform_kind(type),
+			loc   = Uniform_Location(gl.GetUniformLocation(shader.handle, cstring(raw_data(buf)))),
+			type  = uniform_type(type),
 			count = int(size),
 		}
 	}
@@ -210,38 +255,55 @@ format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allo
 }
 
 @(private)
-uniform_kind :: proc(t: u32) -> (kind: Shader_Uniform_Kind) {
+uniform_type :: proc(t: u32) -> (type: Buffer_Data_Type) {
 	switch t {
-	case gl.INT:
-		kind = .Int
+	case gl.INT, gl.SAMPLER_2D, gl.SAMPLER_CUBE:
+		type.kind = .Signed_32
+		type.format = .Scalar
 	case gl.INT_VEC2:
-		kind = .Vec2Int
+		type.kind = .Signed_32
+		type.format = .Vector2
 	case gl.INT_VEC3:
-		kind = .Vec3Int
+		type.kind = .Signed_32
+		type.format = .Vector3
 	case gl.INT_VEC4:
-		kind = .Vec4Int
+		type.kind = .Signed_32
+		type.format = .Vector4
+
 	case gl.UNSIGNED_INT:
-		kind = .Uint
+		type.kind = .Unsigned_32
+		type.format = .Scalar
 	case gl.UNSIGNED_INT_VEC2:
-		kind = .Vec2Uint
+		type.kind = .Unsigned_32
+		type.format = .Vector2
 	case gl.UNSIGNED_INT_VEC3:
-		kind = .Vec3Uint
+		type.kind = .Unsigned_32
+		type.format = .Vector3
 	case gl.UNSIGNED_INT_VEC4:
-		kind = .Vec4Uint
+		type.kind = .Unsigned_32
+		type.format = .Vector4
+
 	case gl.FLOAT:
-		kind = .Float
+		type.kind = .Float_32
+		type.format = .Scalar
 	case gl.FLOAT_VEC2:
-		kind = .Vec2Float
+		type.kind = .Float_32
+		type.format = .Vector2
 	case gl.FLOAT_VEC3:
-		kind = .Vec3Float
+		type.kind = .Float_32
+		type.format = .Vector3
 	case gl.FLOAT_VEC4:
-		kind = .Vec4Float
+		type.kind = .Float_32
+		type.format = .Vector4
 	case gl.FLOAT_MAT2:
-		kind = .Matrix2
+		type.kind = .Float_32
+		type.format = .Mat2
 	case gl.FLOAT_MAT3:
-		kind = .Matrix3
+		type.kind = .Float_32
+		type.format = .Mat3
 	case gl.FLOAT_MAT4:
-		kind = .Matrix4
+		type.kind = .Float_32
+		type.format = .Mat4
 	}
 	return
 }
@@ -264,51 +326,67 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := 
 	bind_shader(shader)
 	info := shader.uniforms[name]
 	loc := i32(info.loc)
-	switch info.kind {
-	case .Int:
-		gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
-	case .Vec2Int:
-		gl.Uniform2iv(loc, i32(info.count), cast([^]i32)value)
+	switch info.type.format {
+	case .Unspecified:
+		assert(false)
 
-	case .Vec3Int:
-		gl.Uniform3iv(loc, i32(info.count), cast([^]i32)value)
+	case .Scalar:
+		#partial switch info.type.kind {
+		case .Signed_32:
+			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
+		case .Unsigned_32:
+			gl.Uniform1uiv(loc, i32(info.count), cast([^]u32)value)
+		case .Float_32:
+			gl.Uniform1fv(loc, i32(info.count), cast([^]f32)value)
+		}
 
-	case .Vec4Int:
-		gl.Uniform4iv(loc, i32(info.count), cast([^]i32)value)
+	case .Vector2:
+		#partial switch info.type.kind {
+		case .Signed_32:
+			gl.Uniform2iv(loc, i32(info.count), cast([^]i32)value)
+		case .Unsigned_32:
+			gl.Uniform2uiv(loc, i32(info.count), cast([^]u32)value)
+		case .Float_32:
+			gl.Uniform2fv(loc, i32(info.count), cast([^]f32)value)
+		}
 
-	case .Uint:
-		gl.Uniform1uiv(loc, i32(info.count), cast([^]u32)value)
+	case .Vector3:
+		#partial switch info.type.kind {
+		case .Signed_32:
+			gl.Uniform3iv(loc, i32(info.count), cast([^]i32)value)
+		case .Unsigned_32:
+			gl.Uniform3uiv(loc, i32(info.count), cast([^]u32)value)
+		case .Float_32:
+			gl.Uniform3fv(loc, i32(info.count), cast([^]f32)value)
+		}
 
-	case .Vec2Uint:
-		gl.Uniform2uiv(loc, i32(info.count), cast([^]u32)value)
+	case .Vector4:
+		#partial switch info.type.kind {
+		case .Signed_32:
+			gl.Uniform4iv(loc, i32(info.count), cast([^]i32)value)
+		case .Unsigned_32:
+			gl.Uniform4uiv(loc, i32(info.count), cast([^]u32)value)
+		case .Float_32:
+			gl.Uniform4fv(loc, i32(info.count), cast([^]f32)value)
+		}
 
-	case .Vec3Uint:
-		gl.Uniform3uiv(loc, i32(info.count), cast([^]u32)value)
+	case .Mat2:
+		#partial switch info.type.kind {
+		case .Float_32:
+			gl.UniformMatrix2fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
+		}
 
-	case .Vec4Uint:
-		gl.Uniform4uiv(loc, i32(info.count), cast([^]u32)value)
+	case .Mat3:
+		#partial switch info.type.kind {
+		case .Float_32:
+			gl.UniformMatrix3fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
+		}
 
-	case .Float:
-		gl.Uniform1fv(loc, i32(info.count), cast([^]f32)value)
-
-	case .Vec2Float:
-		gl.Uniform2fv(loc, i32(info.count), cast([^]f32)value)
-
-	case .Vec3Float:
-		gl.Uniform3fv(loc, i32(info.count), cast([^]f32)value)
-
-	case .Vec4Float:
-		gl.Uniform4fv(loc, i32(info.count), cast([^]f32)value)
-
-	case .Matrix2:
-		gl.UniformMatrix2fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
-
-	case .Matrix3:
-		gl.UniformMatrix3fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
-
-	case .Matrix4:
-		gl.UniformMatrix4fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
-
+	case .Mat4:
+		#partial switch info.type.kind {
+		case .Float_32:
+			gl.UniformMatrix4fv(loc, i32(info.count), gl.FALSE, cast([^]f32)value)
+		}
 	}
 }
 

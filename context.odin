@@ -135,8 +135,12 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.depth_framebuffer = ctx.depth_framebuffer_res.data.(^Framebuffer)
 	ctx.depth_shader_res = shader_resource(
 		Shader_Loader{
-			vertex_source = LIGHT_DEPTH_VERTEX_SHADER,
-			fragment_source = LIGHT_DEPTH_FRAGMENT_SHADER,
+			name = "depth_map",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = LIGHT_DEPTH_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = LIGHT_DEPTH_FRAGMENT_SHADER},
+			},
 		},
 	)
 	ctx.depth_shader = ctx.depth_shader_res.data.(^Shader)
@@ -167,15 +171,21 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	// Framebuffer blitting states
 	blit_shader_res := shader_resource(
 		Shader_Loader{
-			vertex_source = BLIT_FRAMEBUFFER_VERTEX_SHADER,
-			fragment_source = BLIT_FRAMEBUFFER_FRAGMENT_SHADER,
+			name = "blit_framebuffer",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					source = BLIT_FRAMEBUFFER_FRAGMENT_SHADER,
+				},
+			},
 		},
 	)
 	ctx.framebuffer_blit_shader = blit_shader_res.data.(^Shader)
 	ctx.framebuffer_blit_attributes = attributes_from_layout(
 		{
-			Accessor{kind = .Float_32, format = .Vector2},
-			Accessor{kind = .Float_32, format = .Vector2},
+			Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+			Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 		},
 		.Interleaved,
 	)
@@ -262,7 +272,7 @@ end_render :: proc() {
 					ambient_strength = ctx.light_ambient_strength,
 				},
 				byte_size = size_of(Render_Uniform_Light_Data),
-				accessor = Accessor{kind = .Byte, format = .Unspecified},
+				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 			},
 		)
 		ctx.light_dirty = false
@@ -420,7 +430,7 @@ end_render :: proc() {
 				Buffer_Source{
 					data = &framebuffer_vertices[0],
 					byte_size = len(framebuffer_vertices) * size_of(f32),
-					accessor = Accessor{kind = .Float_32, format = .Scalar},
+					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
 				},
 			)
 			send_buffer_data(
@@ -476,7 +486,7 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 				view_position = ctx.eye,
 			},
 			byte_size = size_of(Render_Uniform_Projection_Data),
-			accessor = Accessor{kind = .Byte, format = .Unspecified},
+			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 		},
 	)
 }

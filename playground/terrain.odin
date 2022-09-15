@@ -1,6 +1,5 @@
 package main
 
-// import "core:slice"
 import iris "../"
 
 Terrain :: struct {
@@ -13,10 +12,10 @@ Terrain :: struct {
 	ui:             ^iris.User_Interface_Node,
 }
 
-TERRAIN_VERTEX_LAYOUT :: []iris.Accessor{
-	iris.Accessor{kind = .Float_32, format = .Vector4},
-	iris.Accessor{kind = .Float_32, format = .Vector4},
-	iris.Accessor{kind = .Float_32, format = .Vector2},
+TERRAIN_VERTEX_LAYOUT :: []iris.Buffer_Data_Type{
+	iris.Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+	iris.Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+	iris.Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 }
 
 init_terrain :: proc(t: ^Terrain, opt: iris.Noise_Generator) {
@@ -94,3 +93,63 @@ generate_terrain_data :: proc(t: ^Terrain) {
 	// 	},
 	// )
 }
+
+TERRAIN_COMPUTE_SHADER :: `
+version #450 core
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout (std140, binding = 2) buffer VertexBuffer {
+	vec4 positions[];
+	vec4 normals[];
+	vec2 texCoords[];
+};
+
+layout (std140, binding = 3) uniform NoiseData {
+	float input[];
+	int mode;
+	int octaves;
+	float lacunarity;
+	float persistance;
+};
+
+const int GenerateMode = 0;
+const int SmoothMode = 1;
+
+void main() {
+	ivec2 coord = gl_GlobalInvocationID.xy;
+	int width = gl_NumWorkGroups.x;
+	int height = gl_NumWorkGroups.y;
+	int index = coord.y * gl_NumWorkGroups.x + coord.x;
+
+	if mode == GenerateMode {
+		float heightValue = 0.0;
+		float accumulator = 0.0;
+		float scale = 1.0;
+		int freq = width
+		for (int i = 0; i < octaves; i += 1) {
+			int samplerX1 = (coord.x / freq) * freq;
+			int samplerY1 = (coord.y / freq) * freq;
+	
+			int samplerX2 = (samplerX1 + freq) % width;
+			int samplerY2 = (samplerY1 + freq) % width;
+	
+			float blendX = float(coord.x - samplerX1) / float(freq);
+			float blendY = float(coord.x - samplerY1) / float(freq);
+	
+			float inValueS1 = input[samplerY1 * width + samplerX1];
+			float inValueS2 = input[samplerY1 * width + samplerX2];
+			float inValueT1 = input[samplerY2 * width + samplerX1];
+			float inValueT1 = input[samplerY2 * width + samplerX2];
+			float sampleS = mix(inValueS1, inValueS2, blendX);
+			float sampleT = mix(inValueT1, inValueT2, blendX);
+	
+			accumulator += scale;
+			heightValue += (blendY * (sampleT - sampleS) + sampleS) * scale;
+			scale *= persistance;
+			freq = int(float(freq) / lacunarity);
+			freq = max(freq, 1.0);
+		}
+		positions[index] = heightValue / accumulator;
+	}
+}
+`

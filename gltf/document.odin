@@ -3,7 +3,7 @@ package gltf
 Document :: struct {
 	buffers:    []Buffer,
 	views:      []Buffer_View,
-	accessors:  []Accessor,
+	accessors:  []Buffer_Data_Type,
 	root:       ^Scene,
 	root_nodes: [dynamic]^Node,
 	scenes:     []Scene,
@@ -55,9 +55,9 @@ Animation :: struct {
 
 Animation_Sampler :: struct {
 	interpolation: Animation_Interpolation,
-	input:         ^Accessor,
+	input:         ^Buffer_Data_Type,
 	input_index:   uint,
-	output:        ^Accessor,
+	output:        ^Buffer_Data_Type,
 	output_index:  uint,
 }
 
@@ -101,7 +101,7 @@ Skin_Inverse_Bind_Matrices :: union {
 }
 
 Skin_Accessor_Inverse_Bind_Matrices :: struct {
-	using ptr: ^Accessor,
+	using ptr: ^Buffer_Data_Type,
 	index:     uint,
 }
 
@@ -116,10 +116,10 @@ Mesh :: struct {
 Primitive :: struct {
 	mode:           Primitive_Render_Mode,
 	attributes:     map[string]struct {
-		data:  ^Accessor,
+		data:  ^Buffer_Data_Type,
 		index: uint,
 	},
-	indices:        ^Accessor,
+	indices:        ^Buffer_Data_Type,
 	indices_index:  uint,
 	material:       ^Material,
 	material_index: uint,
@@ -252,7 +252,7 @@ BUFFER_VIEW_MIN_BYTE_STRIDE :: 4
 BUFFER_VIEW_MAX_BYTE_STRIDE :: 252
 
 
-Accessor :: struct {
+Buffer_Data_Type :: struct {
 	name:           string, // Owned
 	view:           ^Buffer_View, // Borrowed
 	view_index:     uint,

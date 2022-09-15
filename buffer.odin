@@ -13,7 +13,7 @@ Buffer :: struct {
 Buffer_Source :: struct {
 	data:      rawptr,
 	byte_size: int,
-	accessor:  Accessor,
+	accessor:  Buffer_Data_Type,
 }
 
 Buffer_Data_Kind :: enum {
@@ -56,6 +56,11 @@ buffer_len_of := map[Buffer_Data_Format]int {
 	.Mat2        = 4,
 	.Mat3        = 9,
 	.Mat4        = 16,
+}
+
+Buffer_Data_Type :: struct {
+	kind:   Buffer_Data_Kind,
+	format: Buffer_Data_Format,
 }
 
 @(private)

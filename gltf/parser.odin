@@ -154,12 +154,12 @@ parse_from_file :: proc(
 	// Accessors
 	if json_accessors, has_accessors := json_doc["accessors"]; has_accessors {
 		accessors := json_accessors.(json.Array) or_else {}
-		document.accessors = make([]Accessor, len(accessors))
+		document.accessors = make([]Buffer_Data_Type, len(accessors))
 
 		for json_accessor, i in accessors {
 			accessor_data := json_accessor.(json.Object) or_else {}
 
-			accessor: Accessor
+			accessor: Buffer_Data_Type
 			accessor.name = strings.clone(accessor_data["name"].(string) or_else "")
 
 			if view_index, has_index := accessor_data["bufferView"]; has_index {
@@ -332,7 +332,10 @@ parse_from_file :: proc(
 				if base_clr_t, has_base_t := pbr_info["baseColorTexture"]; has_base_t {
 					base_color_texture := base_clr_t.(json.Object)
 
-					material.base_color_texture = parse_texture_info(&document, base_color_texture) or_return
+					material.base_color_texture = parse_texture_info(
+						&document,
+						base_color_texture,
+					) or_return
 				} else {
 					material.base_color_texture.present = false
 				}
@@ -396,12 +399,16 @@ parse_from_file :: proc(
 			if emissive_t, has_emissive_t := material_info["emissiveTexture"]; has_emissive_t {
 				emissive_texture := emissive_t.(json.Object)
 
-				material.emissive_texture = parse_texture_info(&document, emissive_texture) or_return
+				material.emissive_texture = parse_texture_info(
+					&document,
+					emissive_texture,
+				) or_return
 			} else {
 				material.emissive_texture.present = false
 			}
 
-			if emissive_f, has_emissive_factor := material_info["emissiveFactor"]; has_emissive_factor {
+			if emissive_f, has_emissive_factor := material_info["emissiveFactor"];
+			   has_emissive_factor {
 				emissive_factor := emissive_f.(json.Array)
 
 				material.emissive_factor = {
@@ -647,7 +654,8 @@ parse_from_file :: proc(
 						return
 					}
 
-					if interpolation, has_interpolation := sampler_info["interpolation"]; has_interpolation {
+					if interpolation, has_interpolation := sampler_info["interpolation"];
+					   has_interpolation {
 						switch interpolation.(string) {
 						case "LINEAR":
 							sampler.interpolation = .Linear
@@ -980,7 +988,7 @@ to_accesor_kind :: proc(t: string) -> (k: Accessor_Kind) {
 	return
 }
 
-parse_accessor_data :: proc(a: ^Accessor, raw: []byte) {
+parse_accessor_data :: proc(a: ^Buffer_Data_Type, raw: []byte) {
 	switch a.kind {
 	case .Scalar:
 		switch a.component_kind {
