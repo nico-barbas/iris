@@ -6,7 +6,7 @@ import "core:math/linalg"
 
 RENDER_CTX_MAX_LIGHTS :: 4
 RENDER_CTX_DEFAULT_FAR :: 100
-RENDER_CTX_DEFAULT_NEAR :: 1
+RENDER_CTX_DEFAULT_NEAR :: 0.1
 RENDER_CTX_DEFAULT_AMBIENT_STR :: 0.4
 RENDER_CTX_DEFAULT_AMBIENT_CLR :: Color{0.45, 0.45, 0.75, 1.0}
 
@@ -172,7 +172,13 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 		},
 	)
 	ctx.framebuffer_blit_shader = blit_shader_res.data.(^Shader)
-	ctx.framebuffer_blit_attributes = attributes_from_layout({.Float2, .Float2}, .Interleaved)
+	ctx.framebuffer_blit_attributes = attributes_from_layout(
+		{
+			Accessor{kind = .Float_32, format = .Vector2},
+			Accessor{kind = .Float_32, format = .Vector2},
+		},
+		.Interleaved,
+	)
 }
 
 close_render_ctx :: proc(ctx: ^Rendering_Context) {
@@ -241,19 +247,22 @@ end_render :: proc() {
 			compute_light_projection(&ctx.lights[i], ctx.centre)
 		}
 
-		send_raw_buffer_data(
+		send_buffer_data(
 			&ctx.light_uniform_memory,
-			size_of(Render_Uniform_Light_Data),
-			&Render_Uniform_Light_Data{
-				lights = [RENDER_CTX_MAX_LIGHTS]Light_Data{
-					ctx.lights[0].data,
-					ctx.lights[1].data,
-					ctx.lights[2].data,
-					ctx.lights[3].data,
+			Buffer_Source{
+				data = &Render_Uniform_Light_Data{
+					lights = [RENDER_CTX_MAX_LIGHTS]Light_Data{
+						ctx.lights[0].data,
+						ctx.lights[1].data,
+						ctx.lights[2].data,
+						ctx.lights[3].data,
+					},
+					light_space = ctx.lights[0].projection_view,
+					ambient_clr = ctx.light_ambient_clr.rgb,
+					ambient_strength = ctx.light_ambient_strength,
 				},
-				light_space = ctx.lights[0].projection_view,
-				ambient_clr = ctx.light_ambient_clr.rgb,
-				ambient_strength = ctx.light_ambient_strength,
+				byte_size = size_of(Render_Uniform_Light_Data),
+				accessor = Accessor{kind = .Byte, format = .Unspecified},
 			},
 		)
 		ctx.light_dirty = false
@@ -277,12 +286,11 @@ end_render :: proc() {
 			defer default_attributes()
 			link_packed_attributes_vertices(
 				c.mesh.attributes,
-				c.mesh.vertices,
+				c.mesh.vertices.buf,
 				c.mesh.attributes_info,
 			)
-			link_attributes_indices(c.mesh.attributes, c.mesh.indices)
-			triangle_count := c.mesh.indices.info.(Typed_Buffer).cap
-			draw_triangles(triangle_count)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+			draw_triangles(c.mesh.index_count)
 		}
 	}
 	default_shader()
@@ -347,12 +355,11 @@ end_render :: proc() {
 			defer default_attributes()
 			link_packed_attributes_vertices(
 				c.mesh.attributes,
-				c.mesh.vertices,
+				c.mesh.vertices.buf,
 				c.mesh.attributes_info,
 			)
-			link_attributes_indices(c.mesh.attributes, c.mesh.indices)
-			triangle_count := c.mesh.indices.info.(Typed_Buffer).cap
-			draw_triangles(triangle_count)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+			draw_triangles(c.mesh.index_count)
 
 			for kind in Material_Map {
 				if kind in c.material.maps {
@@ -408,19 +415,24 @@ end_render :: proc() {
 			bind_shader(ctx.framebuffer_blit_shader)
 			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
 			bind_texture(framebuffer_texture(c.framebuffer, .Color), texture_index)
-			send_raw_buffer_data(
+			send_buffer_data(
 				c.vertex_memory,
-				len(framebuffer_vertices) * size_of(f32),
-				&framebuffer_vertices[0],
+				Buffer_Source{
+					data = &framebuffer_vertices[0],
+					byte_size = len(framebuffer_vertices) * size_of(f32),
+					accessor = Accessor{kind = .Float_32, format = .Scalar},
+				},
 			)
-			send_raw_buffer_data(
+			send_buffer_data(
 				&Buffer_Memory{
 					buf = c.index_buffer,
 					size = len(framebuffer_vertices) * size_of(u32),
 					offset = 0,
 				},
-				len(framebuffer_vertices) * size_of(u32),
-				&framebuffer_indices[0],
+				Buffer_Source{
+					data = &framebuffer_indices[0],
+					byte_size = len(framebuffer_vertices) * size_of(u32),
+				},
 			)
 
 			// prepare attributes
@@ -454,14 +466,17 @@ end_render :: proc() {
 compute_projection :: proc(ctx: ^Rendering_Context) {
 	ctx.view = linalg.matrix4_look_at_f32(ctx.eye, ctx.centre, ctx.up)
 	ctx.projection_view = linalg.matrix_mul(ctx.projection, ctx.view)
-	send_raw_buffer_data(
+	send_buffer_data(
 		&ctx.projection_uniform_memory,
-		size_of(Render_Uniform_Projection_Data),
-		&Render_Uniform_Projection_Data{
-			projection_view = ctx.projection_view,
-			projection = ctx.projection,
-			view = ctx.view,
-			view_position = ctx.eye,
+		Buffer_Source{
+			data = &Render_Uniform_Projection_Data{
+				projection_view = ctx.projection_view,
+				projection = ctx.projection,
+				view = ctx.view,
+				view_position = ctx.eye,
+			},
+			byte_size = size_of(Render_Uniform_Projection_Data),
+			accessor = Accessor{kind = .Byte, format = .Unspecified},
 		},
 	)
 }

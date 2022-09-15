@@ -5,6 +5,7 @@ import "core:mem"
 import "core:log"
 import "core:time"
 import "core:runtime"
+import "core:math/rand"
 import "core:path/filepath"
 
 import "vendor:glfw"
@@ -162,6 +163,8 @@ run_app :: proc() {
 	context = app.ctx
 	app.is_running = true
 	app.last_time = time.now()
+
+	rand.set_global_seed(u64(app.last_time._nsec))
 	init_library(&app.library)
 	init_render_ctx(&app.render_ctx, app.width, app.height)
 	app.init(app.data)

@@ -67,8 +67,18 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	VERTEX_LAYOUT :: Vertex_Layout{.Float2, .Float2, .Float1, .Float4}
-	stride := vertex_layout_length(VERTEX_LAYOUT)
+	VERTEX_LAYOUT :: []Accessor{
+		Accessor{kind = .Float_32, format = .Vector2},
+		Accessor{kind = .Float_32, format = .Vector2},
+		Accessor{kind = .Float_32, format = .Scalar},
+		Accessor{kind = .Float_32, format = .Vector4},
+	}
+	stride := (
+		buffer_len_of[.Vector2] +
+		buffer_len_of[.Vector2] +
+		buffer_len_of[.Scalar] +
+		buffer_len_of[.Vector4]
+	)
 
 
 	canvas.projection = linalg.matrix_mul(
@@ -81,7 +91,6 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	index_buffer_res := raw_buffer_resource(INDEX_CAP * size_of(u32), true)
 	canvas.vertex_buffer = vertex_buffer_res.data.(^Buffer)
 	canvas.index_buffer = index_buffer_res.data.(^Buffer)
-
 	arena_init(
 		&canvas.vertex_arena,
 		Buffer_Memory{
@@ -260,28 +269,40 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 		link_interleaved_attributes_vertices(canvas.attributes, canvas.vertex_buffer)
 		link_attributes_indices(canvas.attributes, canvas.index_buffer)
 		if canvas.tri_index_count > 0 {
-			send_raw_buffer_data(
+			send_buffer_data(
 				&canvas.it_sub_buffer,
-				int(size_of(u32) * canvas.tri_index_count),
-				&canvas.tri_indices[0],
+				Buffer_Source{
+					data = &canvas.tri_indices[0],
+					byte_size = int(size_of(u32) * canvas.tri_index_count),
+					accessor = Accessor{kind = .Unsigned_32, format = .Scalar},
+				},
 			)
-			send_raw_buffer_data(
+			send_buffer_data(
 				&canvas.tri_sub_buffer,
-				size_of(f32) * len(canvas.vertices),
-				&canvas.vertices[0],
+				Buffer_Source{
+					data = &canvas.vertices[0],
+					byte_size = size_of(f32) * len(canvas.vertices),
+					accessor = Accessor{kind = .Float_32, format = .Scalar},
+				},
 			)
 			draw_triangles(int(canvas.tri_index_count))
 		}
 		if canvas.line_index_count > 0 {
-			send_raw_buffer_data(
+			send_buffer_data(
 				&canvas.il_sub_buffer,
-				int(size_of(u32) * canvas.line_index_count),
-				&canvas.line_indices[0],
+				Buffer_Source{
+					data = &canvas.line_indices[0],
+					byte_size = int(size_of(u32) * canvas.line_index_count),
+					accessor = Accessor{kind = .Unsigned_32, format = .Scalar},
+				},
 			)
-			send_raw_buffer_data(
+			send_buffer_data(
 				&canvas.line_sub_buffer,
-				size_of(f32) * len(canvas.line_vertices),
-				&canvas.line_vertices[0],
+				Buffer_Source{
+					data = &canvas.line_vertices[0],
+					byte_size = size_of(f32) * len(canvas.line_vertices),
+					accessor = Accessor{kind = .Float_32, format = .Scalar},
+				},
 			)
 			draw_lines(
 				int(canvas.line_index_count),

@@ -7,121 +7,77 @@ import gl "vendor:OpenGL"
 // Generic data buffer stored on the GPU
 Buffer :: struct {
 	handle: u32,
-	info:   union {
-		Raw_Buffer,
-		Typed_Buffer,
-	},
+	size:   int,
 }
 
-Raw_Buffer :: struct {
-	size: int,
+Buffer_Source :: struct {
+	data:      rawptr,
+	byte_size: int,
+	accessor:  Accessor,
 }
 
-Typed_Buffer :: struct {
-	element_type: typeid,
-	element_size: int,
-	cap:          int,
+Buffer_Data_Kind :: enum {
+	Byte,
+	Unsigned_16,
+	Signed_16,
+	Unsigned_32,
+	Signed_32,
+	Float_16,
+	Float_32,
 }
 
-// make_buffer :: proc($T: typeid, cap: int, reserve := false) -> (buffer: Buffer) {
-// 	ctx := &app.render_ctx
-// 	buffer = internal_make_buffer(T, cap, reserve)
+buffer_size_of := map[Buffer_Data_Kind]int {
+	.Byte        = size_of(byte),
+	.Unsigned_16 = size_of(u16),
+	.Signed_16   = size_of(i16),
+	.Unsigned_32 = size_of(u32),
+	.Signed_32   = size_of(i32),
+	.Float_16    = size_of(f16be),
+	.Float_32    = size_of(f32),
+}
 
-// 	append(&ctx.buffers, buffer)
-// 	return buffer
-// }
+Buffer_Data_Format :: enum {
+	Unspecified,
+	Scalar,
+	Vector2,
+	Vector3,
+	Vector4,
+	Mat2,
+	Mat3,
+	Mat4,
+}
 
-// Make a buffer of the given data type
+buffer_len_of := map[Buffer_Data_Format]int {
+	.Unspecified = 1,
+	.Scalar      = 1,
+	.Vector2     = 2,
+	.Vector3     = 3,
+	.Vector4     = 4,
+	.Mat2        = 4,
+	.Mat3        = 9,
+	.Mat4        = 16,
+}
+
 @(private)
-internal_make_typed_buffer :: proc($T: typeid, cap: int, reserve := false) -> (buffer: Buffer) {
-	info := Typed_Buffer {
-		element_type = T,
-		element_size = size_of(T),
-		cap          = cap,
-	}
+internal_make_raw_buffer :: proc(size: int) -> (buffer: Buffer) {
 	buffer = Buffer {
-		info = info,
-	}
-	gl.CreateBuffers(1, &buffer.handle)
-
-	if reserve {
-		gl.NamedBufferData(buffer.handle, info.cap * info.element_size, nil, gl.STATIC_DRAW)
-	}
-	return
-}
-
-@(private)
-internal_make_raw_buffer :: proc(size: int, reserve := false) -> (buffer: Buffer) {
-	info := Raw_Buffer {
 		size = size,
 	}
-	buffer = Buffer {
-		info = info,
-	}
 	gl.CreateBuffers(1, &buffer.handle)
-
-	if reserve {
-		gl.NamedBufferData(buffer.handle, size, nil, gl.STATIC_DRAW)
-	}
+	gl.NamedBufferData(buffer.handle, size, nil, gl.STATIC_DRAW)
 	return
 }
 
-send_buffer_data :: proc(buffer: ^Buffer, data: $T/[]$E) {
-	info, ok := buffer.info.(Typed_Buffer)
-	if !ok {
-		log.fatalf(
-			"%s: Invalid Buffer access, trying to send typed data to raw buffer",
-			App_Module.GPU_Memory,
-		)
-		assert(false)
-	}
-	if size_of(E) != info.element_size {
-		log.fatalf(
-			"%s: Type mismatch: Buffer [%d] elements are of type %s",
-			App_Module.GPU_Memory,
-			buffer.handle,
-			type_info_of(E),
-		)
-		assert(false)
-	}
-	if len(data) > info.cap {
-		log.fatalf(
-			"%s: Data slice is too large for buffer [%d]",
-			App_Module.GPU_Memory,
-			buffer.handle,
-		)
-		assert(false)
-	}
-	gl.NamedBufferData(buffer.handle, len(data) * info.element_size, &data[0], gl.STATIC_DRAW)
-}
-
-send_raw_buffer_data :: proc(dst: ^Buffer_Memory, size: int, data: rawptr) {
-	_, ok := dst.buf.info.(Raw_Buffer)
-	if !ok {
-		log.fatalf(
-			"%s: Invalid Buffer access, trying to send raw data to typed buffer",
-			App_Module.GPU_Memory,
-		)
-		assert(false)
-	}
-	if size > dst.size {
+send_buffer_data :: proc(dst: ^Buffer_Memory, src: Buffer_Source, offset := 0) {
+	if src.byte_size > dst.size {
 		log.fatalf("%s: Data is too large for buffer [%d]", App_Module.GPU_Memory, dst.buf.handle)
 		assert(false)
 	}
-	// gl.NamedBufferData(dst.buf.handle, size, data, gl.STATIC_DRAW)
-	gl.NamedBufferSubData(dst.buf.handle, dst.offset, size, data)
+	gl.NamedBufferSubData(dst.buf.handle, dst.offset + offset, src.byte_size, src.data)
 }
 
 set_uniform_buffer_binding :: proc(buffer: ^Buffer, binding_point: u32) {
-	info, ok := buffer.info.(Raw_Buffer)
-	if !ok {
-		log.fatalf(
-			"%s: Invalid Buffer access, trying to use a typed buffer as uniform buffer",
-			App_Module.GPU_Memory,
-		)
-		assert(false)
-	}
-	gl.BindBufferRange(gl.UNIFORM_BUFFER, binding_point, buffer.handle, 0, info.size)
+	gl.BindBufferRange(gl.UNIFORM_BUFFER, binding_point, buffer.handle, 0, buffer.size)
 }
 
 destroy_buffer :: proc(buffer: ^Buffer) {

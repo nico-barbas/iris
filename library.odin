@@ -141,7 +141,7 @@ raw_buffer_resource :: proc(size: int, reserve := false) -> ^Resource {
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
-	buf := new_clone(internal_make_raw_buffer(size, reserve))
+	buf := new_clone(internal_make_raw_buffer(size))
 	resource := new_resource(lib, buf)
 
 	append(&lib.buffers, resource)
@@ -160,7 +160,7 @@ typed_buffer_resource :: proc($T: typeid, cap: int, reserve := false) -> ^Resour
 	return resource
 }
 
-attributes_resource :: proc(layout: Vertex_Layout, format: Attribute_Format) -> ^Resource {
+attributes_resource :: proc(layout: []Accessor, format: Attribute_Format) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
@@ -355,6 +355,16 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 	free(resource)
 }
 
+buffer_memory_from_buffer_resource :: proc(resource: ^Resource) -> Buffer_Memory {
+	buffer := resource.data.(^Buffer)
+	memory := Buffer_Memory {
+		buf    = buffer,
+		size   = buffer.size,
+		offset = 0,
+	}
+	return memory
+}
+
 // glTF resource loading
 load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	lib := &app.library
@@ -412,7 +422,7 @@ load_shaders_from_dir :: proc(dir: string) {
 // Searching procedures
 @(private)
 attributes_from_layout :: proc(
-	layout: Vertex_Layout,
+	layout: []Accessor,
 	format: Attribute_Format,
 ) -> (
 	result: ^Attributes,
@@ -423,7 +433,7 @@ attributes_from_layout :: proc(
 
 	for resource in lib.attributes {
 		attributes := resource.data.(^Attributes)
-		if vertex_layout_equal(layout, attributes.layout) {
+		if attribute_layout_equal(layout, attributes.layout) {
 			return attributes
 		}
 	}

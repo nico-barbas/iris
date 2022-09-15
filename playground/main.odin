@@ -2,6 +2,7 @@ package main
 
 import "core:mem"
 import "core:fmt"
+// import "core:slice"
 import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
@@ -51,7 +52,7 @@ Game :: struct {
 	rig:               ^iris.Node,
 	skin:              ^iris.Node,
 	canvas:            ^iris.Canvas_Node,
-	terrain:           ^iris.Node,
+	// terrain:           ^iris.Node,
 	delta:             f32,
 	flat_material:     ^iris.Material,
 	flat_lit_material: ^iris.Material,
@@ -162,40 +163,67 @@ init :: proc(data: iris.App_Data) {
 		).data.(^iris.Texture),
 	)
 
-	ground_res := iris.plane_mesh(50, 50, 50, 50)
-	g.terrain = iris.model_node_from_mesh(
-		g.scene,
-		ground_res.data.(^iris.Mesh),
-		g.flat_lit_material,
-		iris.transform(),
-	)
-	iris.insert_node(g.scene, g.terrain)
+	// iris.begin_temp_allocation()
+	// TERRAIN_SIZE :: 100
+	// NOISE_SIZE :: TERRAIN_SIZE + 1
+	// ground := iris.plane_mesh_loader(20, 20, TERRAIN_SIZE, TERRAIN_SIZE, context.temp_allocator)
+	// defer iris.delete_mesh_loader(ground)
+	// seed: [NOISE_SIZE * NOISE_SIZE]f32
+	// noise_map := iris.noise(
+	// 	&iris.Noise_Generator{
+	// 		seed_buf = seed[:],
+	// 		octaves = 3,
+	// 		width = NOISE_SIZE,
+	// 		height = NOISE_SIZE,
+	// 		persistance = 0.1,
+	// 		lacunarity = 2,
+	// 	},
+	// 	context.temp_allocator,
+	// )
+	// p := ground.vertices[:ground.offsets[1] / size_of(f32)]
+	// positions := slice.reinterpret([]iris.Vector3, p)
+	// for z in 0 ..< NOISE_SIZE {
+	// 	for x in 0 ..< NOISE_SIZE {
+	// 		vertex_index := x + z * NOISE_SIZE
+	// 		positions[vertex_index].y = noise_map[vertex_index] * 3
+	// 	}
+	// }
+	// ground_res := iris.mesh_resource(ground)
+
+	// g.terrain = iris.model_node_from_mesh(
+	// 	g.scene,
+	// 	ground_res.data.(^iris.Mesh),
+	// 	g.flat_lit_material,
+	// 	iris.transform(),
+	// )
+	// iris.insert_node(g.scene, g.terrain)
+	// iris.end_temp_allocation()
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
-		pitch = 45,
-		target = {0, 0.5, 0},
-		target_distance = 10,
-		target_rotation = 90,
-		min_pitch = 10,
-		max_pitch = 170,
-		min_distance = 2,
-		distance_speed = 1,
-		position_speed = 1,
-		rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
-			m_right := iris.mouse_button_state(.Right)
-			if .Pressed in m_right {
-				trigger = true
-				delta = iris.mouse_delta()
-			}
-			return
-		},
-		distance_proc = proc() -> (trigger: bool, displacement: f32) {
-			displacement = f32(iris.mouse_scroll())
-			trigger = displacement != 0
-			return
-		},
-	})
+			pitch = 45,
+			target = {0, 0.5, 0},
+			target_distance = 10,
+			target_rotation = 90,
+			min_pitch = 10,
+			max_pitch = 170,
+			min_distance = 2,
+			distance_speed = 1,
+			position_speed = 1,
+			rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
+				m_right := iris.mouse_button_state(.Right)
+				if .Pressed in m_right {
+					trigger = true
+					delta = iris.mouse_delta()
+				}
+				return
+			},
+			distance_proc = proc() -> (trigger: bool, displacement: f32) {
+				displacement = f32(iris.mouse_scroll())
+				trigger = displacement != 0
+				return
+			},
+		})
 	iris.insert_node(g.scene, camera)
 
 	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
