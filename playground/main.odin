@@ -44,19 +44,20 @@ main :: proc() {
 }
 
 Game :: struct {
-	scene:             ^iris.Scene,
-	light:             iris.Light_ID,
-	mesh:              ^iris.Mesh,
-	lantern:           ^iris.Node,
-	rig:               ^iris.Node,
-	skin:              ^iris.Node,
-	canvas:            ^iris.Canvas_Node,
+	scene:           ^iris.Scene,
+	light:           iris.Light_ID,
+	mesh:            ^iris.Mesh,
+	lantern:         ^iris.Node,
+	rig:             ^iris.Node,
+	skin:            ^iris.Node,
+	canvas:          ^iris.Canvas_Node,
 	// terrain:           ^iris.Node,
-	delta:             f32,
-	flat_material:     ^iris.Material,
-	flat_lit_material: ^iris.Material,
-	skybox_material:   ^iris.Material,
-	font:              ^iris.Font,
+	terrain:         Terrain,
+	delta:           f32,
+	flat_material:   ^iris.Material,
+	// flat_lit_material: ^iris.Material,
+	skybox_material: ^iris.Material,
+	font:            ^iris.Font,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -117,23 +118,23 @@ init :: proc(data: iris.App_Data) {
 	)
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
-	flat_lit_shader, exist := iris.shader_from_name("flat_lit")
-	assert(exist)
-	flat_lit_material_res := iris.material_resource(
-		iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader},
-	)
-	g.flat_lit_material = flat_lit_material_res.data.(^iris.Material)
-	iris.set_material_map(
-		g.flat_lit_material,
-		.Diffuse,
-		iris.texture_resource(
-			iris.Texture_Loader{
-				info = iris.File_Texture_Info{path = "cube_texture.png"},
-				filter = .Linear,
-				wrap = .Repeat,
-			},
-		).data.(^iris.Texture),
-	)
+	// flat_lit_shader, exist := iris.shader_from_name("flat_lit")
+	// assert(exist)
+	// flat_lit_material_res := iris.material_resource(
+	// 	iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader},
+	// )
+	// g.flat_lit_material = flat_lit_material_res.data.(^iris.Material)
+	// iris.set_material_map(
+	// 	g.flat_lit_material,
+	// 	.Diffuse,
+	// 	iris.texture_resource(
+	// 		iris.Texture_Loader{
+	// 			info = iris.File_Texture_Info{path = "cube_texture.png"},
+	// 			filter = .Linear,
+	// 			wrap = .Repeat,
+	// 		},
+	// 	).data.(^iris.Texture),
+	// )
 
 	skybox_shader, s_exist := iris.shader_from_name("skybox")
 	assert(s_exist)
@@ -269,6 +270,18 @@ init :: proc(data: iris.App_Data) {
 		animation, _ := iris.animation_from_name("animation0")
 		iris.skin_node_add_animation(skin_node, animation)
 		iris.skin_node_play_animation(skin_node, "animation0")
+	}
+
+	{
+		g.terrain = Terrain {
+			scene       = g.scene,
+			width       = 100,
+			height      = 100,
+			octaves     = 3,
+			persistance = 0.5,
+			lacunarity  = 2,
+		}
+		init_terrain(&g.terrain)
 	}
 
 	{

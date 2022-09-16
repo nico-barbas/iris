@@ -87,8 +87,8 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	)
 	canvas.attributes = attributes_from_layout(VERTEX_LAYOUT, .Interleaved)
 
-	vertex_buffer_res := raw_buffer_resource(stride * VERTEX_CAP * size_of(f32), true)
-	index_buffer_res := raw_buffer_resource(INDEX_CAP * size_of(u32), true)
+	vertex_buffer_res := raw_buffer_resource(stride * VERTEX_CAP * size_of(f32))
+	index_buffer_res := raw_buffer_resource(INDEX_CAP * size_of(u32))
 	canvas.vertex_buffer = vertex_buffer_res.data.(^Buffer)
 	canvas.index_buffer = index_buffer_res.data.(^Buffer)
 	arena_init(

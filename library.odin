@@ -136,25 +136,13 @@ new_resource :: proc(lib: ^Resource_Library, data: Resource_Data) -> ^Resource {
 	return resource
 }
 
-raw_buffer_resource :: proc(size: int, reserve := false) -> ^Resource {
+raw_buffer_resource :: proc(size: int) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
 	buf := new_clone(internal_make_raw_buffer(size))
 	resource := new_resource(lib, buf)
-
-	append(&lib.buffers, resource)
-	return resource
-}
-
-typed_buffer_resource :: proc($T: typeid, cap: int, reserve := false) -> ^Resource {
-	lib := &app.library
-	context.allocator = lib.allocator
-	context.temp_allocator = lib.temp_allocator
-
-	data := new_clone(internal_make_typed_buffer(T, cap, reserve))
-	resource := new_resource(lib, data)
 
 	append(&lib.buffers, resource)
 	return resource

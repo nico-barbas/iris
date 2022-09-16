@@ -145,7 +145,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	)
 	ctx.depth_shader = ctx.depth_shader_res.data.(^Shader)
 
-	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data), true)
+	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data))
 	ctx.projection_uniform_buffer = ctx.projection_buffer_res.data.(^Buffer)
 	ctx.projection_uniform_memory = Buffer_Memory {
 		buf    = ctx.projection_uniform_buffer,
@@ -159,7 +159,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 
 	ctx.light_ambient_strength = RENDER_CTX_DEFAULT_AMBIENT_STR
 	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
-	ctx.light_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Light_Data), true)
+	ctx.light_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Light_Data))
 	ctx.light_uniform_buffer = ctx.light_buffer_res.data.(^Buffer)
 	ctx.light_uniform_memory = Buffer_Memory {
 		buf    = ctx.light_uniform_buffer,
