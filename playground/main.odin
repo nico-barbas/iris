@@ -43,6 +43,18 @@ main :: proc() {
 	}
 }
 
+THEME :: iris.User_Interface_Theme {
+	borders = true,
+	border_color = {1, 1, 1, 1},
+	contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
+	base_color = {0.35, 0.35, 0.35, 1},
+	highlight_color = {0.7, 0.7, 0.8, 1},
+	text_color = 1,
+	text_size = 20,
+	font = g.font,
+	title_style = .Center_Left,
+}
+
 Game :: struct {
 	scene:           ^iris.Scene,
 	light:           iris.Light_ID,
@@ -289,20 +301,7 @@ init :: proc(data: iris.App_Data) {
 		iris.insert_node(g.scene, g.canvas)
 		ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
 		iris.insert_node(g.scene, ui_node, g.canvas)
-		iris.ui_node_theme(
-			ui_node,
-			iris.User_Interface_Theme{
-				borders = true,
-				border_color = {1, 1, 1, 1},
-				contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
-				base_color = {0.35, 0.35, 0.35, 1},
-				highlight_color = {0.7, 0.7, 0.8, 1},
-				text_color = 1,
-				text_size = 20,
-				font = g.font,
-				title_style = .Center_Left,
-			},
-		)
+		iris.ui_node_theme(ui_node, THEME)
 		layout := iris.new_widget_from(
 			ui_node,
 			iris.Layout_Widget{

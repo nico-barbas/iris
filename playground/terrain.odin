@@ -55,6 +55,26 @@ init_terrain :: proc(t: ^Terrain) {
 	compute_height(t)
 }
 
+init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
+	t.ui = ui
+	layout := iris.new_widget_from(
+		ui_node,
+		iris.Layout_Widget{
+			base = iris.Widget{
+				flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
+				rect = {800, 100, 200, 350},
+				background = iris.Widget_Background{style = .Solid},
+			},
+			options = {.Decorated, .Titled, .Moveable, .Close_Widget},
+			optional_title = "Terrain",
+			format = .Row,
+			origin = .Up,
+			margin = 3,
+			padding = 2,
+		},
+	)
+}
+
 generate_terrain_vertices :: proc(t: ^Terrain) {
 	iris.begin_temp_allocation()
 	w := int(20)
@@ -196,7 +216,7 @@ compute_height :: proc(t: ^Terrain) {
 			min_value = min(min_value, output_value)
 			max_value = max(max_value, output_value)
 
-			t.positions[y * t.width + x].y = output_value
+			t.positions[y * t.v_width + x].y = output_value
 		}
 	}
 
