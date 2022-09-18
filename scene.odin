@@ -121,7 +121,7 @@ render_scene :: proc(scene: ^Scene) {
 							mesh = mesh,
 							global_transform = mat_model,
 							material = n.materials[i],
-							cast_shadows = true,
+							options = n.options,
 						},
 					)
 				}
@@ -139,7 +139,7 @@ render_scene :: proc(scene: ^Scene) {
 							global_transform = mat_model,
 							local_transform = n.target.local_transform,
 							material = n.target.materials[i],
-							cast_shadows = true,
+							options = n.target.options,
 						},
 					)
 				}
@@ -313,15 +313,17 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 
 Model_Node :: struct {
 	using base:     Node,
+	options:        Rendering_Options,
 	mesh_transform: Matrix4,
 	meshes:         [dynamic]^Mesh,
 	materials:      [dynamic]^Material,
 }
 
 Model_Loader :: struct {
-	flags:  Model_Loader_Flags,
-	mode:   Model_Rendering_Mode,
-	rigged: bool,
+	flags:   Model_Loader_Flags,
+	mode:    Model_Rendering_Mode,
+	options: Rendering_Options,
+	rigged:  bool,
 }
 
 Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
@@ -1569,6 +1571,11 @@ collapse_list :: proc(data: rawptr, id: Widget_ID) {
 Label_Widget :: struct {
 	using base: Widget,
 	text:       Text,
+}
+
+set_label_text :: proc(label: ^Label_Widget, str: string) {
+	label.text.data = str
+	text_position(&label.text, label.rect)
 }
 
 Button_Widget :: struct {

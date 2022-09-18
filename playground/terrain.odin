@@ -4,35 +4,75 @@ import "core:math"
 import "core:math/rand"
 import "core:math/linalg"
 import "core:slice"
+import "core:strings"
+import "core:fmt"
 import iris "../"
 
+SEA_LEVEL :: -0.15
+
 Terrain :: struct {
-	scene:           ^iris.Scene,
-	model:           ^iris.Model_Node,
-	material:        ^iris.Material,
-	vertices:        iris.Buffer_Memory,
-	position_memory: iris.Buffer_Memory,
-	normal_memory:   iris.Buffer_Memory,
-	texcoord_memory: iris.Buffer_Memory,
+	scene:              ^iris.Scene,
+	model:              ^iris.Model_Node,
+	material:           ^iris.Material,
+	vertices:           iris.Buffer_Memory,
+	position_memory:    iris.Buffer_Memory,
+	normal_memory:      iris.Buffer_Memory,
+	texcoord_memory:    iris.Buffer_Memory,
+	water_model:        ^iris.Model_Node,
+	water_material:     ^iris.Material,
 
 	// States
-	positions:       []iris.Vector3,
-	normals:         []iris.Vector3,
-	texcoords:       []iris.Vector2,
-	seed:            []f32,
-	octaves:         uint,
-	width:           int,
-	height:          int,
-	v_width:         int,
-	v_height:        int,
-	persistance:     f32,
-	lacunarity:      f32,
+	positions:          []iris.Vector3,
+	normals:            []iris.Vector3,
+	texcoords:          []iris.Vector3,
+	triangles:          []Triangle,
+	seed:               []f32,
+	octaves:            uint,
+	width:              int,
+	height:             int,
+	v_width:            int,
+	v_height:           int,
+	persistance:        f32,
+	lacunarity:         f32,
+	factor:             f32,
 
 	// UI
-	ui:              ^iris.User_Interface_Node,
+	ui:                 ^iris.User_Interface_Node,
+	octaves_widget:     Terrain_Option_Widget,
+	lacunarity_widget:  Terrain_Option_Widget,
+	persistance_widget: Terrain_Option_Widget,
+	factor_widget:      Terrain_Option_Widget,
 }
 
+Terrain_Option_Widget :: struct {
+	kind:       Terrain_Option_Widget_Kind,
+	label:      ^iris.Label_Widget,
+	builder:    strings.Builder,
+	str_buffer: []byte,
+}
+
+Terrain_Option_Widget_Kind :: enum {
+	Octaves,
+	Locunarity,
+	Persistance,
+	Factor,
+}
+
+Terrain_Option :: enum {
+	Octaves_Minus,
+	Octaves_Plus,
+	Lacunarity_Minus,
+	Lacunarity_Plus,
+	Persistance_Minus,
+	Persistance_Plus,
+	Factor_Minus,
+	Factor_Plus,
+}
+
+Triangle :: [3]u32
+
 init_terrain :: proc(t: ^Terrain) {
+	// Terrain
 	terrain_shader, exist := iris.shader_from_name("terrain_lit")
 	assert(exist)
 	material_res := iris.material_resource(
@@ -44,25 +84,61 @@ init_terrain :: proc(t: ^Terrain) {
 		.Diffuse,
 		iris.texture_resource(
 			iris.Texture_Loader{
-				info = iris.File_Texture_Info{path = "cube_texture.png"},
+				info = iris.File_Texture_Info{path = "textures/grass.png"},
 				filter = .Linear,
 				wrap = .Repeat,
 			},
 		).data.(^iris.Texture),
 	)
+	iris.set_material_map(
+		t.material,
+		.Normal,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "textures/dirt.png"},
+				filter = .Linear,
+				wrap = .Repeat,
+			},
+		).data.(^iris.Texture),
+	)
+
+	samplers := [2]i32{i32(iris.Material_Map.Diffuse), i32(iris.Material_Map.Normal)}
+	iris.set_shader_uniform(terrain_shader, "textures", &samplers[0])
+
 	generate_terrain_vertices(t)
 	t.seed = make([]f32, (t.width + 1) * (t.height + 1))
+	for seed_value in &t.seed {
+		seed_value = rand.float32_range(-1, 1)
+	}
 	compute_height(t)
+
+	// Water
+	water_shader, w_exist := iris.shader_from_name("water_lit")
+	assert(w_exist)
+	water_material_res := iris.material_resource(
+		iris.Material_Loader{name = "water", shader = water_shader},
+	)
+	t.water_material = water_material_res.data.(^iris.Material)
+	water_mesh := iris.plane_mesh(50, 50, 1, 1)
+	t.water_model = iris.model_node_from_mesh(
+		t.scene,
+		water_mesh.data.(^iris.Mesh),
+		t.water_material,
+		iris.transform(t = {0, t.factor * SEA_LEVEL, 0}),
+	)
+	t.water_model.options = {.Transparent}
+	iris.insert_node(t.scene, t.water_model)
+	compute_sea_height(t)
 }
 
 init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
 	t.ui = ui
 	layout := iris.new_widget_from(
-		ui_node,
+		t.ui,
 		iris.Layout_Widget{
 			base = iris.Widget{
 				flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
-				rect = {800, 100, 200, 350},
+				rect = {1300, 100, 200, 350},
 				background = iris.Widget_Background{style = .Solid},
 			},
 			options = {.Decorated, .Titled, .Moveable, .Close_Widget},
@@ -73,12 +149,166 @@ init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
 			padding = 2,
 		},
 	)
+	init_terrain_widget(t, layout, &t.octaves_widget, .Octaves)
+	init_terrain_widget(t, layout, &t.lacunarity_widget, .Locunarity)
+	init_terrain_widget(t, layout, &t.persistance_widget, .Persistance)
+	init_terrain_widget(t, layout, &t.factor_widget, .Factor)
+}
+
+init_terrain_widget :: proc(
+	t: ^Terrain,
+	layout: ^iris.Layout_Widget,
+	widget: ^Terrain_Option_Widget,
+	kind: Terrain_Option_Widget_Kind,
+) {
+	widget.str_buffer = make([]byte, 10)
+	widget.builder = strings.builder_from_slice(widget.str_buffer)
+	name: string
+	init_value: f32
+	switch kind {
+	case .Octaves:
+		name = "Octaves"
+		init_value = f32(t.octaves)
+	case .Locunarity:
+		name = "Lacunarity"
+		init_value = t.lacunarity
+	case .Persistance:
+		name = "Persistance"
+		init_value = t.persistance
+	case .Factor:
+		name = "Factor"
+		init_value = t.factor
+	}
+
+	BUTTON_WIDTH :: 20
+	BASE :: iris.Widget {
+		flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+		background = iris.Widget_Background{style = .Solid},
+	}
+
+	title_label := iris.new_widget_from(
+		layout.ui,
+		iris.Label_Widget{base = BASE, text = iris.Text{data = name, style = .Center}},
+	)
+	iris.layout_add_widget(layout, title_label, 20)
+
+	options := iris.new_widget_from(
+		layout.ui,
+		iris.Layout_Widget{base = BASE, format = .Column, origin = .Left, margin = 0, padding = 2},
+	)
+	iris.layout_add_widget(layout, options, 20)
+	options.background.borders = false
+	{
+		minus := iris.new_widget_from(
+			layout.ui,
+			iris.Button_Widget{
+				base = BASE,
+				text = iris.Text{data = "-", style = .Center},
+				data = t,
+				callback = modify_terrain_options,
+			},
+		)
+		iris.layout_add_widget(options, minus, BUTTON_WIDTH)
+		minus.background.borders = false
+		minus.id = iris.Widget_ID(Terrain_Option(int(kind) * 2))
+
+		rem := iris.layout_remaining_size(options)
+		widget.label = iris.new_widget_from(
+			t.ui,
+			iris.Label_Widget{base = BASE, text = iris.Text{data = "test", style = .Center}},
+		)
+		iris.layout_add_widget(options, widget.label, rem - BUTTON_WIDTH - 2)
+		widget.label.background.borders = false
+		format_widget_value(widget, init_value, kind != .Octaves)
+
+		plus := iris.new_widget_from(
+			t.ui,
+			iris.Button_Widget{
+				base = BASE,
+				text = iris.Text{data = "+", style = .Center},
+				data = t,
+				callback = modify_terrain_options,
+			},
+		)
+		iris.layout_add_widget(options, plus, BUTTON_WIDTH)
+		plus.background.borders = false
+		plus.id = iris.Widget_ID(Terrain_Option(int(kind) * 2 + 1))
+	}
+}
+
+modify_terrain_options :: proc(data: rawptr, btn_id: iris.Widget_ID) {
+	terrain := cast(^Terrain)data
+	option := Terrain_Option(btn_id)
+
+	modify_octaves :: proc(terrain: ^Terrain, option: Terrain_Option) {
+		#partial switch option {
+		case .Octaves_Minus:
+			terrain.octaves -= 1
+		case .Octaves_Plus:
+			terrain.octaves += 1
+		}
+		format_widget_value(&terrain.octaves_widget, f32(terrain.octaves), false)
+	}
+
+	modify_lacunarity :: proc(terrain: ^Terrain, option: Terrain_Option) {
+		#partial switch option {
+		case .Lacunarity_Minus:
+			terrain.lacunarity -= 0.2
+		case .Lacunarity_Plus:
+			terrain.lacunarity += 0.2
+		}
+		format_widget_value(&terrain.lacunarity_widget, terrain.lacunarity, true)
+	}
+
+	modify_pesistance :: proc(terrain: ^Terrain, option: Terrain_Option) {
+		#partial switch option {
+		case .Persistance_Minus:
+			terrain.persistance -= 0.2
+		case .Persistance_Plus:
+			terrain.persistance += 0.2
+		}
+		format_widget_value(&terrain.persistance_widget, terrain.persistance, true)
+	}
+
+	modify_factor :: proc(terrain: ^Terrain, option: Terrain_Option) {
+		#partial switch option {
+		case .Factor_Minus:
+			terrain.factor -= 0.5
+		case .Factor_Plus:
+			terrain.factor += 0.5
+		}
+		format_widget_value(&terrain.factor_widget, terrain.factor, true)
+	}
+
+	switch option {
+	case .Octaves_Minus, .Octaves_Plus:
+		modify_octaves(terrain, option)
+	case .Lacunarity_Minus, .Lacunarity_Plus:
+		modify_lacunarity(terrain, option)
+	case .Persistance_Minus, .Persistance_Plus:
+		modify_pesistance(terrain, option)
+	case .Factor_Minus, .Factor_Plus:
+		modify_factor(terrain, option)
+	}
+
+	compute_height(terrain)
+	compute_sea_height(terrain)
+}
+
+format_widget_value :: proc(widget: ^Terrain_Option_Widget, value: f32, float: bool) {
+	strings.builder_reset(&widget.builder)
+	if float {
+		fmt.sbprintf(&widget.builder, "%.1f", value)
+	} else {
+		fmt.sbprintf(&widget.builder, "%d", int(value))
+	}
+	iris.set_label_text(widget.label, strings.to_string(widget.builder))
 }
 
 generate_terrain_vertices :: proc(t: ^Terrain) {
 	iris.begin_temp_allocation()
-	w := int(20)
-	h := int(20)
+	w := int(50)
+	h := int(50)
 	s_w := int(t.width)
 	s_h := int(t.height)
 	t.v_width = s_w + 1
@@ -87,10 +317,10 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 
 	t.positions = make([]iris.Vector3, v_count)
 	t.normals = make([]iris.Vector3, v_count)
-	t.texcoords = make([]iris.Vector2, v_count)
+	t.texcoords = make([]iris.Vector3, v_count)
 	p_size := (size_of(iris.Vector3) * v_count)
 	n_size := p_size
-	t_size := (size_of(iris.Vector2) * v_count)
+	t_size := (size_of(iris.Vector3) * v_count)
 
 	offset := iris.Vector2{f32(w / 2), f32(h / 2)}
 	step_x := f32(w) / f32(s_w)
@@ -103,7 +333,8 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 				step_y * f32(y) - offset.y,
 			}
 			t.normals[y * t.v_width + x] = iris.VECTOR_UP
-			t.texcoords[y * t.v_width + x] = {f32(x) / f32(s_w), f32(y) / f32(s_h)}
+			// t.texcoords[y * t.v_width + x] = {f32(x) / f32(s_w), f32(y) / f32(s_h)}
+			t.texcoords[y * t.v_width + x] = {f32(x) / 4, f32(y) / 4, 0}
 		}
 	}
 
@@ -111,7 +342,7 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 	f_per_row := (s_w)
 	f_per_col := (s_h)
 	f_count := f_per_row * f_per_col
-	faces := make([]Face, f_count, context.temp_allocator)
+	faces := make([]Face, f_count)
 	for i in 0 ..< f_count {
 		f_x := i % f_per_row
 		f_y := i / f_per_col
@@ -126,6 +357,7 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
         }
 		//odinfmt: enable
 	}
+	t.triangles = slice.reinterpret([]Triangle, faces)
 	indices := slice.reinterpret([]u32, faces)
 
 	resource := iris.mesh_resource(
@@ -145,7 +377,7 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 				iris.Attribute_Kind.Tex_Coord = iris.Buffer_Source{
 					data = &t.texcoords[0],
 					byte_size = t_size,
-					accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+					accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 				},
 			},
 			indices = iris.Buffer_Source{
@@ -175,10 +407,6 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 }
 
 compute_height :: proc(t: ^Terrain) {
-	for seed_value in &t.seed {
-		seed_value = rand.float32_range(-1, 1)
-	}
-
 	min_value := math.INF_F32
 	max_value := -math.INF_F32
 
@@ -221,9 +449,32 @@ compute_height :: proc(t: ^Terrain) {
 	}
 
 	range := max_value - min_value
-	for position in &t.positions {
+	for position, i in &t.positions {
 		position.y = (position.y - min_value) / range
-		position.y = (position.y * 2) - 1
+		position.y = max((position.y * 2) - 1, -rand.float32_range(0.43, 0.435))
+		position.y *= t.factor
+
+		t.texcoords[i].z = range_from_height(position.y)
+	}
+
+	for triangle in t.triangles {
+		pa := t.positions[triangle.x]
+		pb := t.positions[triangle.y]
+		pc := t.positions[triangle.z]
+
+		side_ab := pb - pa
+		side_ac := pc - pa
+
+		triangle_normal := linalg.vector_cross3(side_ab, side_ac)
+		triangle_normal = linalg.vector_normalize(triangle_normal)
+
+		t.normals[triangle.x] += triangle_normal
+		t.normals[triangle.y] += triangle_normal
+		t.normals[triangle.z] += triangle_normal
+	}
+
+	for normal in &t.normals {
+		normal = linalg.vector_normalize(normal)
 	}
 
 	iris.send_buffer_data(
@@ -234,7 +485,45 @@ compute_height :: proc(t: ^Terrain) {
 			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 		},
 	)
+	iris.send_buffer_data(
+		&t.normal_memory,
+		iris.Buffer_Source{
+			data = &t.normals[0],
+			byte_size = size_of(iris.Vector3) * len(t.normals),
+			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+		},
+	)
+	iris.send_buffer_data(
+		&t.texcoord_memory,
+		iris.Buffer_Source{
+			data = &t.texcoords[0],
+			byte_size = size_of(iris.Vector3) * len(t.texcoords),
+			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+		},
+	)
+
 }
+
+range_from_height :: proc(h: f32) -> f32 {
+	if h < 2 {
+		return 0
+	} else if h >= 2 && h < 3 {
+		value := h - math.floor(h)
+		return value
+	} else {
+		return 1
+	}
+}
+
+compute_sea_height :: proc(terrain: ^Terrain) {
+	iris.node_local_transform(
+		terrain.water_model,
+		iris.transform(t = {0, terrain.factor * SEA_LEVEL, 0}),
+	)
+}
+
+// draw_terrain :: proc(terrain: ^Terrain) {
+// }
 
 // TERRAIN_COMPUTE_SHADER :: `
 // #version 450 core

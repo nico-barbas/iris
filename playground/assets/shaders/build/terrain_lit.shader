@@ -2,12 +2,12 @@
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec2 attribTexCoord;
+layout (location = 2) in vec3 attribTexCoord;
 
 out VS_OUT {
 	vec3 position;
 	vec3 normal;
-	vec2 texCoord;
+	vec3 texCoord;
 	vec4 lightSpacePosition;
 } frag;
 
@@ -42,14 +42,14 @@ void main()
 in VS_OUT {
 	vec3 position;
 	vec3 normal;
-	vec2 texCoord;
+	vec3 texCoord;
 	vec4 lightSpacePosition;
 } frag;
 
 out vec4 finalColor;
 
 // builtin uniforms;
-uniform sampler2D texture0;
+uniform sampler2D textures[2];
 uniform sampler2D mapShadow;
 
 struct Light {
@@ -68,10 +68,17 @@ float computeShadowValue(vec4 lightSpacePosition, float bias);
 
 void main()
 {
-	vec4 texelClr = texture(texture0, frag.texCoord);
+	int baseIndex = int(frag.texCoord.z);
+	vec4 texelClr = texture(textures[baseIndex], frag.texCoord.xy);
+	float blend = fract(frag.texCoord.z);
+	if (blend > 0.0) {
+		int blendIndex = int(ceil(frag.texCoord.z));
+		vec4 blendClr = texture(textures[blendIndex], frag.texCoord.xy);
+		texelClr = (texelClr * (1 - blend)) + (blendClr * blend);
+	} 
 
 	vec3 normal = normalize(frag.normal);
-	vec3 lightDir = normalize(lights[0].position - frag.position);
+	vec3 lightDir = normalize(lights[0].position);
 	float diffuseValue = max(dot(lightDir, normal), 0.0);
 	vec3 diffuse = diffuseValue * lights[0].color.rgb;
 

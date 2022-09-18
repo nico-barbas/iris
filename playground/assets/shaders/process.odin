@@ -31,6 +31,15 @@ float computeShadowValue(vec4 lightSpacePosition, float bias) {
     return result;
 }`,
 	},
+	"linearDepthValue" = {
+		decl = "float linearDepthValue(float near, float far, float depth);",
+		body = `
+float linearDepthValue(float near, float far, float depth) {
+    float result = 2.0 * near * far / (far + near - (2.0 * depth - 1.0) * (far - near));
+    return result;
+}
+`,
+	},
 }
 
 main :: proc() {

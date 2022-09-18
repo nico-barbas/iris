@@ -27,7 +27,7 @@
             "name": "(Windows) Debug Aether",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/playground/shaders/aether.exe",
+            "program": "${workspaceFolder}/playground/assets/shaders/aether.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

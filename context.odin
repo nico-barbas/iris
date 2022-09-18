@@ -41,6 +41,10 @@ Rendering_Context :: struct {
 	depth_shader_res:            ^Resource,
 	depth_shader:                ^Shader,
 
+	// View depth framebuffer
+	view_depth_framebuffer:      ^Framebuffer,
+	view_depth_shader:           ^Shader,
+
 	//
 	framebuffer_blit_shader:     ^Shader,
 	framebuffer_blit_attributes: ^Attributes,
@@ -86,13 +90,13 @@ Render_Mesh_Command :: struct {
 	local_transform:  Matrix4,
 	global_transform: Matrix4,
 	material:         ^Material,
-	cast_shadows:     bool,
+	options:          Rendering_Options,
 }
 
 Render_Custom_Command :: struct {
 	data:        rawptr,
 	render_proc: proc(data: rawptr),
-	options:     Render_Command_Options,
+	options:     Rendering_Options,
 }
 
 Render_Framebuffer_Command :: struct {
@@ -102,11 +106,13 @@ Render_Framebuffer_Command :: struct {
 	index_buffer:  ^Buffer,
 }
 
-Render_Command_Options :: distinct bit_set[Render_Command_Option]
+Rendering_Options :: distinct bit_set[Rendering_Option]
 
-Render_Command_Option :: enum {
+Rendering_Option :: enum {
 	Enable_Culling,
 	Disable_Culling,
+	Transparent,
+	Cast_Shadows,
 }
 
 init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
@@ -144,6 +150,26 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 		},
 	)
 	ctx.depth_shader = ctx.depth_shader_res.data.(^Shader)
+
+	view_depth_framebuffer_res := framebuffer_resource(
+		Framebuffer_Loader{
+			attachments = {.Depth},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	ctx.view_depth_framebuffer = view_depth_framebuffer_res.data.(^Framebuffer)
+	view_depth_shader_res := shader_resource(
+		Shader_Loader{
+			name = "view_depth_map",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = VIEW_DEPTH_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = LIGHT_DEPTH_FRAGMENT_SHADER},
+			},
+		},
+	)
+	ctx.view_depth_shader = view_depth_shader_res.data.(^Shader)
 
 	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data))
 	ctx.projection_uniform_buffer = ctx.projection_buffer_res.data.(^Buffer)
@@ -290,7 +316,35 @@ end_render :: proc() {
 	for command in &ctx.commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
+			if .Transparent in c.options {
+				continue
+			}
 			set_shader_uniform(ctx.depth_shader, "matModel", &c.global_transform[0][0])
+
+			bind_attributes(c.mesh.attributes)
+			defer default_attributes()
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices.buf,
+				c.mesh.attributes_info,
+			)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+			draw_triangles(c.mesh.index_count)
+		}
+	}
+	default_shader()
+	default_framebuffer()
+
+	bind_framebuffer(ctx.view_depth_framebuffer)
+	clear_framebuffer(ctx.view_depth_framebuffer)
+	bind_shader(ctx.view_depth_shader)
+	for command in &ctx.commands {
+		#partial switch c in &command {
+		case Render_Mesh_Command:
+			if .Transparent in c.options {
+				continue
+			}
+			set_shader_uniform(ctx.view_depth_shader, "matModel", &c.global_transform[0][0])
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
@@ -352,13 +406,24 @@ end_render :: proc() {
 						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
 					}
 					bind_texture(c.material.textures[kind], unit_index)
-					set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
+					if _, exist := c.material.shader.uniforms[texture_uniform_name]; exist {
+						set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
+					}
 					unit_index += 1
 				}
 			}
 			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
 				bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
 				set_shader_uniform(c.material.shader, "mapShadow", &unit_index)
+			}
+			unit_index += 1
+
+			if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
+				bind_texture(
+					&ctx.view_depth_framebuffer.maps[Framebuffer_Attachment.Depth],
+					unit_index,
+				)
+				set_shader_uniform(c.material.shader, "mapViewDepth", &unit_index)
 			}
 
 			bind_attributes(c.mesh.attributes)
@@ -520,6 +585,25 @@ LIGHT_DEPTH_FRAGMENT_SHADER :: `
 
 void main() {
 
+}
+`
+
+@(private)
+VIEW_DEPTH_VERTEX_SHADER :: `
+#version 450 core
+layout (location = 0) in vec3 attribPosition;
+
+layout (std140, binding = 0) uniform ProjectionData {
+	mat4 projView;
+    mat4 matProj;
+    mat4 matView;
+	vec3 viewPosition;
+};
+
+uniform mat4 matModel;
+
+void main() {
+	gl_Position = projView * matModel * vec4(attribPosition, 1.0);
 }
 `
 

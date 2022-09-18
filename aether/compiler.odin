@@ -302,7 +302,7 @@ resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
 	switch c.flag {
 	case .Compile:
 		for kind in Stage_Kind {
-			if kind == .Invalid {
+			if kind == .Invalid || kind not_in stages {
 				continue
 			}
 

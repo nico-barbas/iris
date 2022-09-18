@@ -6,6 +6,8 @@ import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
+UNIT_PER_METER :: 2
+
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
@@ -43,18 +45,6 @@ main :: proc() {
 	}
 }
 
-THEME :: iris.User_Interface_Theme {
-	borders = true,
-	border_color = {1, 1, 1, 1},
-	contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
-	base_color = {0.35, 0.35, 0.35, 1},
-	highlight_color = {0.7, 0.7, 0.8, 1},
-	text_color = 1,
-	text_size = 20,
-	font = g.font,
-	title_style = .Center_Left,
-}
-
 Game :: struct {
 	scene:           ^iris.Scene,
 	light:           iris.Light_ID,
@@ -63,13 +53,12 @@ Game :: struct {
 	rig:             ^iris.Node,
 	skin:            ^iris.Node,
 	canvas:          ^iris.Canvas_Node,
-	// terrain:           ^iris.Node,
 	terrain:         Terrain,
 	delta:           f32,
 	flat_material:   ^iris.Material,
-	// flat_lit_material: ^iris.Material,
 	skybox_material: ^iris.Material,
 	font:            ^iris.Font,
+	ui_theme:        iris.User_Interface_Theme,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -238,7 +227,7 @@ init :: proc(data: iris.App_Data) {
 		})
 	iris.insert_node(g.scene, camera)
 
-	iris.add_light(.Directional, iris.Vector3{2, g.delta, 2}, {1, 1, 1, 1})
+	iris.add_light(.Directional, iris.Vector3{2, 15, 2}, {1, 1, 1, 1})
 
 	{
 		rig_document, _err := gltf.parse_from_file(
@@ -287,21 +276,33 @@ init :: proc(data: iris.App_Data) {
 	{
 		g.terrain = Terrain {
 			scene       = g.scene,
-			width       = 100,
-			height      = 100,
+			width       = 200,
+			height      = 200,
 			octaves     = 3,
 			persistance = 0.5,
 			lacunarity  = 2,
+			factor      = 1,
 		}
 		init_terrain(&g.terrain)
 	}
 
 	{
+		g.ui_theme = iris.User_Interface_Theme {
+			borders = true,
+			border_color = {1, 1, 1, 1},
+			contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
+			base_color = {0.35, 0.35, 0.35, 1},
+			highlight_color = {0.7, 0.7, 0.8, 1},
+			text_color = 1,
+			text_size = 20,
+			font = g.font,
+			title_style = .Center_Left,
+		}
 		g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
 		iris.insert_node(g.scene, g.canvas)
 		ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
 		iris.insert_node(g.scene, ui_node, g.canvas)
-		iris.ui_node_theme(ui_node, THEME)
+		iris.ui_node_theme(ui_node, g.ui_theme)
 		layout := iris.new_widget_from(
 			ui_node,
 			iris.Layout_Widget{
@@ -320,6 +321,8 @@ init :: proc(data: iris.App_Data) {
 		)
 
 		iris.scene_graph_to_list(layout, g.scene, 20)
+
+		init_terrain_ui(&g.terrain, ui_node)
 	}
 }
 
@@ -327,12 +330,12 @@ update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	dt := f32(iris.elapsed_time())
 
-	g.delta += dt
-	if g.delta >= 10 {
-		g.delta = 0.5
-	}
+	// g.delta += dt
+	// if g.delta >= 10 {
+	// 	g.delta = 0.5
+	// }
 
-	iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
+	// iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
 
 	iris.update_scene(g.scene, dt)
 }
