@@ -133,7 +133,7 @@ key_state :: proc(key: Key) -> (state: Input_State) {
 key_callback :: proc "c" (window: glfw.WindowHandle, k, scancode, action, mods: i32) {
 	context = app.ctx
 	key := Key(k)
-	app.input.keys[key] = action == glfw.PRESS
+	app.input.keys[key] = action == glfw.PRESS || action == glfw.REPEAT
 
 	if p, exist := app.input.registered_key_proc[key]; exist {
 		p(app.data, key_state(key))

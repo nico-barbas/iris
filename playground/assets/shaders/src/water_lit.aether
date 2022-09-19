@@ -109,7 +109,7 @@ void main()
 
 	float viewWaterDepth = linearDepthValue(near, far, gl_FragCoord.z);
 	float waterDepth = linearDepth - viewWaterDepth;
-	waterDepth = waterDepth;
+	waterDepth = smoothstep(0.7, 0.8, waterDepth);
 
 	// finalColor = vec4(0.0, 0.0, 0.0, 1.0);
 	vec3 depthClr = waterClr * waterDepth + vec3(1.0) * (1.0 - waterDepth);

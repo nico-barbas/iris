@@ -201,7 +201,7 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 			n.distance_proc = proc() -> (bool, f32) {return false, 0}
 		}
 		if n.position_proc == nil {
-			n.position_proc = proc() -> (bool, Vector3) {return false, 0}
+			n.position_proc = proc() -> (bool, f32, f32) {return false, 0, 0}
 		}
 		update_camera_node(n, true)
 
@@ -274,24 +274,37 @@ Camera_Node :: struct {
 	position_speed:  f32,
 	rotation_proc:   proc() -> (trigger: bool, delta: Vector2),
 	distance_proc:   proc() -> (trigger: bool, displacement: f32),
-	position_proc:   proc() -> (trigger: bool, displacement: Vector3),
+	position_proc:   proc() -> (trigger: bool, fb: f32, lr: f32),
 }
 
 update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 	dirty: bool
 	r_delta: Vector2
 	d_delta: f32
-	p_delta: Vector3
+	fb_delta: f32
+	lr_delta: f32
 
 	d: bool
 	d, r_delta = camera.rotation_proc()
 	dirty |= d
 	d, d_delta = camera.distance_proc()
 	dirty |= d
-	d, p_delta = camera.position_proc()
+	d, fb_delta, lr_delta = camera.position_proc()
 	dirty |= d
 
+	displacement := Vector2{fb_delta, lr_delta}
 	if dirty || force_refresh {
+		if displacement != 0 {
+			dt := f32(elapsed_time())
+			displacement = linalg.vector_normalize(displacement)
+			forward := camera.target - camera.position
+			forward.y = 0
+			forward = linalg.vector_normalize(forward)
+			camera.target += forward * (displacement.x * dt * camera.position_speed)
+
+			right := linalg.vector_cross3(forward, VECTOR_UP)
+			camera.target += right * (displacement.y * dt * camera.position_speed)
+		}
 		camera.target_distance = max(camera.target_distance - d_delta, camera.min_distance)
 		camera.target_rotation += (r_delta.x * 0.5)
 		camera.pitch -= (r_delta.y * 0.5)
