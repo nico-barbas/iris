@@ -78,6 +78,7 @@ Vector2 :: linalg.Vector2f32
 Vector3 :: linalg.Vector3f32
 VECTOR_ZERO :: Vector3{0, 0, 0}
 VECTOR_UP :: Vector3{0, 1, 0}
+VECTOR_RIGHT :: Vector3{0, 0, 1}
 VECTOR_ONE :: Vector3{1, 1, 1}
 
 Vector4 :: linalg.Vector4f32
@@ -138,6 +139,7 @@ set_viewport :: proc(width, height: int) {
 
 Color :: distinct [4]f32
 
+Triangle :: [3]u32
 
 Rectangle :: struct {
 	x, y:          f32,

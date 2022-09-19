@@ -25,7 +25,7 @@ Terrain :: struct {
 	positions:          []iris.Vector3,
 	normals:            []iris.Vector3,
 	texcoords:          []iris.Vector3,
-	triangles:          []Triangle,
+	triangles:          []iris.Triangle,
 	seed:               []f32,
 	octaves:            uint,
 	width:              int,
@@ -68,8 +68,6 @@ Terrain_Option :: enum {
 	Factor_Minus,
 	Factor_Plus,
 }
-
-Triangle :: [3]u32
 
 init_terrain :: proc(t: ^Terrain) {
 	// Terrain
@@ -119,7 +117,30 @@ init_terrain :: proc(t: ^Terrain) {
 		iris.Material_Loader{name = "water", shader = water_shader},
 	)
 	t.water_material = water_material_res.data.(^iris.Material)
-	water_mesh := iris.plane_mesh(50, 50, 1, 1)
+	iris.set_material_map(
+		t.water_material,
+		.Diffuse,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},
+				filter = .Linear,
+				wrap = .Repeat,
+			},
+		).data.(^iris.Texture),
+	)
+	iris.set_material_map(
+		t.water_material,
+		.Normal,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},
+				filter = .Linear,
+				wrap = .Repeat,
+			},
+		).data.(^iris.Texture),
+	)
+
+	water_mesh := iris.plane_mesh(50, 50, 1, 1, 5)
 	t.water_model = iris.model_node_from_mesh(
 		t.scene,
 		water_mesh.data.(^iris.Mesh),
@@ -357,7 +378,7 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
         }
 		//odinfmt: enable
 	}
-	t.triangles = slice.reinterpret([]Triangle, faces)
+	t.triangles = slice.reinterpret([]iris.Triangle, faces)
 	indices := slice.reinterpret([]u32, faces)
 
 	resource := iris.mesh_resource(

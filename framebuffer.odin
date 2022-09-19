@@ -4,12 +4,13 @@ import "core:log"
 import gl "vendor:OpenGL"
 
 Framebuffer :: struct {
-	handle:       u32,
-	width:        int,
-	height:       int,
-	attachments:  Framebuffer_Attachments,
-	clear_colors: [len(Framebuffer_Attachment)]Color,
-	maps:         [len(Framebuffer_Attachment)]Texture,
+	handle:             u32,
+	width:              int,
+	height:             int,
+	attachments:        Framebuffer_Attachments,
+	color_target_count: int,
+	clear_colors:       [len(Framebuffer_Attachment)]Color,
+	maps:               [len(Framebuffer_Attachment)]Texture,
 }
 
 Framebuffer_Loader :: struct {
@@ -22,7 +23,10 @@ Framebuffer_Loader :: struct {
 Framebuffer_Attachments :: distinct bit_set[Framebuffer_Attachment]
 
 Framebuffer_Attachment :: enum {
-	Color,
+	Color0,
+	Color1,
+	Color2,
+	Color3,
 	Depth,
 	Stencil,
 }
@@ -32,12 +36,11 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	create_framebuffer_texture :: proc(a: Framebuffer_Attachment, w, h: int) -> Texture {
 		texture: Texture
 		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
-		switch a {
-		case .Color:
+		if a >= .Color0 && a <= .Color3 {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 			gl.TextureStorage2D(texture.handle, 1, gl.RGBA8, i32(w), i32(h))
-		case .Depth:
+		} else if a == .Depth {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
@@ -45,7 +48,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 			clr := Color{1, 1, 1, 1}
 			gl.TextureParameterfv(texture.handle, gl.TEXTURE_BORDER_COLOR, &clr[0])
 			gl.TextureStorage2D(texture.handle, 1, gl.DEPTH_COMPONENT24, i32(w), i32(h))
-		case .Stencil:
+		} else if a == .Stencil {
 			assert(false)
 		}
 
@@ -56,19 +59,21 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	}
 	gl.CreateFramebuffers(1, &framebuffer.handle)
 
-	if .Color in l.attachments {
-		framebuffer.maps[Framebuffer_Attachment.Color] = create_framebuffer_texture(
-			.Color,
-			l.width,
-			l.height,
-		)
-		gl.NamedFramebufferTexture(
-			framebuffer.handle,
-			gl.COLOR_ATTACHMENT0,
-			framebuffer.maps[Framebuffer_Attachment.Color].handle,
-			0,
-		)
-	} else {
+	for i in Framebuffer_Attachment.Color0 ..= Framebuffer_Attachment.Color3 {
+		a := Framebuffer_Attachment(i)
+		if a in l.attachments {
+			framebuffer.maps[a] = create_framebuffer_texture(a, l.width, l.height)
+			gl.NamedFramebufferTexture(
+				framebuffer.handle,
+				gl.COLOR_ATTACHMENT0,
+				framebuffer.maps[a].handle,
+				0,
+			)
+			framebuffer.color_target_count += 1
+		}
+	}
+
+	if framebuffer.color_target_count == 0 {
 		gl.NamedFramebufferDrawBuffer(framebuffer.handle, gl.NONE)
 		gl.NamedFramebufferReadBuffer(framebuffer.handle, gl.NONE)
 	}
@@ -94,9 +99,12 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 }
 
 clear_framebuffer :: proc(f: ^Framebuffer) {
-	if .Color in f.attachments {
-		rgba := f.clear_colors[Framebuffer_Attachment.Color].rgba
-		gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, 0, &rgba[0])
+	for i in 0 ..< f.color_target_count {
+		a := Framebuffer_Attachment(i)
+		if a in f.attachments {
+			rgba := f.clear_colors[a].rgba
+			gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, 0, &rgba[0])
+		}
 	}
 	if .Depth in f.attachments {
 		d: f32 = 1

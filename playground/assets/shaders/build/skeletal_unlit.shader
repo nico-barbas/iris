@@ -6,12 +6,15 @@ layout (location = 2) in vec4 attribJoints;
 layout (location = 3) in vec4 attribWeights;
 layout (location = 4) in vec2 attribTexCoord;
 
-layout (std140, binding = 0) uniform ProjectionData {
-	mat4 projView;
+layout (std140, binding = 0) uniform ContextData {
+    mat4 projView;
     mat4 matProj;
     mat4 matView;
-	vec3 viewPosition;
+    vec3 viewPosition;
+    float time;
+    float dt;
 };
+
 
 out VS_OUT {
 	vec3 normal;

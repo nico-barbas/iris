@@ -1,5 +1,6 @@
 package iris
 
+import "core:time"
 import "core:fmt"
 import "core:math/linalg"
 
@@ -16,9 +17,8 @@ Rendering_Context :: struct {
 	projection:                  Matrix4,
 	view:                        Matrix4,
 	projection_view:             Matrix4,
-	projection_buffer_res:       ^Resource,
-	projection_uniform_buffer:   ^Buffer,
-	projection_uniform_memory:   Buffer_Memory,
+	context_uniform_buffer:      ^Buffer,
+	context_uniform_memory:      Buffer_Memory,
 
 	// Camera state
 	eye:                         Vector3,
@@ -33,17 +33,15 @@ Rendering_Context :: struct {
 	light_ambient_strength:      f32,
 	light_uniform_buffer:        ^Buffer,
 	light_uniform_memory:        Buffer_Memory,
-	light_buffer_res:            ^Resource,
 
 	// Shadow mapping states
-	depth_framebuffer_res:       ^Resource,
 	depth_framebuffer:           ^Framebuffer,
-	depth_shader_res:            ^Resource,
 	depth_shader:                ^Shader,
 
 	// View depth framebuffer
 	view_depth_framebuffer:      ^Framebuffer,
 	view_depth_shader:           ^Shader,
+	deferred_framebuffer:        ^Framebuffer,
 
 	//
 	framebuffer_blit_shader:     ^Shader,
@@ -63,11 +61,13 @@ Render_Uniform_Binding :: enum u32 {
 }
 
 @(private)
-Render_Uniform_Projection_Data :: struct {
+Render_Context_Uniform_Data :: struct {
 	projection_view: Matrix4,
 	projection:      Matrix4,
 	view:            Matrix4,
 	view_position:   Vector3,
+	time:            f32,
+	dt:              f32,
 }
 
 @(private)
@@ -131,15 +131,15 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.centre = {}
 	ctx.up = VECTOR_UP
 
-	ctx.depth_framebuffer_res = framebuffer_resource(
+	depth_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
 			attachments = {.Depth},
 			width = ctx.render_width,
 			height = ctx.render_height,
 		},
 	)
-	ctx.depth_framebuffer = ctx.depth_framebuffer_res.data.(^Framebuffer)
-	ctx.depth_shader_res = shader_resource(
+	ctx.depth_framebuffer = depth_framebuffer_res.data.(^Framebuffer)
+	depth_shader_res := shader_resource(
 		Shader_Loader{
 			name = "depth_map",
 			kind = .Byte,
@@ -149,7 +149,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 			},
 		},
 	)
-	ctx.depth_shader = ctx.depth_shader_res.data.(^Shader)
+	ctx.depth_shader = depth_shader_res.data.(^Shader)
 
 	view_depth_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
@@ -171,22 +171,31 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	)
 	ctx.view_depth_shader = view_depth_shader_res.data.(^Shader)
 
-	ctx.projection_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Projection_Data))
-	ctx.projection_uniform_buffer = ctx.projection_buffer_res.data.(^Buffer)
-	ctx.projection_uniform_memory = Buffer_Memory {
-		buf    = ctx.projection_uniform_buffer,
-		size   = size_of(Render_Uniform_Projection_Data),
+	deferred_framebuffer_res := framebuffer_resource(
+		Framebuffer_Loader{
+			attachments = {.Color0, .Color1, .Color2, .Depth},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
+
+	context_buffer_res := raw_buffer_resource(size_of(Render_Context_Uniform_Data))
+	ctx.context_uniform_buffer = context_buffer_res.data.(^Buffer)
+	ctx.context_uniform_memory = Buffer_Memory {
+		buf    = ctx.context_uniform_buffer,
+		size   = size_of(Render_Context_Uniform_Data),
 		offset = 0,
 	}
 	set_uniform_buffer_binding(
-		ctx.projection_uniform_buffer,
+		ctx.context_uniform_buffer,
 		u32(Render_Uniform_Binding.Projection_Data),
 	)
 
 	ctx.light_ambient_strength = RENDER_CTX_DEFAULT_AMBIENT_STR
 	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
-	ctx.light_buffer_res = raw_buffer_resource(size_of(Render_Uniform_Light_Data))
-	ctx.light_uniform_buffer = ctx.light_buffer_res.data.(^Buffer)
+	light_buffer_res := raw_buffer_resource(size_of(Render_Uniform_Light_Data))
+	ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
 	ctx.light_uniform_memory = Buffer_Memory {
 		buf    = ctx.light_uniform_buffer,
 		size   = size_of(Render_Uniform_Light_Data),
@@ -489,7 +498,7 @@ end_render :: proc() {
 			// Set the shader up
 			bind_shader(ctx.framebuffer_blit_shader)
 			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
-			bind_texture(framebuffer_texture(c.framebuffer, .Color), texture_index)
+			bind_texture(framebuffer_texture(c.framebuffer, .Color0), texture_index)
 			send_buffer_data(
 				c.vertex_memory,
 				Buffer_Source{
@@ -515,7 +524,7 @@ end_render :: proc() {
 			defer {
 				default_attributes()
 				default_shader()
-				unbind_texture(framebuffer_texture(c.framebuffer, .Color))
+				unbind_texture(framebuffer_texture(c.framebuffer, .Color0))
 			}
 
 			link_interleaved_attributes_vertices(
@@ -542,15 +551,17 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 	ctx.view = linalg.matrix4_look_at_f32(ctx.eye, ctx.centre, ctx.up)
 	ctx.projection_view = linalg.matrix_mul(ctx.projection, ctx.view)
 	send_buffer_data(
-		&ctx.projection_uniform_memory,
+		&ctx.context_uniform_memory,
 		Buffer_Source{
-			data = &Render_Uniform_Projection_Data{
+			data = &Render_Context_Uniform_Data{
 				projection_view = ctx.projection_view,
 				projection = ctx.projection,
 				view = ctx.view,
 				view_position = ctx.eye,
+				time = f32(time.duration_seconds(time.since(app.start_time))),
+				dt = f32(elapsed_time()),
 			},
-			byte_size = size_of(Render_Uniform_Projection_Data),
+			byte_size = size_of(Render_Context_Uniform_Data),
 			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 		},
 	)
@@ -593,7 +604,7 @@ VIEW_DEPTH_VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 
-layout (std140, binding = 0) uniform ProjectionData {
+layout (std140, binding = 0) uniform ContextData {
 	mat4 projView;
     mat4 matProj;
     mat4 matView;

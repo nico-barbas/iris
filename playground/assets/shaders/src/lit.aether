@@ -5,7 +5,7 @@ layout (location = 1) in vec3 attribNormal;
 layout (location = 2) in vec4 attribTangent;
 layout (location = 3) in vec2 attribTexCoord;
 
-layout (std140, binding = 0) uniform ProjectionData {
+layout (std140, binding = 0) uniform ContextData {
 	mat4 projView;
     mat4 matProj;
     mat4 matView;

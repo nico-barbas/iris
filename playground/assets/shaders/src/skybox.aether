@@ -2,12 +2,7 @@
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 
-layout (std140, binding = 0) uniform ProjectionData {
-	mat4 projView;
-    mat4 matProj;
-    mat4 matView;
-	vec3 viewPosition;
-};
+@include ContextData
 
 out VS_OUT {
     vec3 texCoord;

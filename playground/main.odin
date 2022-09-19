@@ -256,7 +256,7 @@ init :: proc(data: iris.App_Data) {
 		})
 	iris.insert_node(g.scene, camera)
 
-	iris.add_light(.Directional, iris.Vector3{2, 15, 2}, {1, 1, 1, 1})
+	iris.add_light(.Directional, iris.Vector3{2, 10, 2}, {1, 1, 1, 1})
 
 	{
 		rig_document, _err := gltf.parse_from_file(
@@ -377,7 +377,7 @@ draw :: proc(data: iris.App_Data) {
 
 		iris.draw_mesh(
 			g.mesh,
-			iris.transform(t = {2, g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			iris.transform(t = iris.Vector3{2, 10, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
 		iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)

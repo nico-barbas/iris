@@ -6,8 +6,8 @@ import "core:fmt"
 import "core:path/filepath"
 import aether "../../../aether"
 
-builtins := map[string]aether.Procedure_Include {
-	"computeShadowValue" = {
+builtins := map[string]aether.Include {
+	"computeShadowValue" = aether.Procedure_Include{
 		decl = "float computeShadowValue(vec4 lightSpacePosition, float bias);",
 		body = `
 float computeShadowValue(vec4 lightSpacePosition, float bias) {
@@ -31,13 +31,26 @@ float computeShadowValue(vec4 lightSpacePosition, float bias) {
     return result;
 }`,
 	},
-	"linearDepthValue" = {
+	"linearDepthValue" = aether.Procedure_Include{
 		decl = "float linearDepthValue(float near, float far, float depth);",
 		body = `
 float linearDepthValue(float near, float far, float depth) {
     float result = 2.0 * near * far / (far + near - (2.0 * depth - 1.0) * (far - near));
     return result;
 }
+`,
+	},
+
+	// Uniforms
+	"ContextData" = aether.Uniform_Include{
+		body = `layout (std140, binding = 0) uniform ContextData {
+    mat4 projView;
+    mat4 matProj;
+    mat4 matView;
+    vec3 viewPosition;
+    float time;
+    float dt;
+};
 `,
 	},
 }

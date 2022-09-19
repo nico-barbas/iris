@@ -14,7 +14,7 @@ Compiler :: struct {
 	output:       Shader_Output,
 	entry_points: [dynamic]int,
 	directives:   [dynamic]Directive,
-	includes:     map[string]Procedure_Include,
+	includes:     map[string]Include,
 }
 
 Compiler_Flag :: enum {
@@ -54,6 +54,15 @@ Stage_Kind :: enum {
 	Vertex,
 	Fragment,
 	Compute,
+}
+
+Include :: union {
+	Uniform_Include,
+	Procedure_Include,
+}
+
+Uniform_Include :: struct {
+	body: string,
 }
 
 Procedure_Include :: struct {
@@ -116,7 +125,7 @@ stage_source :: proc(out: ^Shader_Output, kind: Stage_Kind) -> string {
 build_shaders :: proc(
 	src_dir: string,
 	build_dir: string,
-	includes: map[string]Procedure_Include,
+	includes: map[string]Include,
 	allocator := context.allocator,
 ) -> (
 	err: Error,
@@ -353,15 +362,26 @@ resolve_directives :: proc(c: ^Compiler) -> (err: Error) {
 		#partial switch directive.kind {
 		case .Textual_Inclusion:
 			if include, exist := c.includes[directive.value]; exist {
-				old := c.source[directive.line]
-				defer delete(old)
-				decl := make([]byte, len(include.decl) + 1)
-				copy(decl[:], include.decl[:])
-				decl[len(decl) - 1] = '\n'
-				c.source[directive.line] = string(decl)
-				body := strings.split_lines_after(include.body)
-				append(&c.source, strings.clone("\r\n"))
-				append(&c.source, ..body)
+				switch incl in include {
+				case Uniform_Include:
+					old := c.source[directive.line]
+					defer delete(old)
+					body := make([]byte, len(incl.body) + 1)
+					copy(body[:], incl.body[:])
+					body[len(body) - 1] = '\n'
+					c.source[directive.line] = string(body)
+
+				case Procedure_Include:
+					old := c.source[directive.line]
+					defer delete(old)
+					decl := make([]byte, len(incl.decl) + 1)
+					copy(decl[:], incl.decl[:])
+					decl[len(decl) - 1] = '\n'
+					c.source[directive.line] = string(decl)
+					body := strings.split_lines_after(incl.body)
+					append(&c.source, strings.clone("\r\n"))
+					append(&c.source, ..body)
+				}
 			} else {
 				fmt.printf("'%s' not found\nIncludes: %v\n", directive.value, c.includes)
 				err = .Include_Not_Found

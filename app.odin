@@ -22,6 +22,7 @@ App :: struct {
 	frame_temp_memory: mem.Arena_Temp_Memory,
 	win_handle:        glfw.WindowHandle,
 	is_running:        bool,
+	start_time:        time.Time,
 	last_time:         time.Time,
 	elapsed_time:      f64,
 	input:             Input_Buffer,
@@ -162,6 +163,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 run_app :: proc() {
 	context = app.ctx
 	app.is_running = true
+	app.start_time = time.now()
 	app.last_time = time.now()
 
 	rand.set_global_seed(u64(app.last_time._nsec))

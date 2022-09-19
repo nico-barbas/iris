@@ -118,10 +118,10 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 
 	framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
-			attachments = {.Color},
+			attachments = {.Color0},
 			width = canvas.width,
 			height = canvas.height,
-			clear_colors = {0 = {0, 0, 0, 0}},
+			clear_colors = {Framebuffer_Attachment.Color0 = {0, 0, 0, 0}},
 		},
 	)
 	canvas.framebuffer = framebuffer_res.data.(^Framebuffer)
