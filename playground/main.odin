@@ -119,24 +119,6 @@ init :: proc(data: iris.App_Data) {
 	)
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
-	// flat_lit_shader, exist := iris.shader_from_name("flat_lit")
-	// assert(exist)
-	// flat_lit_material_res := iris.material_resource(
-	// 	iris.Material_Loader{name = "flat_lit", shader = flat_lit_shader},
-	// )
-	// g.flat_lit_material = flat_lit_material_res.data.(^iris.Material)
-	// iris.set_material_map(
-	// 	g.flat_lit_material,
-	// 	.Diffuse,
-	// 	iris.texture_resource(
-	// 		iris.Texture_Loader{
-	// 			info = iris.File_Texture_Info{path = "cube_texture.png"},
-	// 			filter = .Linear,
-	// 			wrap = .Repeat,
-	// 		},
-	// 	).data.(^iris.Texture),
-	// )
-
 	skybox_shader, s_exist := iris.shader_from_name("skybox")
 	assert(s_exist)
 	skybox_material_res := iris.material_resource(
@@ -163,42 +145,6 @@ init :: proc(data: iris.App_Data) {
 			},
 		).data.(^iris.Texture),
 	)
-
-	// iris.begin_temp_allocation()
-	// TERRAIN_SIZE :: 100
-	// NOISE_SIZE :: TERRAIN_SIZE + 1
-	// ground := iris.plane_mesh_loader(20, 20, TERRAIN_SIZE, TERRAIN_SIZE, context.temp_allocator)
-	// defer iris.delete_mesh_loader(ground)
-	// seed: [NOISE_SIZE * NOISE_SIZE]f32
-	// noise_map := iris.noise(
-	// 	&iris.Noise_Generator{
-	// 		seed_buf = seed[:],
-	// 		octaves = 3,
-	// 		width = NOISE_SIZE,
-	// 		height = NOISE_SIZE,
-	// 		persistance = 0.1,
-	// 		lacunarity = 2,
-	// 	},
-	// 	context.temp_allocator,
-	// )
-	// p := ground.vertices[:ground.offsets[1] / size_of(f32)]
-	// positions := slice.reinterpret([]iris.Vector3, p)
-	// for z in 0 ..< NOISE_SIZE {
-	// 	for x in 0 ..< NOISE_SIZE {
-	// 		vertex_index := x + z * NOISE_SIZE
-	// 		positions[vertex_index].y = noise_map[vertex_index] * 3
-	// 	}
-	// }
-	// ground_res := iris.mesh_resource(ground)
-
-	// g.terrain = iris.model_node_from_mesh(
-	// 	g.scene,
-	// 	ground_res.data.(^iris.Mesh),
-	// 	g.flat_lit_material,
-	// 	iris.transform(),
-	// )
-	// iris.insert_node(g.scene, g.terrain)
-	// iris.end_temp_allocation()
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
@@ -358,13 +304,6 @@ init :: proc(data: iris.App_Data) {
 update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	dt := f32(iris.elapsed_time())
-
-	// g.delta += dt
-	// if g.delta >= 10 {
-	// 	g.delta = 0.5
-	// }
-
-	// iris.light_position(g.light, iris.Vector3{2, g.delta, 2})
 
 	iris.update_scene(g.scene, dt)
 }

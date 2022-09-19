@@ -1,13 +1,13 @@
 package iris
 
-import "core:slice"
+// import "core:slice"
 import gl "vendor:OpenGL"
 
 Attributes :: struct {
-	handle: u32,
-	format: Attribute_Format,
-	layout: []Buffer_Data_Type,
-	info:   union {
+	using layout: Attribute_Layout,
+	handle:       u32,
+	format:       Attribute_Format,
+	info:         union {
 		Interleaved_Attributes,
 		Packed_Attributes,
 		Array_Attributes,
@@ -19,11 +19,11 @@ Interleaved_Attributes :: struct {
 }
 
 Packed_Attributes :: struct {
-	offsets: []int,
+	offsets: [len(Attribute_Kind)]int,
 }
 
 Array_Attributes :: struct {
-	buffers: []^Buffer,
+	buffers: [len(Attribute_Kind)]^Buffer,
 }
 
 Attribute_Format :: enum {
@@ -32,19 +32,28 @@ Attribute_Format :: enum {
 	Block_Arrays,
 }
 
-Attribute_Kind :: enum {
-	Position,
-	Normal,
-	Tangent,
-	Joint,
-	Weight,
-	Tex_Coord,
-	Color,
+Attribute_Layout :: struct {
+	enabled:   Enabled_Attributes,
+	accessors: [len(Attribute_Kind)]Maybe(Buffer_Data_Type),
 }
 
-attribute_layout_size :: proc(layout: []Buffer_Data_Type) -> (size: int) {
-	for accessor in layout {
-		size += accesor_size(accessor)
+Enabled_Attributes :: distinct bit_set[Attribute_Kind]
+
+Attribute_Kind :: enum {
+	Position  = 0,
+	Normal    = 1,
+	Tangent   = 2,
+	Joint     = 3,
+	Weight    = 4,
+	Tex_Coord = 5,
+	Color     = 6,
+}
+
+attribute_layout_size :: proc(layout: Attribute_Layout) -> (size: int) {
+	for kind in Attribute_Kind {
+		if kind in layout.enabled {
+			size += accesor_size(layout.accessors[kind].?)
+		}
 	}
 	return
 }
@@ -55,15 +64,18 @@ accesor_size :: proc(a: Buffer_Data_Type) -> int {
 }
 
 @(private)
-attribute_layout_equal :: proc(l1, l2: []Buffer_Data_Type) -> bool {
-	if len(l1) != len(l2) {
+attribute_layout_equal :: proc(l1, l2: Attribute_Layout) -> bool {
+	if l1.enabled != l2.enabled {
 		return false
 	}
 
-	for a1, i in l1 {
-		a2 := l2[i]
-		if a1.kind != a2.kind || a1.format != a2.format {
-			return false
+	for kind in Attribute_Kind {
+		if kind in l1.enabled {
+			a1 := l1.accessors[kind].?
+			a2 := l2.accessors[kind].?
+			if a1.kind != a2.kind || a1.format != a2.format {
+				return false
+			}
 		}
 	}
 	return true
@@ -71,18 +83,20 @@ attribute_layout_equal :: proc(l1, l2: []Buffer_Data_Type) -> bool {
 
 @(private)
 internal_make_attributes :: proc(
-	layout: []Buffer_Data_Type,
+	layout: Attribute_Layout,
 	format: Attribute_Format,
 ) -> Attributes {
 	attributes := Attributes {
-		layout = slice.clone(layout),
+		layout = layout,
 		format = format,
 	}
 	gl.CreateVertexArrays(1, &attributes.handle)
 
-	for i in 0 ..< len(attributes.layout) {
-		index := u32(i)
-		gl.EnableVertexArrayAttrib(attributes.handle, index)
+	for kind in Attribute_Kind {
+		if kind in attributes.enabled {
+			attribute_location := u32(kind)
+			gl.EnableVertexArrayAttrib(attributes.handle, attribute_location)
+		}
 	}
 	init_attributes(&attributes)
 	return attributes
@@ -95,36 +109,72 @@ init_attributes :: proc(attributes: ^Attributes) {
 			stride_size = attribute_layout_size(attributes.layout),
 		}
 		stride_offset: u32
-		for accessor, i in attributes.layout {
-			index := u32(i)
-			// size := i32(format)
-			gl.VertexArrayAttribBinding(attributes.handle, index, 0)
-			gl.VertexArrayAttribFormat(
-				attributes.handle,
-				index,
-				i32(buffer_len_of[accessor.format]),
-				gl.FLOAT,
-				gl.FALSE,
-				stride_offset,
-			)
-			stride_offset += u32(accesor_size(accessor))
+		for kind in Attribute_Kind {
+			if kind in attributes.enabled {
+				attribute_location := u32(kind)
+				accessor := attributes.accessors[kind].?
+				gl.VertexArrayAttribBinding(attributes.handle, attribute_location, 0)
+				gl.VertexArrayAttribFormat(
+					attributes.handle,
+					attribute_location,
+					i32(buffer_len_of[accessor.format]),
+					gl.FLOAT,
+					gl.FALSE,
+					stride_offset,
+				)
+				stride_offset += u32(accesor_size(accessor))
+			}
 		}
+	// for accessor, i in attributes.layout {
+	// 	index := u32(i)
+	// 	// size := i32(format)
+	// 	gl.VertexArrayAttribBinding(attributes.handle, index, 0)
+	// 	gl.VertexArrayAttribFormat(
+	// 		attributes.handle,
+	// 		index,
+	// 		i32(buffer_len_of[accessor.format]),
+	// 		gl.FLOAT,
+	// 		gl.FALSE,
+	// 		stride_offset,
+	// 	)
+	// 	stride_offset += u32(accesor_size(accessor))
+	// }
 
 
 	case .Packed_Blocks:
-		for accessor, i in attributes.layout {
-			index := u32(i)
-			gl.EnableVertexArrayAttrib(attributes.handle, index)
-			gl.VertexArrayAttribBinding(attributes.handle, index, index)
-			gl.VertexArrayAttribFormat(
-				attributes.handle,
-				index,
-				i32(buffer_len_of[accessor.format]),
-				gl.FLOAT,
-				gl.FALSE,
-				0,
-			)
+		for kind in Attribute_Kind {
+			if kind in attributes.enabled {
+				attribute_location := u32(kind)
+				accessor := attributes.accessors[kind].?
+				gl.EnableVertexArrayAttrib(attributes.handle, attribute_location)
+				gl.VertexArrayAttribBinding(
+					attributes.handle,
+					attribute_location,
+					attribute_location,
+				)
+				gl.VertexArrayAttribFormat(
+					attributes.handle,
+					attribute_location,
+					i32(buffer_len_of[accessor.format]),
+					gl.FLOAT,
+					gl.FALSE,
+					0,
+				)
+			}
 		}
+	// for accessor, i in attributes.layout {
+	// 	index := u32(i)
+	// 	gl.EnableVertexArrayAttrib(attributes.handle, index)
+	// 	gl.VertexArrayAttribBinding(attributes.handle, index, index)
+	// 	gl.VertexArrayAttribFormat(
+	// 		attributes.handle,
+	// 		index,
+	// 		i32(buffer_len_of[accessor.format]),
+	// 		gl.FLOAT,
+	// 		gl.FALSE,
+	// 		0,
+	// 	)
+	// }
 
 	case .Block_Arrays:
 		unimplemented()
@@ -133,7 +183,6 @@ init_attributes :: proc(attributes: ^Attributes) {
 
 destroy_attributes :: proc(attributes: ^Attributes) {
 	gl.DeleteVertexArrays(1, &attributes.handle)
-	delete(attributes.layout)
 }
 
 link_interleaved_attributes_vertices :: proc(attributes: ^Attributes, buffer: ^Buffer) {
@@ -142,7 +191,7 @@ link_interleaved_attributes_vertices :: proc(attributes: ^Attributes, buffer: ^B
 		0,
 		buffer.handle,
 		0,
-		i32(attribute_layout_size(attributes.layout)),
+		i32(attribute_layout_size(attributes)),
 	)
 }
 
@@ -151,17 +200,31 @@ link_packed_attributes_vertices :: proc(
 	buffer: ^Buffer,
 	info: Packed_Attributes,
 ) {
-	for accessor, i in attributes.layout {
-		index := u32(i)
-		offset := info.offsets[i]
-		gl.VertexArrayVertexBuffer(
-			attributes.handle,
-			index,
-			buffer.handle,
-			offset,
-			i32(accesor_size(accessor)),
-		)
+	for kind in Attribute_Kind {
+		if kind in attributes.enabled {
+			attribute_location := u32(kind)
+			accessor := attributes.accessors[kind].?
+			offset := info.offsets[kind]
+			gl.VertexArrayVertexBuffer(
+				attributes.handle,
+				attribute_location,
+				buffer.handle,
+				offset,
+				i32(accesor_size(accessor)),
+			)
+		}
 	}
+	// for accessor, i in attributes.layout {
+	// 	index := u32(i)
+	// 	offset := info.offsets[i]
+	// 	gl.VertexArrayVertexBuffer(
+	// 		attributes.handle,
+	// 		index,
+	// 		buffer.handle,
+	// 		offset,
+	// 		i32(accesor_size(accessor)),
+	// 	)
+	// }
 }
 
 

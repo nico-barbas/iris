@@ -65,7 +65,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 			framebuffer.maps[a] = create_framebuffer_texture(a, l.width, l.height)
 			gl.NamedFramebufferTexture(
 				framebuffer.handle,
-				gl.COLOR_ATTACHMENT0,
+				u32(gl.COLOR_ATTACHMENT0 + framebuffer.color_target_count),
 				framebuffer.maps[a].handle,
 				0,
 			)
@@ -132,7 +132,7 @@ destroy_framebuffer :: proc(f: ^Framebuffer) {
 BLIT_FRAMEBUFFER_VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec2 attribPosition;
-layout (location = 1) in vec2 attribTexCoord;
+layout (location = 5) in vec2 attribTexCoord;
 
 out VS_OUT {
 	vec2 texCoord;

@@ -2,9 +2,9 @@
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec4 attribJoints;
-layout (location = 3) in vec4 attribWeights;
-layout (location = 4) in vec2 attribTexCoord;
+layout (location = 3) in vec4 attribJoints;
+layout (location = 4) in vec4 attribWeights;
+layout (location = 5) in vec2 attribTexCoord;
 
 layout (std140, binding = 0) uniform ContextData {
     mat4 projView;

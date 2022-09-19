@@ -2,7 +2,7 @@
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
 layout (location = 1) in vec3 attribNormal;
-layout (location = 2) in vec3 attribTexCoord;
+layout (location = 5) in vec3 attribTexCoord;
 
 out VS_OUT {
 	vec3 position;

@@ -67,16 +67,9 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	VERTEX_LAYOUT :: []Buffer_Data_Type{
-		Buffer_Data_Type{kind = .Float_32, format = .Vector2},
-		Buffer_Data_Type{kind = .Float_32, format = .Vector2},
-		Buffer_Data_Type{kind = .Float_32, format = .Scalar},
-		Buffer_Data_Type{kind = .Float_32, format = .Vector4},
-	}
 	stride := (
 		buffer_len_of[.Vector2] +
-		buffer_len_of[.Vector2] +
-		buffer_len_of[.Scalar] +
+		buffer_len_of[.Vector3] +
 		buffer_len_of[.Vector4]
 	)
 
@@ -85,7 +78,16 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 		linalg.matrix_ortho3d_f32(0, f32(canvas.width), f32(canvas.height), 0, 1, 100),
 		linalg.matrix4_translate_f32({0, 0, f32(-1)}),
 	)
-	canvas.attributes = attributes_from_layout(VERTEX_LAYOUT, .Interleaved)
+	canvas.attributes = attributes_from_layout(Attribute_Layout{
+			enabled = {.Position, .Tex_Coord, .Color},
+			accessors = {
+				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+				Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+			},
+		}, 
+		.Interleaved,
+	)
 
 	vertex_buffer_res := raw_buffer_resource(stride * VERTEX_CAP * size_of(f32))
 	index_buffer_res := raw_buffer_resource(INDEX_CAP * size_of(u32))
@@ -395,9 +397,8 @@ draw_text :: proc(
 OVERLAY_VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec2 attribPosition;
-layout (location = 1) in vec2 attribTexCoord;
-layout (location = 2) in float attribTexIndex;
-layout (location = 3) in vec4 attribColor;
+layout (location = 5) in vec3 attribTexCoord;
+layout (location = 6) in vec4 attribColor;
 
 out VS_OUT {
 	vec2 texCoord;
@@ -408,8 +409,8 @@ out VS_OUT {
 uniform mat4 matProj;
 
 void main() {
-	frag.texCoord = attribTexCoord;
-	frag.texIndex = attribTexIndex;
+	frag.texCoord = attribTexCoord.xy;
+	frag.texIndex = attribTexCoord.z;
 	frag.color = attribColor;
 	gl_Position = matProj * vec4(attribPosition, 0.0, 1.0);
 }

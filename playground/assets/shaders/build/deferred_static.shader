@@ -12,7 +12,15 @@ out VS_OUT {
 	mat3 matTBN;
 } frag;
 
-@include ContextData
+layout (std140, binding = 0) uniform ContextData {
+    mat4 projView;
+    mat4 matProj;
+    mat4 matView;
+    vec3 viewPosition;
+    float time;
+    float dt;
+};
+
 
 // builtin uniforms
 uniform mat4 mvp;

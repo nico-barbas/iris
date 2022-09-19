@@ -148,7 +148,7 @@ raw_buffer_resource :: proc(size: int) -> ^Resource {
 	return resource
 }
 
-attributes_resource :: proc(layout: []Buffer_Data_Type, format: Attribute_Format) -> ^Resource {
+attributes_resource :: proc(layout: Attribute_Layout, format: Attribute_Format) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
@@ -416,7 +416,7 @@ load_shaders_from_dir :: proc(dir: string) {
 // Searching procedures
 @(private)
 attributes_from_layout :: proc(
-	layout: []Buffer_Data_Type,
+	layout: Attribute_Layout,
 	format: Attribute_Format,
 ) -> (
 	result: ^Attributes,
@@ -427,7 +427,7 @@ attributes_from_layout :: proc(
 
 	for resource in lib.attributes {
 		attributes := resource.data.(^Attributes)
-		if attribute_layout_equal(layout, attributes.layout) {
+		if attribute_layout_equal(layout, attributes) {
 			return attributes
 		}
 	}

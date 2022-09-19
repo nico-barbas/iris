@@ -14,7 +14,8 @@ Mesh :: struct {
 Mesh_Loader :: struct {
 	format:      Attribute_Format,
 	byte_size:   int,
-	attributes:  [len(Attribute_Kind)]Maybe(Buffer_Source),
+	enabled:     Enabled_Attributes,
+	sources:     [len(Attribute_Kind)]Maybe(Buffer_Source),
 	indices:     Buffer_Source,
 	index_count: int,
 }
@@ -128,7 +129,8 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int) -> ^Resource {
 	resource := mesh_resource(
 		Mesh_Loader{
 			byte_size = p_size + n_size + tan_size + t_size,
-			attributes = {
+			enabled = {.Position, .Normal, .Tangent, .Tex_Coord},
+			sources = {
 				Attribute_Kind.Position = Buffer_Source{
 					data = &positions[0],
 					byte_size = size_of(Vector3) * v_count,
@@ -281,7 +283,8 @@ cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 	resource := mesh_resource(
 		Mesh_Loader{
 			byte_size = p_size + n_size + t_size,
-			attributes = {
+			enabled = {.Position, .Normal, .Tex_Coord},
+			sources = {
 				Attribute_Kind.Position = Buffer_Source{
 					data = &positions[0],
 					byte_size = size_of(Vector3) * CUBE_VERTEX_COUNT,
@@ -312,35 +315,44 @@ cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 
 @(private)
 internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
-	attribute_count: int
-	for attribute in loader.attributes {
-		if attribute != nil {
-			attribute_count += 1
-		}
-	}
+	// attribute_count: int
+	// for attribute in loader.attributes {
+	// 	if attribute != nil {
+	// 		attribute_count += 1
+	// 	}
+	// }
 
 	mesh: Mesh
 	offset: int
-	index: int
-	layout := make([]Buffer_Data_Type, attribute_count, context.temp_allocator)
-	offsets := make([]int, attribute_count)
+	layout: Attribute_Layout
+	offsets: [len(Attribute_Kind)]int
 	vertex_buffer := raw_buffer_resource(loader.byte_size)
 	index_buffer := raw_buffer_resource(loader.indices.byte_size)
 
 	mesh.vertices = buffer_memory_from_buffer_resource(vertex_buffer)
 	mesh.indices = buffer_memory_from_buffer_resource(index_buffer)
 	mesh.index_count = loader.index_count
-	for attribute in loader.attributes {
-		if attribute != nil {
-			a := attribute.?
-			offsets[index] = offset
-			layout[index] = a.accessor
+	for kind in Attribute_Kind {
+		if kind in loader.enabled {
+			a := loader.sources[kind].?
+			offsets[kind] = offset
+			layout.accessors[kind] = a.accessor
 			send_buffer_data(&mesh.vertices, a, offset)
 			offset += a.byte_size
-			index += 1
 		}
 	}
 	send_buffer_data(&mesh.indices, loader.indices)
+	// for attribute, i in loader.attributes {
+	// 	if attribute != nil {
+	// 		a := attribute.?
+	// 		offsets[index] = offset
+	// 		layout.accessors[index] = a.accessor
+	// 		send_buffer_data(&mesh.vertices, a, offset)
+	// 		offset += a.byte_size
+	// 		index += 1
+	// 	}
+	// }
+	layout.enabled = loader.enabled
 	mesh.attributes = attributes_from_layout(layout, loader.format)
 	mesh.attributes_info = Packed_Attributes {
 		offsets = offsets,

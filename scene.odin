@@ -495,7 +495,8 @@ load_mesh_from_gltf :: proc(
 		if gltf_position, has_position := p.attributes[gltf.POSITION]; has_position {
 			data := gltf_position.data.data.([]gltf.Vector3f32)
 			size := size_of(gltf.Vector3f32) * int(gltf_position.data.count)
-			mesh_loader.attributes[Attribute_Kind.Position] = Buffer_Source {
+			mesh_loader.enabled += {.Position}
+			mesh_loader.sources[Attribute_Kind.Position] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
@@ -511,7 +512,8 @@ load_mesh_from_gltf :: proc(
 		if gltf_normal, has_normal := p.attributes[gltf.NORMAL]; has_normal {
 			data := gltf_normal.data.data.([]gltf.Vector3f32)
 			size := size_of(gltf.Vector3f32) * int(gltf_normal.data.count)
-			mesh_loader.attributes[Attribute_Kind.Normal] = Buffer_Source {
+			mesh_loader.enabled += {.Normal}
+			mesh_loader.sources[Attribute_Kind.Normal] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
@@ -527,7 +529,8 @@ load_mesh_from_gltf :: proc(
 		if gltf_tangent, has_tangent := p.attributes[gltf.TANGENT]; has_tangent {
 			data := gltf_tangent.data.data.([]gltf.Vector4f32)
 			size := size_of(gltf.Vector4f32) * int(gltf_tangent.data.count)
-			mesh_loader.attributes[Attribute_Kind.Tangent] = Buffer_Source {
+			mesh_loader.enabled += {.Tangent}
+			mesh_loader.sources[Attribute_Kind.Tangent] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
@@ -550,7 +553,8 @@ load_mesh_from_gltf :: proc(
 				joints[i].w = f32(joint_ids.w)
 			}
 			size := size_of(Vector4) * len(joints)
-			mesh_loader.attributes[Attribute_Kind.Joint] = Buffer_Source {
+			mesh_loader.enabled += {.Joint}
+			mesh_loader.sources[Attribute_Kind.Joint] = Buffer_Source {
 				data = &joints[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
@@ -566,7 +570,8 @@ load_mesh_from_gltf :: proc(
 		if gltf_weights, has_weights := p.attributes[gltf.WEIGHTS_0]; has_weights {
 			data := gltf_weights.data.data.([]gltf.Vector4f32)
 			size := size_of(gltf.Vector4f32) * int(gltf_weights.data.count)
-			mesh_loader.attributes[Attribute_Kind.Weight] = Buffer_Source {
+			mesh_loader.enabled += {.Weight}
+			mesh_loader.sources[Attribute_Kind.Weight] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
@@ -582,7 +587,8 @@ load_mesh_from_gltf :: proc(
 		if gltf_texcoord, has_texcoord := p.attributes[gltf.TEXCOORD_0]; has_texcoord {
 			data := gltf_texcoord.data.data.([]gltf.Vector2f32)
 			size := size_of(gltf.Vector2f32) * int(gltf_texcoord.data.count)
-			mesh_loader.attributes[Attribute_Kind.Tex_Coord] = Buffer_Source {
+			mesh_loader.enabled += {.Tex_Coord}
+			mesh_loader.sources[Attribute_Kind.Tex_Coord] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
@@ -893,7 +899,7 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 				push_canvas_line(node.canvas, Canvas_Line_Options(c))
 			}
 		}
-		node.dirty = false
+		// node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}

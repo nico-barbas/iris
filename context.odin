@@ -145,7 +145,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 			kind = .Byte,
 			stages = {
 				Shader_Stage.Vertex = Shader_Stage_Loader{source = LIGHT_DEPTH_VERTEX_SHADER},
-				Shader_Stage.Fragment = Shader_Stage_Loader{source = LIGHT_DEPTH_FRAGMENT_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = EMPTY_FRAGMENT_SHADER},
 			},
 		},
 	)
@@ -165,7 +165,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 			kind = .Byte,
 			stages = {
 				Shader_Stage.Vertex = Shader_Stage_Loader{source = VIEW_DEPTH_VERTEX_SHADER},
-				Shader_Stage.Fragment = Shader_Stage_Loader{source = LIGHT_DEPTH_FRAGMENT_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = EMPTY_FRAGMENT_SHADER},
 			},
 		},
 	)
@@ -219,8 +219,11 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.framebuffer_blit_shader = blit_shader_res.data.(^Shader)
 	ctx.framebuffer_blit_attributes = attributes_from_layout(
 		{
-			Buffer_Data_Type{kind = .Float_32, format = .Vector2},
-			Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+			enabled = {.Position, .Tex_Coord},
+			accessors = {
+				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+			},
 		},
 		.Interleaved,
 	)
@@ -591,7 +594,7 @@ void main() {
 `
 
 @(private)
-LIGHT_DEPTH_FRAGMENT_SHADER :: `
+EMPTY_FRAGMENT_SHADER :: `
 #version 450 core
 
 void main() {
@@ -618,46 +621,46 @@ void main() {
 }
 `
 
-@(private)
-ORTHO_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec2 attribPosition;
-layout (location = 1) in vec2 attribTexCoord;
-layout (location = 2) in float attribTexIndex;
-layout (location = 3) in vec4 attribColor;
+// @(private)
+// ORTHO_VERTEX_SHADER :: `
+// #version 450 core
+// layout (location = 0) in vec2 attribPosition;
+// layout (location = 1) in vec2 attribTexCoord;
+// layout (location = 2) in float attribTexIndex;
+// layout (location = 3) in vec4 attribColor;
 
-out VS_OUT {
-	vec2 texCoord;
-	float texIndex;
-	vec4 color;
-} frag;
+// out VS_OUT {
+// 	vec2 texCoord;
+// 	float texIndex;
+// 	vec4 color;
+// } frag;
 
-uniform mat4 matProj;
+// uniform mat4 matProj;
 
-void main() {
-	frag.texCoord = attribTexCoord;
-	frag.texIndex = attribTexIndex;
-	frag.color = attribColor;
-	gl_Position = matProj * vec4(attribPosition, 0.0, 1.0);
-}
-`
+// void main() {
+// 	frag.texCoord = attribTexCoord;
+// 	frag.texIndex = attribTexIndex;
+// 	frag.color = attribColor;
+// 	gl_Position = matProj * vec4(attribPosition, 0.0, 1.0);
+// }
+// `
 
-@(private)
-ORTHO_FRAGMENT_SHADER :: `
-#version 450 core
-in VS_OUT {
-	vec2 texCoord;
-	float texIndex;
-	vec4 color;
-} frag;
+// @(private)
+// ORTHO_FRAGMENT_SHADER :: `
+// #version 450 core
+// in VS_OUT {
+// 	vec2 texCoord;
+// 	float texIndex;
+// 	vec4 color;
+// } frag;
 
-out vec4 fragColor;
+// out vec4 fragColor;
 
-uniform sampler2D textures[16];
+// uniform sampler2D textures[16];
 
-void main() {
-	int index = int(frag.texIndex);
-	fragColor = texture(textures[index], frag.texCoord) * frag.color;
-	// fragColor = vec4(1.0, 0.0, 0.0, 1.0);
-}
-`
+// void main() {
+// 	int index = int(frag.texIndex);
+// 	fragColor = texture(textures[index], frag.texCoord) * frag.color;
+// 	// fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+// }
+// `

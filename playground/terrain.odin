@@ -384,7 +384,8 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 	resource := iris.mesh_resource(
 		iris.Mesh_Loader{
 			byte_size = p_size + n_size + t_size,
-			attributes = {
+			enabled = {.Position, .Normal, .Tex_Coord},
+			sources = {
 				iris.Attribute_Kind.Position = iris.Buffer_Source{
 					data = &t.positions[0],
 					byte_size = p_size,
