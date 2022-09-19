@@ -42,6 +42,7 @@ Rendering_Context :: struct {
 	view_depth_framebuffer:      ^Framebuffer,
 	view_depth_shader:           ^Shader,
 	deferred_framebuffer:        ^Framebuffer,
+	deferred_static_shader:      ^Shader,
 
 	//
 	framebuffer_blit_shader:     ^Shader,
@@ -118,6 +119,8 @@ Rendering_Option :: enum {
 init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	DEFAULT_FOVY :: 45
 
+	load_shaders_from_dir("shaders/build")
+
 	set_backface_culling(true)
 	ctx.render_width = w
 	ctx.render_height = h
@@ -174,11 +177,20 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	deferred_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
 			attachments = {.Color0, .Color1, .Color2, .Depth},
+			precision = {
+				Framebuffer_Attachment.Color0 = 16,
+				Framebuffer_Attachment.Color1 = 16,
+				Framebuffer_Attachment.Color2 = 8,
+			},
 			width = ctx.render_width,
 			height = ctx.render_height,
 		},
 	)
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
+
+	deferred_shader_exist: bool
+	ctx.deferred_static_shader, deferred_shader_exist = shader_from_name("deferred_static")
+	assert(deferred_shader_exist)
 
 	context_buffer_res := raw_buffer_resource(size_of(Render_Context_Uniform_Data))
 	ctx.context_uniform_buffer = context_buffer_res.data.(^Buffer)
@@ -367,6 +379,81 @@ end_render :: proc() {
 			)
 			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
 			draw_triangles(c.mesh.index_count)
+		}
+	}
+	default_shader()
+	default_framebuffer()
+
+	bind_framebuffer(ctx.deferred_framebuffer)
+	clear_framebuffer(ctx.deferred_framebuffer)
+	bind_shader(ctx.deferred_static_shader)
+	for command in &ctx.commands {
+		#partial switch c in &command {
+		case Render_Mesh_Command:
+			if .Transparent in c.options {
+				continue
+			}
+			mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
+			set_shader_uniform(ctx.deferred_static_shader, "mvp", &mvp[0][0])
+
+			set_shader_uniform(ctx.deferred_static_shader, "matModel", &c.global_transform[0][0])
+
+			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.global_transform)
+			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+			set_shader_uniform(ctx.deferred_static_shader, "matNormal", &normal_mat[0][0])
+
+			unit_index: u32
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					texture := c.material.textures[kind]
+					texture_uniform_name: string
+					switch texture.kind {
+					case .Texture:
+						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
+					case .Cubemap:
+						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
+					}
+					bind_texture(c.material.textures[kind], unit_index)
+					if _, exist := ctx.deferred_static_shader.uniforms[texture_uniform_name];
+					   exist {
+						set_shader_uniform(
+							ctx.deferred_static_shader,
+							texture_uniform_name,
+							&unit_index,
+						)
+					}
+					unit_index += 1
+				}
+			}
+			if _, exist := ctx.deferred_static_shader.uniforms["mapShadow"]; exist {
+				bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
+				set_shader_uniform(ctx.deferred_static_shader, "mapShadow", &unit_index)
+			}
+			unit_index += 1
+
+			if _, exist := ctx.deferred_static_shader.uniforms["mapViewDepth"]; exist {
+				bind_texture(
+					&ctx.view_depth_framebuffer.maps[Framebuffer_Attachment.Depth],
+					unit_index,
+				)
+				set_shader_uniform(ctx.deferred_static_shader, "mapViewDepth", &unit_index)
+			}
+
+			bind_attributes(c.mesh.attributes)
+			defer default_attributes()
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices.buf,
+				c.mesh.attributes_info,
+			)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+			draw_triangles(c.mesh.index_count)
+
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					unbind_texture(c.material.textures[kind])
+				}
+			}
 		}
 	}
 	default_shader()

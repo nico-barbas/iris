@@ -65,7 +65,6 @@ init :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	iris.set_key_proc(.Escape, on_escape_key)
 
-	iris.load_shaders_from_dir("shaders/build")
 	font_res := iris.font_resource(iris.Font_Loader{path = "Roboto-Regular.ttf", sizes = {20}})
 	g.font = font_res.data.(^iris.Font)
 

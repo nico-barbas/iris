@@ -17,8 +17,11 @@ Framebuffer_Loader :: struct {
 	width:        int,
 	height:       int,
 	attachments:  Framebuffer_Attachments,
+	precision:    [MAX_COLOR_ATTACHMENT]int,
 	clear_colors: [len(Framebuffer_Attachment)]Color,
 }
+
+MAX_COLOR_ATTACHMENT :: int(Framebuffer_Attachment.Color3) + 1
 
 Framebuffer_Attachments :: distinct bit_set[Framebuffer_Attachment]
 
@@ -33,13 +36,24 @@ Framebuffer_Attachment :: enum {
 
 @(private)
 internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
-	create_framebuffer_texture :: proc(a: Framebuffer_Attachment, w, h: int) -> Texture {
+	create_framebuffer_texture :: proc(
+		a: Framebuffer_Attachment,
+		w,
+		h: int,
+		precision := 8,
+	) -> Texture {
 		texture: Texture
 		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 		if a >= .Color0 && a <= .Color3 {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-			gl.TextureStorage2D(texture.handle, 1, gl.RGBA8, i32(w), i32(h))
+			gl.TextureStorage2D(
+				texture.handle,
+				1,
+				gl.RGBA8 if precision == 8 else gl.RGBA16F,
+				i32(w),
+				i32(h),
+			)
 		} else if a == .Depth {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
@@ -59,15 +73,25 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	}
 	gl.CreateFramebuffers(1, &framebuffer.handle)
 
+	draw_buffers: [int(Framebuffer_Attachment.Color3) + 1]u32
 	for i in Framebuffer_Attachment.Color0 ..= Framebuffer_Attachment.Color3 {
 		a := Framebuffer_Attachment(i)
 		if a in l.attachments {
-			framebuffer.maps[a] = create_framebuffer_texture(a, l.width, l.height)
+			precision := l.precision[a]
+			framebuffer.maps[a] = create_framebuffer_texture(
+				a,
+				l.width,
+				l.height,
+				precision if precision > 0 else 8,
+			)
 			gl.NamedFramebufferTexture(
 				framebuffer.handle,
 				u32(gl.COLOR_ATTACHMENT0 + framebuffer.color_target_count),
 				framebuffer.maps[a].handle,
 				0,
+			)
+			draw_buffers[framebuffer.color_target_count] = u32(
+				gl.COLOR_ATTACHMENT0 + framebuffer.color_target_count,
 			)
 			framebuffer.color_target_count += 1
 		}
@@ -76,6 +100,12 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	if framebuffer.color_target_count == 0 {
 		gl.NamedFramebufferDrawBuffer(framebuffer.handle, gl.NONE)
 		gl.NamedFramebufferReadBuffer(framebuffer.handle, gl.NONE)
+	} else {
+		gl.NamedFramebufferDrawBuffers(
+			framebuffer.handle,
+			i32(framebuffer.color_target_count),
+			&draw_buffers[0],
+		)
 	}
 	if .Depth in l.attachments {
 		framebuffer.maps[Framebuffer_Attachment.Depth] = create_framebuffer_texture(
