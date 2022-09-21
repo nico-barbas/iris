@@ -116,6 +116,7 @@ render_scene :: proc(scene: ^Scene) {
 			case ^Model_Node:
 				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 				for mesh, i in n.meshes {
+					def := .Transparent in n.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
@@ -123,6 +124,7 @@ render_scene :: proc(scene: ^Scene) {
 							material = n.materials[i],
 							options = n.options,
 						},
+						.Deferred_Geometry if def else .Forward_Geometry,
 					)
 				}
 			case ^Skin_Node:
@@ -133,6 +135,7 @@ render_scene :: proc(scene: ^Scene) {
 						joint_matrices := skin_node_joint_matrices(n)
 						set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
 					}
+					def := .Transparent in n.target.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
@@ -141,6 +144,7 @@ render_scene :: proc(scene: ^Scene) {
 							material = n.target.materials[i],
 							options = n.target.options,
 						},
+						.Deferred_Geometry if def else .Forward_Geometry,
 					)
 				}
 			case ^Canvas_Node:
@@ -150,6 +154,7 @@ render_scene :: proc(scene: ^Scene) {
 						render_proc = flush_canvas_node_buffers,
 						options = {.Disable_Culling},
 					},
+					.Other,
 				)
 
 			case ^User_Interface_Node:

@@ -67,25 +67,22 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	stride := (
-		buffer_len_of[.Vector2] +
-		buffer_len_of[.Vector3] +
-		buffer_len_of[.Vector4]
-	)
+	stride := (buffer_len_of[.Vector2] + buffer_len_of[.Vector3] + buffer_len_of[.Vector4])
 
 
 	canvas.projection = linalg.matrix_mul(
 		linalg.matrix_ortho3d_f32(0, f32(canvas.width), f32(canvas.height), 0, 1, 100),
 		linalg.matrix4_translate_f32({0, 0, f32(-1)}),
 	)
-	canvas.attributes = attributes_from_layout(Attribute_Layout{
+	canvas.attributes = attributes_from_layout(
+		Attribute_Layout{
 			enabled = {.Position, .Tex_Coord, .Color},
 			accessors = {
 				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 				Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 			},
-		}, 
+		},
 		.Interleaved,
 	)
 
@@ -145,12 +142,8 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 			name = "paint_canvas",
 			kind = .Byte,
 			stages = {
-				Shader_Stage.Vertex = Shader_Stage_Loader{
-					source = OVERLAY_VERTEX_SHADER,
-				},
-				Shader_Stage.Fragment = Shader_Stage_Loader{
-					source = OVERLAY_FRAGMENT_SHADER,
-				},
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = OVERLAY_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = OVERLAY_FRAGMENT_SHADER},
 			},
 		},
 	)

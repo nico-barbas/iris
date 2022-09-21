@@ -25,6 +25,7 @@ out vec4 finalColor;
 uniform sampler2D bufferedPosition;
 uniform sampler2D bufferedNormal;
 uniform sampler2D bufferedAlbedo;
+uniform sampler2D bufferedDepth;
 uniform sampler2D mapShadow;
 
 layout (std140, binding = 0) uniform ContextData {
@@ -65,7 +66,6 @@ float computeShadowValue(vec4 lightSpacePosition, float bias);
 vec3 computeDirectionalLighting( Light light, vec3 p, vec3 n );
 vec3 computePointLighting( Light light, vec3 p, vec3 n );
 
-const float shadowBias = 0.01;
 void main() {
     vec4 p = texture(bufferedPosition, frag.texCoord).rgba;
     vec3 position = p.rgb;
@@ -78,10 +78,14 @@ void main() {
 
     vec3 ambient = ambient.xyz * ambient.a;
 
-    float shadowValue = 1.0;
+    float shadowValue = 0.0;
     for (int i = 0; i < shadowCasterCount; i += 1) {
+        Light light = lights[i];
+        vec3 lightDir = normalize(light.position.xyz);
         vec4 lightSpacePosition = matLightSpaces[i] * vec4(position, 1.0);
-        shadowValue -= computeShadowValue(lightSpacePosition, shadowBias);
+        float bias = 0.05 * (1.0 - dot(normal, lightDir));
+	    bias = max(bias, 0.005);
+        shadowValue += computeShadowValue(lightSpacePosition, bias);
     }
 
     vec3 lightValue = vec3(0);
@@ -94,7 +98,12 @@ void main() {
             lightValue += computePointLighting(light, position, normal);
         }
     }
-    vec3 result = (ambient + (shadowValue * lightValue)) * albedo;
+
+    // if (shadowValue != 0) {
+    //     finalColor = vec4(1.0, 0.0, 1.0, 1.0);
+    //     return;
+    // }
+    vec3 result = (ambient + ((1.0 - shadowValue) * lightValue)) * albedo;
     finalColor = vec4(result, 1.0);
 }
 

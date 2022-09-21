@@ -30,7 +30,7 @@ App :: struct {
 	// Rendering states
 	viewport_width:    int,
 	viewport_height:   int,
-	render_ctx:        Rendering_Context,
+	render_ctx:        Render_Context,
 
 	// Resource library
 	library:           Resource_Library,

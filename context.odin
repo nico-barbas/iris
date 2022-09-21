@@ -9,8 +9,9 @@ RENDER_CTX_MAX_LIGHTS :: 128
 RENDER_CTX_DEFAULT_FAR :: 100
 RENDER_CTX_DEFAULT_NEAR :: 0.1
 RENDER_CTX_DEFAULT_AMBIENT :: Color{0.45, 0.45, 0.75, 0.4}
+RENDER_QUEUE_DEFAULT_CAP :: 500
 
-Rendering_Context :: struct {
+Render_Context :: struct {
 	render_width:                int,
 	render_height:               int,
 	projection:                  Matrix4,
@@ -39,9 +40,9 @@ Rendering_Context :: struct {
 	// view_depth_shader:           ^Shader,
 	deferred_framebuffer:        ^Framebuffer,
 	deferred_static_shader:      ^Shader,
-	deferred_composite_shader: ^Shader,
-	deferred_vertices: Buffer_Memory,
-	deferred_indices: Buffer_Memory,
+	deferred_composite_shader:   ^Shader,
+	deferred_vertices:           Buffer_Memory,
+	deferred_indices:            Buffer_Memory,
 
 	//
 	framebuffer_blit_shader:     ^Shader,
@@ -49,19 +50,20 @@ Rendering_Context :: struct {
 
 	// Command buffer
 	states:                      [dynamic]^Attributes,
-	commands:                    [dynamic]Render_Command,
-	previous_cmd_count:          int,
-	deferred_commands:           [dynamic]Render_Command,
-	previous_def_cmd_count:      int,
+	// commands:                    [dynamic]Render_Command,
+	// previous_cmd_count:          int,
+	// deferred_commands:           [dynamic]Render_Command,
+	// previous_def_cmd_count:      int,
+	queues:                      [len(Render_Queue_Kind)]Render_Queue,
 }
 
-Render_Uniform_Binding :: enum u32 {
-	Projection_Data = 0,
-	Light_Data      = 1,
+Render_Uniform_Kind :: enum u32 {
+	Context_Data  = 0,
+	Lighting_Data = 1,
 }
 
 @(private)
-Render_Context_Uniform_Data :: struct {
+Context_Uniform_Data :: struct {
 	projection_view: Matrix4,
 	projection:      Matrix4,
 	view:            Matrix4,
@@ -71,19 +73,31 @@ Render_Context_Uniform_Data :: struct {
 }
 
 @(private)
-Renderer_Lighting_Uniform_Data :: struct {
+Lighting_Uniform_Data :: struct {
 	lights:              [RENDER_CTX_MAX_LIGHTS]Light_Info,
 	shadow_casters:      [4]u32,
-	projections:   [4]Matrix4,
+	projections:         [4]Matrix4,
 	ambient:             Color,
 	light_count:         u32,
 	shadow_caster_count: u32,
 }
 
+Render_Queue :: struct {
+	commands: [RENDER_QUEUE_DEFAULT_CAP]Render_Command,
+	count:    int,
+}
+
+Render_Queue_Kind :: enum {
+	Deferred_Geometry,
+	Forward_Geometry,
+	Other,
+}
+
+// Render_Command_Buffer :: distinct [RENDER_QUEUE_DEFAULT_CAP]Render_Command
 
 Render_Command :: union {
 	Render_Mesh_Command,
-	Render_Framebuffer_Command,
+	// Render_Framebuffer_Command,
 	Render_Custom_Command,
 }
 
@@ -101,12 +115,12 @@ Render_Custom_Command :: struct {
 	options:     Rendering_Options,
 }
 
-Render_Framebuffer_Command :: struct {
-	render_order:  uint,
-	framebuffer:   ^Framebuffer,
-	vertex_memory: ^Buffer_Memory,
-	index_buffer:  ^Buffer,
-}
+// Render_Framebuffer_Command :: struct {
+// 	render_order:  uint,
+// 	framebuffer:   ^Framebuffer,
+// 	vertex_memory: ^Buffer_Memory,
+// 	index_buffer:  ^Buffer,
+// }
 
 Rendering_Options :: distinct bit_set[Rendering_Option]
 
@@ -117,7 +131,7 @@ Rendering_Option :: enum {
 	Cast_Shadows,
 }
 
-init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
+init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	DEFAULT_FOVY :: 45
 
 	load_shaders_from_dir("shaders/build")
@@ -134,14 +148,6 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.eye = {}
 	ctx.centre = {}
 	ctx.up = VECTOR_UP
-	ctx.lighting_context.projection = linalg.matrix_ortho3d_f32(
-		-17.5,
-		17.5,
-		-10,
-		10,
-		f32(RENDER_CTX_DEFAULT_NEAR),
-		f32(20),
-	)
 
 	depth_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
@@ -193,7 +199,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 			},
 			width = ctx.render_width,
 			height = ctx.render_height,
-		}, 
+		},
 	)
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
 
@@ -210,23 +216,28 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	deferred_indices_res := raw_buffer_resource(size_of(u32) * 6)
 	ctx.deferred_indices = buffer_memory_from_buffer_resource(deferred_indices_res)
 
-	context_buffer_res := raw_buffer_resource(size_of(Render_Context_Uniform_Data))
+	context_buffer_res := raw_buffer_resource(size_of(Context_Uniform_Data))
 	ctx.context_uniform_buffer = context_buffer_res.data.(^Buffer)
 	ctx.context_uniform_memory = Buffer_Memory {
 		buf    = ctx.context_uniform_buffer,
-		size   = size_of(Render_Context_Uniform_Data),
+		size   = size_of(Context_Uniform_Data),
 		offset = 0,
 	}
-	set_uniform_buffer_binding(
-		ctx.context_uniform_buffer,
-		u32(Render_Uniform_Binding.Projection_Data),
-	)
+	set_uniform_buffer_binding(ctx.context_uniform_buffer, u32(Render_Uniform_Kind.Context_Data))
 
 	ctx.lighting_context = Lighting_Context {
-		ambient = RENDER_CTX_DEFAULT_AMBIENT,
+		ambient    = RENDER_CTX_DEFAULT_AMBIENT,
+		projection = linalg.matrix_ortho3d_f32(
+			-17.5,
+			17.5,
+			-10,
+			10,
+			f32(RENDER_CTX_DEFAULT_NEAR),
+			f32(20),
+		),
 	}
-	light_buffer_res := raw_buffer_resource(size_of(Renderer_Lighting_Uniform_Data))
-	fmt.println(offset_of(Renderer_Lighting_Uniform_Data, shadow_casters))
+	light_buffer_res := raw_buffer_resource(size_of(Lighting_Uniform_Data))
+	fmt.println(offset_of(Lighting_Uniform_Data, shadow_casters))
 	// ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
 	// ctx.light_uniform_memory = Buffer_Memory {
 	// 	buf    = ctx.light_uniform_buffer,
@@ -236,7 +247,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.light_uniform_memory = buffer_memory_from_buffer_resource(light_buffer_res)
 	set_uniform_buffer_binding(
 		ctx.light_uniform_memory.buf,
-		u32(Render_Uniform_Binding.Light_Data),
+		u32(Render_Uniform_Kind.Lighting_Data),
 	)
 
 	// Framebuffer blitting states
@@ -265,7 +276,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	)
 }
 
-close_render_ctx :: proc(ctx: ^Rendering_Context) {
+close_render_ctx :: proc(ctx: ^Render_Context) {
 }
 
 view_position :: proc(position: Vector3) {
@@ -313,13 +324,16 @@ light_ambient :: proc(strength: f32, color: Vector3) {
 
 start_render :: proc() {
 	ctx := &app.render_ctx
-	ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
-	ctx.deferred_commands = make(
-		[dynamic]Render_Command,
-		0,
-		ctx.previous_def_cmd_count,
-		context.temp_allocator,
-	)
+	for queue in &ctx.queues {
+		queue.count = 0
+	}
+	// ctx.commands = make([dynamic]Render_Command, 0, ctx.previous_cmd_count, context.temp_allocator)
+	// ctx.deferred_commands = make(
+	// 	[dynamic]Render_Command,
+	// 	0,
+	// 	ctx.previous_def_cmd_count,
+	// 	context.temp_allocator,
+	// )
 }
 
 end_render :: proc() {
@@ -330,10 +344,18 @@ end_render :: proc() {
 	// Update light values
 	if ctx.view_dirty {
 		compute_projection(ctx)
+		light_ctx := &ctx.lighting_context
 		lights: [RENDER_CTX_MAX_LIGHTS]Light_Info
-		for i in 0 ..< ctx.lighting_context.count {
-			compute_light_projection(&ctx.lighting_context, int(i), ctx.centre)
-			// compute_light_projection(&ctx.lighting_context, i ctx.centre)
+		for light, i in light_ctx.lights[:light_ctx.count] {
+			// light_pos: Vector3
+			// if light.kind == .Directional {
+			// 	light_pos = light.position.xyz + ctx.eye
+			// } else {
+			// 	light_pos = light.position.xyz
+			// }
+			// TODO: Learn how to deal with directional light's view position
+			light_view := linalg.matrix4_look_at_f32(light.position.xyz, VECTOR_ZERO, VECTOR_UP)
+			light_ctx.lights_projection[i] = light_ctx.projection * light_view
 			lights[i] = ctx.lighting_context.lights[i]
 		}
 
@@ -341,7 +363,7 @@ end_render :: proc() {
 		send_buffer_data(
 			&ctx.light_uniform_memory,
 			Buffer_Source{
-				data = &Renderer_Lighting_Uniform_Data{
+				data = &Lighting_Uniform_Data{
 					ambient = ctx.lighting_context.ambient,
 					light_count = ctx.lighting_context.count,
 					lights = lights,
@@ -349,21 +371,24 @@ end_render :: proc() {
 					shadow_casters = {0 = 0},
 					projections = {0 = ctx.lighting_context.lights_projection[0]},
 				},
-				byte_size = size_of(Renderer_Lighting_Uniform_Data),
+				byte_size = size_of(Lighting_Uniform_Data),
 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 			},
 		)
 		ctx.view_dirty = false
 	}
 
+	dq := &ctx.queues[Render_Queue_Kind.Deferred_Geometry]
+	deferred_commands := dq.commands[:dq.count]
 
 	// Compute the multiple shadow maps
 	set_backface_culling(true)
 	bind_framebuffer(ctx.depth_framebuffer)
 	clear_framebuffer(ctx.depth_framebuffer)
 	bind_shader(ctx.depth_shader)
-	set_shader_uniform(ctx.depth_shader, "matLightSpace", &ctx.lighting_context.lights_projection[0][0][0])
-	for command in &ctx.commands {
+	light_proj := ctx.lighting_context.lights_projection[0]
+	set_shader_uniform(ctx.depth_shader, "matLightSpace", &light_proj[0][0])
+	for command in &deferred_commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
 			if .Transparent in c.options {
@@ -413,7 +438,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.deferred_framebuffer)
 	clear_framebuffer(ctx.deferred_framebuffer)
 	bind_shader(ctx.deferred_static_shader)
-	for command in &ctx.commands {
+	for command in &deferred_commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
 			if .Transparent in c.options {
@@ -430,7 +455,11 @@ end_render :: proc() {
 			set_shader_uniform(ctx.deferred_static_shader, "matNormal", &normal_mat[0][0])
 
 			calculate_tangent_space := .Normal in c.material.maps
-			set_shader_uniform(ctx.deferred_static_shader, "useTangentSpace", &calculate_tangent_space)
+			set_shader_uniform(
+				ctx.deferred_static_shader,
+				"useTangentSpace",
+				&calculate_tangent_space,
+			)
 
 			unit_index: u32
 			for kind in Material_Map {
@@ -476,12 +505,11 @@ end_render :: proc() {
 	default_shader()
 	default_framebuffer()
 
+	// Composite the deferred geometry
 	bind_shader(ctx.deferred_composite_shader)
 	{
-			// depth(false)
-			// defer depth(true)
-			set_backface_culling(false)
-					//odinfmt: disable
+		set_backface_culling(false)
+				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0, -1.0, 0.0, 0.0,
 				1.0, -1.0, 1.0, 0.0,
@@ -495,58 +523,65 @@ end_render :: proc() {
 			//odinfmt: enable
 
 
-			position_buffer_index : u32 = 0
-			normal_buffer_index : u32 = 1
-			albedo_buffer_index : u32 = 2
-			shadow_map_index: u32 = 3
+		position_buffer_index: u32 = 0
+		normal_buffer_index: u32 = 1
+		albedo_buffer_index: u32 = 2
+		shadow_map_index: u32 = 3
 
-			set_shader_uniform(ctx.deferred_composite_shader, "bufferedPosition", &position_buffer_index)
-			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0), position_buffer_index)
-			set_shader_uniform(ctx.deferred_composite_shader, "bufferedNormal", &normal_buffer_index)
-			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1), normal_buffer_index)
-			set_shader_uniform(ctx.deferred_composite_shader, "bufferedAlbedo", &albedo_buffer_index)
-			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
-			set_shader_uniform(ctx.deferred_composite_shader, "mapShadow", &shadow_map_index)
-			bind_texture(framebuffer_texture(ctx.depth_framebuffer, .Depth), shadow_map_index)
+		set_shader_uniform(
+			ctx.deferred_composite_shader,
+			"bufferedPosition",
+			&position_buffer_index,
+		)
+		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0), position_buffer_index)
+		set_shader_uniform(ctx.deferred_composite_shader, "bufferedNormal", &normal_buffer_index)
+		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1), normal_buffer_index)
+		set_shader_uniform(ctx.deferred_composite_shader, "bufferedAlbedo", &albedo_buffer_index)
+		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
+		set_shader_uniform(ctx.deferred_composite_shader, "mapShadow", &shadow_map_index)
+		bind_texture(framebuffer_texture(ctx.depth_framebuffer, .Depth), shadow_map_index)
 
 
-			send_buffer_data(
-				&ctx.deferred_vertices,
-				Buffer_Source{
-					data = &quad_vertices[0],
-					byte_size = len(quad_vertices) * size_of(f32),
-					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
-				},
-			)
-			send_buffer_data(
-				&ctx.deferred_indices,
-				Buffer_Source{
-					data = &quad_indices[0],
-					byte_size = len(quad_indices) * size_of(u32),
-					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
-				},
-			)
+		send_buffer_data(
+			&ctx.deferred_vertices,
+			Buffer_Source{
+				data = &quad_vertices[0],
+				byte_size = len(quad_vertices) * size_of(f32),
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+			},
+		)
+		send_buffer_data(
+			&ctx.deferred_indices,
+			Buffer_Source{
+				data = &quad_indices[0],
+				byte_size = len(quad_indices) * size_of(u32),
+				accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+			},
+		)
 
-			// prepare attributes
-			bind_attributes(ctx.framebuffer_blit_attributes)
-			defer {
-				default_attributes()
-				default_shader()
-				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0))
-				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1))
-				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2))
-			}
-
-			link_interleaved_attributes_vertices(
-				ctx.framebuffer_blit_attributes,
-				ctx.deferred_vertices.buf,
-			)
-			link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
-
-			draw_triangles(len(quad_indices))
-			set_backface_culling(true)
+		// prepare attributes
+		bind_attributes(ctx.framebuffer_blit_attributes)
+		defer {
+			default_attributes()
+			default_shader()
+			unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0))
+			unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1))
+			unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2))
 		}
 
+		link_interleaved_attributes_vertices(
+			ctx.framebuffer_blit_attributes,
+			ctx.deferred_vertices.buf,
+		)
+		link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
+
+		draw_triangles(len(quad_indices))
+		set_backface_culling(true)
+	}
+
+	render_forward_geometry(ctx)
+
+	render_other_geometry(ctx)
 
 	// current_shader: u32 = 0
 	// for command in &ctx.commands {
@@ -726,13 +761,134 @@ end_render :: proc() {
 }
 
 @(private)
-compute_projection :: proc(ctx: ^Rendering_Context) {
+render_forward_geometry :: proc(ctx: ^Render_Context) {
+	fq := &ctx.queues[Render_Queue_Kind.Forward_Geometry]
+	forward_commands := fq.commands[:fq.count]
+	for command in &forward_commands {
+		#partial switch c in &command {
+		case Render_Mesh_Command:
+			if c.material.double_face {
+				set_backface_culling(false)
+				depth_mode(.Less_Equal)
+			}
+			model_mat := c.global_transform
+			mvp := linalg.matrix_mul(ctx.projection_view, model_mat)
+			if _, exist := c.material.shader.uniforms["mvp"]; exist {
+				set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matModel"]; exist {
+				set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matModelLocal"]; exist {
+				set_shader_uniform(c.material.shader, "matModelLocal", &c.local_transform[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matNormal"]; exist {
+				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(model_mat)
+				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+				set_shader_uniform(c.material.shader, "matNormal", &normal_mat[0][0])
+			}
+			if _, exist := c.material.shader.uniforms["matNormalLocal"]; exist {
+				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
+				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+				set_shader_uniform(c.material.shader, "matNormalLocal", &normal_mat[0][0])
+			}
+
+			unit_index: u32
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					texture := c.material.textures[kind]
+					texture_uniform_name: string
+					switch texture.kind {
+					case .Texture:
+						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
+					case .Cubemap:
+						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
+					}
+					bind_texture(c.material.textures[kind], unit_index)
+					if _, exist := c.material.shader.uniforms[texture_uniform_name]; exist {
+						set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
+					}
+					unit_index += 1
+				}
+			}
+			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
+				bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
+				set_shader_uniform(c.material.shader, "mapShadow", &unit_index)
+			}
+			unit_index += 1
+
+			if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
+				bind_texture(
+					&ctx.deferred_framebuffer.maps[Framebuffer_Attachment.Depth],
+					unit_index,
+				)
+				set_shader_uniform(c.material.shader, "mapViewDepth", &unit_index)
+			}
+
+			bind_attributes(c.mesh.attributes)
+			defer default_attributes()
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices.buf,
+				c.mesh.attributes_info,
+			)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+			draw_triangles(c.mesh.index_count)
+
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					unbind_texture(c.material.textures[kind])
+				}
+			}
+			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
+				unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
+			}
+
+			if c.material.double_face {
+				set_backface_culling(true)
+				depth_mode(.Less)
+			}
+
+		// case Render_Custom_Command:
+		// 	if .Disable_Culling in c.options {
+		// 		set_backface_culling(false)
+		// 		c.render_proc(c.data)
+		// 		set_backface_culling(true)
+		// 	} else {
+		// 		c.render_proc(c.data)
+		// 	}
+		}
+	}
+}
+
+render_other_geometry :: proc(ctx: ^Render_Context) {
+	oq := ctx.queues[Render_Queue_Kind.Other]
+	other_commands := oq.commands[:oq.count]
+	for command in other_commands {
+		#partial switch c in command {
+		case Render_Custom_Command:
+			if .Disable_Culling in c.options {
+				set_backface_culling(false)
+				c.render_proc(c.data)
+				set_backface_culling(true)
+			} else {
+				c.render_proc(c.data)
+			}
+
+		case:
+			unreachable()
+		}
+	}
+}
+
+@(private)
+compute_projection :: proc(ctx: ^Render_Context) {
 	ctx.view = linalg.matrix4_look_at_f32(ctx.eye, ctx.centre, ctx.up)
 	ctx.projection_view = linalg.matrix_mul(ctx.projection, ctx.view)
 	send_buffer_data(
 		&ctx.context_uniform_memory,
 		Buffer_Source{
-			data = &Render_Context_Uniform_Data{
+			data = &Context_Uniform_Data{
 				projection_view = ctx.projection_view,
 				projection = ctx.projection,
 				view = ctx.view,
@@ -740,21 +896,24 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 				time = f32(time.duration_seconds(time.since(app.start_time))),
 				dt = f32(elapsed_time()),
 			},
-			byte_size = size_of(Render_Context_Uniform_Data),
+			byte_size = size_of(Context_Uniform_Data),
 			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 		},
 	)
-	ctx.lighting_context.projection = ctx.projection
+	// ctx.lighting_context.projection = ctx.projection
 }
 
 @(private)
-push_draw_command :: proc(cmd: Render_Command) {
-	switch c in cmd {
-	case Render_Mesh_Command, Render_Custom_Command:
-		append(&app.render_ctx.commands, cmd)
-	case Render_Framebuffer_Command:
-		append(&app.render_ctx.deferred_commands, cmd)
-	}
+push_draw_command :: proc(cmd: Render_Command, kind: Render_Queue_Kind) {
+	queue := &app.render_ctx.queues[kind]
+	queue.commands[queue.count] = cmd
+	queue.count += 1
+	// switch c in cmd {
+	// case Render_Mesh_Command, Render_Custom_Command:
+	// 	append(&app.render_ctx.commands, cmd)
+	// case Render_Framebuffer_Command:
+	// 	append(&app.render_ctx.deferred_commands, cmd)
+	// }
 }
 
 @(private)

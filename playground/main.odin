@@ -147,58 +147,58 @@ init :: proc(data: iris.App_Data) {
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
-		pitch = 45,
-		target = {0, 0.5, 0},
-		target_distance = 10,
-		target_rotation = 90,
-		min_pitch = 10,
-		max_pitch = 170,
-		min_distance = 2,
-		distance_speed = 1,
-		position_speed = 12,
-		rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
-			m_right := iris.mouse_button_state(.Right)
-			if .Pressed in m_right {
-				trigger = true
-				delta = iris.mouse_delta()
-			} else {
-				KEY_CAMERA_PAN_SPEED :: 2
-				left_state := iris.key_state(.Q)
-				right_state := iris.key_state(.E)
-				if .Pressed in left_state {
+			pitch = 45,
+			target = {0, 0.5, 0},
+			target_distance = 10,
+			target_rotation = 90,
+			min_pitch = 10,
+			max_pitch = 170,
+			min_distance = 2,
+			distance_speed = 1,
+			position_speed = 12,
+			rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
+				m_right := iris.mouse_button_state(.Right)
+				if .Pressed in m_right {
 					trigger = true
-					delta = {KEY_CAMERA_PAN_SPEED, 0}
-				} else if .Pressed in right_state {
-					trigger = true
-					delta = {-KEY_CAMERA_PAN_SPEED, 0}
+					delta = iris.mouse_delta()
+				} else {
+					KEY_CAMERA_PAN_SPEED :: 2
+					left_state := iris.key_state(.Q)
+					right_state := iris.key_state(.E)
+					if .Pressed in left_state {
+						trigger = true
+						delta = {KEY_CAMERA_PAN_SPEED, 0}
+					} else if .Pressed in right_state {
+						trigger = true
+						delta = {-KEY_CAMERA_PAN_SPEED, 0}
+					}
 				}
-			}
-			return
-		},
-		distance_proc = proc() -> (trigger: bool, displacement: f32) {
-			displacement = f32(iris.mouse_scroll())
-			trigger = displacement != 0
-			return
-		},
-		position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
-			if .Pressed in iris.key_state(.W) {
-				trigger = true
-				fb = 1
-			} else if .Pressed in iris.key_state(.S) {
-				trigger = true
-				fb = -1
-			}
+				return
+			},
+			distance_proc = proc() -> (trigger: bool, displacement: f32) {
+				displacement = f32(iris.mouse_scroll())
+				trigger = displacement != 0
+				return
+			},
+			position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
+				if .Pressed in iris.key_state(.W) {
+					trigger = true
+					fb = 1
+				} else if .Pressed in iris.key_state(.S) {
+					trigger = true
+					fb = -1
+				}
 
-			if .Pressed in iris.key_state(.A) {
-				trigger = true
-				lr = -1
-			} else if .Pressed in iris.key_state(.D) {
-				trigger = true
-				lr = 1
-			}
-			return
-		},
-	})
+				if .Pressed in iris.key_state(.A) {
+					trigger = true
+					lr = -1
+				} else if .Pressed in iris.key_state(.D) {
+					trigger = true
+					lr = 1
+				}
+				return
+			},
+		})
 	iris.insert_node(g.scene, camera)
 
 	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {1, 1, 1, 1})
@@ -306,9 +306,9 @@ update :: proc(data: iris.App_Data) {
 
 	g.delta += dt
 	if g.delta >= 5 {
-		g.delta = 0 
+		g.delta = 0
 	}
-	iris.light_position(g.light,  iris.Vector3{2, 3 + g.delta, 2})
+	iris.light_position(g.light, iris.Vector3{2, 3, 2})
 
 	iris.update_scene(g.scene, dt)
 }
@@ -321,7 +321,7 @@ draw :: proc(data: iris.App_Data) {
 
 		iris.draw_mesh(
 			g.mesh,
-			iris.transform(t = iris.Vector3{2, 3 + g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			iris.transform(t = iris.Vector3{2, 3, 2}, s = {0.2, 0.2, 0.2}),
 			g.flat_material,
 		)
 		// iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)
