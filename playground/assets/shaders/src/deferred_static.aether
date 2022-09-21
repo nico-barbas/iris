@@ -22,6 +22,7 @@ uniform mat3 matNormal;
 void main()
 {
 	frag.position = vec3(matModel * vec4(attribPosition, 1.0));
+	frag.normal = matNormal * attribNormal;
 	frag.texCoord = attribTexCoord;
 
 	vec3 t = normalize(matNormal * vec3(attribTangent));
@@ -36,8 +37,8 @@ void main()
 
 [Fragment]
 #version 450 core
-layout (location = 0) out vec3 bufferedPosition;
-layout (location = 1) out vec3 bufferedNormal;
+layout (location = 0) out vec4 bufferedPosition;
+layout (location = 1) out vec4 bufferedNormal;
 layout (location = 2) out vec4 bufferedAlbedo;
 
 in VS_OUT {
@@ -56,11 +57,13 @@ void main() {
 		sampledNormal = sampledNormal * 2.0 - 1.0;
 		sampledNormal = normalize(frag.matTBN * sampledNormal);
 
-		bufferedNormal = sampledNormal;
+		bufferedNormal.xyz = sampledNormal;
+		bufferedNormal.a = 1.0;
 	} else {
-		bufferedNormal = frag.normal;
+		bufferedNormal = vec4(normalize(frag.normal), 1.0);
 	}
 
-	bufferedPosition = frag.position;
-	bufferedAlbedo.rbg = texture(texture0, frag.texCoord).rgb;
+	bufferedPosition = vec4(frag.position, 1.0);
+	bufferedAlbedo.rgb = texture(texture0, frag.texCoord).rgb;
+	bufferedAlbedo.a = 1.0;
 }

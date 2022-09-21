@@ -22,6 +22,8 @@ Token :: struct {
 	text:       string,
 }
 
+Token_Kind_Set :: distinct bit_set[Token_Kind]
+
 Token_Kind :: enum {
 	Invalid,
 	Eof,
@@ -86,9 +88,8 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 		token.kind = .String
 		lex_string: for {
 			if is_eof(l) {
-				err = {
-					kind     = .Malformed_String,
-					position = l.current,
+				err = Lexing_Error {
+					base = {kind = .Malformed_String, position = l.current},
 				}
 				return
 			}
@@ -108,9 +109,8 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 				next := peek(l)
 				if next == '.' {
 					if has_decimal {
-						err = {
-							kind     = .Malformed_Number,
-							position = l.current,
+						err = Lexing_Error {
+							base = {kind = .Malformed_Number, position = l.current},
 						}
 						return
 					}

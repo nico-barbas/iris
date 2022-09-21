@@ -5,11 +5,10 @@ import "core:fmt"
 import "core:math/linalg"
 
 
-RENDER_CTX_MAX_LIGHTS :: 4
+RENDER_CTX_MAX_LIGHTS :: 128
 RENDER_CTX_DEFAULT_FAR :: 100
 RENDER_CTX_DEFAULT_NEAR :: 0.1
-RENDER_CTX_DEFAULT_AMBIENT_STR :: 0.4
-RENDER_CTX_DEFAULT_AMBIENT_CLR :: Color{0.45, 0.45, 0.75, 1.0}
+RENDER_CTX_DEFAULT_AMBIENT :: Color{0.45, 0.45, 0.75, 0.4}
 
 Rendering_Context :: struct {
 	render_width:                int,
@@ -21,17 +20,14 @@ Rendering_Context :: struct {
 	context_uniform_memory:      Buffer_Memory,
 
 	// Camera state
+	view_dirty:                  bool,
 	eye:                         Vector3,
 	centre:                      Vector3,
 	up:                          Vector3,
 
 	// Lighting states
-	light_dirty:                 bool,
-	lights:                      [RENDER_CTX_MAX_LIGHTS]Light,
-	light_count:                 int,
-	light_ambient_clr:           Color,
-	light_ambient_strength:      f32,
-	light_uniform_buffer:        ^Buffer,
+	lighting_context:            Lighting_Context,
+	// light_uniform_buffer:        ^Buffer,
 	light_uniform_memory:        Buffer_Memory,
 
 	// Shadow mapping states
@@ -39,8 +35,8 @@ Rendering_Context :: struct {
 	depth_shader:                ^Shader,
 
 	// View depth framebuffer
-	view_depth_framebuffer:      ^Framebuffer,
-	view_depth_shader:           ^Shader,
+	// view_depth_framebuffer:      ^Framebuffer,
+	// view_depth_shader:           ^Shader,
 	deferred_framebuffer:        ^Framebuffer,
 	deferred_static_shader:      ^Shader,
 
@@ -72,11 +68,13 @@ Render_Context_Uniform_Data :: struct {
 }
 
 @(private)
-Render_Uniform_Light_Data :: struct {
-	lights:           [RENDER_CTX_MAX_LIGHTS]Light_Data,
-	light_space:      Matrix4,
-	ambient_clr:      Vector3,
-	ambient_strength: f32,
+Renderer_Lighting_Uniform_Data :: struct {
+	lights:              [RENDER_CTX_MAX_LIGHTS]Light_Info,
+	shadow_casters:      [4]u32,
+	mat_caster_spaces:   [4]Matrix4,
+	ambient:             Color,
+	light_count:         u32,
+	shadow_caster_count: u32,
 }
 
 
@@ -154,25 +152,25 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	)
 	ctx.depth_shader = depth_shader_res.data.(^Shader)
 
-	view_depth_framebuffer_res := framebuffer_resource(
-		Framebuffer_Loader{
-			attachments = {.Depth},
-			width = ctx.render_width,
-			height = ctx.render_height,
-		},
-	)
-	ctx.view_depth_framebuffer = view_depth_framebuffer_res.data.(^Framebuffer)
-	view_depth_shader_res := shader_resource(
-		Shader_Loader{
-			name = "view_depth_map",
-			kind = .Byte,
-			stages = {
-				Shader_Stage.Vertex = Shader_Stage_Loader{source = VIEW_DEPTH_VERTEX_SHADER},
-				Shader_Stage.Fragment = Shader_Stage_Loader{source = EMPTY_FRAGMENT_SHADER},
-			},
-		},
-	)
-	ctx.view_depth_shader = view_depth_shader_res.data.(^Shader)
+	// view_depth_framebuffer_res := framebuffer_resource(
+	// 	Framebuffer_Loader{
+	// 		attachments = {.Depth},
+	// 		width = ctx.render_width,
+	// 		height = ctx.render_height,
+	// 	},
+	// )
+	// ctx.view_depth_framebuffer = view_depth_framebuffer_res.data.(^Framebuffer)
+	// view_depth_shader_res := shader_resource(
+	// 	Shader_Loader{
+	// 		name = "view_depth_map",
+	// 		kind = .Byte,
+	// 		stages = {
+	// 			Shader_Stage.Vertex = Shader_Stage_Loader{source = VIEW_DEPTH_VERTEX_SHADER},
+	// 			Shader_Stage.Fragment = Shader_Stage_Loader{source = EMPTY_FRAGMENT_SHADER},
+	// 		},
+	// 	},
+	// )
+	// ctx.view_depth_shader = view_depth_shader_res.data.(^Shader)
 
 	deferred_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
@@ -204,16 +202,21 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 		u32(Render_Uniform_Binding.Projection_Data),
 	)
 
-	ctx.light_ambient_strength = RENDER_CTX_DEFAULT_AMBIENT_STR
-	ctx.light_ambient_clr = RENDER_CTX_DEFAULT_AMBIENT_CLR
-	light_buffer_res := raw_buffer_resource(size_of(Render_Uniform_Light_Data))
-	ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
-	ctx.light_uniform_memory = Buffer_Memory {
-		buf    = ctx.light_uniform_buffer,
-		size   = size_of(Render_Uniform_Light_Data),
-		offset = 0,
+	ctx.lighting_context = Lighting_Context {
+		ambient = RENDER_CTX_DEFAULT_AMBIENT,
 	}
-	set_uniform_buffer_binding(ctx.light_uniform_buffer, u32(Render_Uniform_Binding.Light_Data))
+	light_buffer_res := raw_buffer_resource(size_of(Renderer_Lighting_Uniform_Data))
+	// ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
+	// ctx.light_uniform_memory = Buffer_Memory {
+	// 	buf    = ctx.light_uniform_buffer,
+	// 	size   = size_of(Renderer_Lighting_Context),
+	// 	offset = 0,
+	// }
+	ctx.light_uniform_memory = buffer_memory_from_buffer_resource(light_buffer_res)
+	set_uniform_buffer_binding(
+		ctx.light_uniform_memory.buf,
+		u32(Render_Uniform_Binding.Light_Data),
+	)
 
 	// Framebuffer blitting states
 	blit_shader_res := shader_resource(
@@ -246,45 +249,45 @@ close_render_ctx :: proc(ctx: ^Rendering_Context) {
 
 view_position :: proc(position: Vector3) {
 	app.render_ctx.eye = position
+	app.render_ctx.view_dirty = true
 }
 
 view_target :: proc(target: Vector3) {
 	app.render_ctx.centre = target
+	app.render_ctx.view_dirty = true
 }
 
 add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color) -> (id: Light_ID) {
 	ctx := &app.render_ctx
-	assert(ctx.light_count < 1)
-	// h_res := f32(ctx.render_width) / 2
-	// v_res := f32(ctx.render_height) / 2
-	id = Light_ID(ctx.light_count)
-	ctx.lights[id] = Light {
+	id = Light_ID(ctx.lighting_context.count)
+	ctx.lighting_context.lights[id] = Light_Info {
 		kind = kind,
-		projection = linalg.matrix_ortho3d_f32(
-			-17.5,
-			17.5,
-			-10,
-			10,
-			f32(RENDER_CTX_DEFAULT_NEAR),
-			f32(20),
-		),
-		data = Light_Data{position = {p.x, p.y, p.z, 1.0}, color = clr},
+		position = {p.x, p.y, p.z, 1.0},
+		color = clr,
 	}
-	ctx.light_count += 1
-	ctx.light_dirty = true
+	ctx.lighting_context.lights_projection[id] = linalg.matrix_ortho3d_f32(
+		-17.5,
+		17.5,
+		-10,
+		10,
+		f32(RENDER_CTX_DEFAULT_NEAR),
+		f32(20),
+	)
+	ctx.lighting_context.count += 1
+	ctx.view_dirty = true
 	return
 }
 
 light_position :: proc(id: Light_ID, position: Vector3) {
 	ctx := &app.render_ctx
-	ctx.lights[id].data.position = {position.x, position.y, position.z, 1.0}
-	ctx.light_dirty = true
+	ctx.lighting_context.lights[id].position = {position.x, position.y, position.z, 1.0}
+	ctx.view_dirty = true
 }
 
-light_ambient :: proc(strength: f32, color: Color) {
-	app.render_ctx.light_ambient_strength = strength
-	app.render_ctx.light_ambient_clr = color
-	app.render_ctx.light_dirty = true
+light_ambient :: proc(strength: f32, color: Vector3) {
+	app.render_ctx.lighting_context.ambient.rbg = color.rgb
+	app.render_ctx.lighting_context.ambient.a = strength
+	app.render_ctx.view_dirty = true
 }
 
 start_render :: proc() {
@@ -302,9 +305,10 @@ end_render :: proc() {
 	ctx := &app.render_ctx
 
 	// Update light values
-	if ctx.light_dirty {
-		for _, i in ctx.lights[:ctx.light_count] {
-			compute_light_projection(&ctx.lights[i], ctx.centre)
+	if ctx.view_dirty {
+		for i in 0 ..< ctx.lighting_context.count {
+			compute_light_projection(&ctx.lighting_context, int(i), ctx.centre)
+			// compute_light_projection(&ctx.lighting_context, i ctx.centre)
 		}
 
 		send_buffer_data(
@@ -325,7 +329,7 @@ end_render :: proc() {
 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 			},
 		)
-		ctx.light_dirty = false
+		ctx.view_dirty = false
 	}
 
 	set_viewport(ctx.render_width, ctx.render_height)
@@ -359,30 +363,30 @@ end_render :: proc() {
 	default_shader()
 	default_framebuffer()
 
-	bind_framebuffer(ctx.view_depth_framebuffer)
-	clear_framebuffer(ctx.view_depth_framebuffer)
-	bind_shader(ctx.view_depth_shader)
-	for command in &ctx.commands {
-		#partial switch c in &command {
-		case Render_Mesh_Command:
-			if .Transparent in c.options {
-				continue
-			}
-			set_shader_uniform(ctx.view_depth_shader, "matModel", &c.global_transform[0][0])
+	// bind_framebuffer(ctx.view_depth_framebuffer)
+	// clear_framebuffer(ctx.view_depth_framebuffer)
+	// bind_shader(ctx.view_depth_shader)
+	// for command in &ctx.commands {
+	// 	#partial switch c in &command {
+	// 	case Render_Mesh_Command:
+	// 		if .Transparent in c.options {
+	// 			continue
+	// 		}
+	// 		set_shader_uniform(ctx.view_depth_shader, "matModel", &c.global_transform[0][0])
 
-			bind_attributes(c.mesh.attributes)
-			defer default_attributes()
-			link_packed_attributes_vertices(
-				c.mesh.attributes,
-				c.mesh.vertices.buf,
-				c.mesh.attributes_info,
-			)
-			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
-			draw_triangles(c.mesh.index_count)
-		}
-	}
-	default_shader()
-	default_framebuffer()
+	// 		bind_attributes(c.mesh.attributes)
+	// 		defer default_attributes()
+	// 		link_packed_attributes_vertices(
+	// 			c.mesh.attributes,
+	// 			c.mesh.vertices.buf,
+	// 			c.mesh.attributes_info,
+	// 		)
+	// 		link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+	// 		draw_triangles(c.mesh.index_count)
+	// 	}
+	// }
+	// default_shader()
+	// default_framebuffer()
 
 	bind_framebuffer(ctx.deferred_framebuffer)
 	clear_framebuffer(ctx.deferred_framebuffer)
@@ -397,6 +401,7 @@ end_render :: proc() {
 			set_shader_uniform(ctx.deferred_static_shader, "mvp", &mvp[0][0])
 
 			set_shader_uniform(ctx.deferred_static_shader, "matModel", &c.global_transform[0][0])
+
 
 			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.global_transform)
 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
@@ -425,19 +430,6 @@ end_render :: proc() {
 					unit_index += 1
 				}
 			}
-			if _, exist := ctx.deferred_static_shader.uniforms["mapShadow"]; exist {
-				bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
-				set_shader_uniform(ctx.deferred_static_shader, "mapShadow", &unit_index)
-			}
-			unit_index += 1
-
-			if _, exist := ctx.deferred_static_shader.uniforms["mapViewDepth"]; exist {
-				bind_texture(
-					&ctx.view_depth_framebuffer.maps[Framebuffer_Attachment.Depth],
-					unit_index,
-				)
-				set_shader_uniform(ctx.deferred_static_shader, "mapViewDepth", &unit_index)
-			}
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
@@ -459,176 +451,176 @@ end_render :: proc() {
 	default_shader()
 	default_framebuffer()
 
-	current_shader: u32 = 0
-	for command in &ctx.commands {
-		switch c in &command {
-		case Render_Mesh_Command:
-			if c.material.shader.handle != current_shader {
-				bind_shader(c.material.shader)
-				current_shader = c.material.shader.handle
-			}
-			if c.material.double_face {
-				set_backface_culling(false)
-				depth_mode(.Less_Equal)
-			}
-			model_mat := c.global_transform
-			mvp := linalg.matrix_mul(ctx.projection_view, model_mat)
-			if _, exist := c.material.shader.uniforms["mvp"]; exist {
-				set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
-			}
-			if _, exist := c.material.shader.uniforms["matModel"]; exist {
-				set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
-			}
-			if _, exist := c.material.shader.uniforms["matModelLocal"]; exist {
-				set_shader_uniform(c.material.shader, "matModelLocal", &c.local_transform[0][0])
-			}
-			if _, exist := c.material.shader.uniforms["matNormal"]; exist {
-				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(model_mat)
-				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
-				set_shader_uniform(c.material.shader, "matNormal", &normal_mat[0][0])
-			}
-			if _, exist := c.material.shader.uniforms["matNormalLocal"]; exist {
-				inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
-				normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
-				set_shader_uniform(c.material.shader, "matNormalLocal", &normal_mat[0][0])
-			}
+	// current_shader: u32 = 0
+	// for command in &ctx.commands {
+	// 	switch c in &command {
+	// 	case Render_Mesh_Command:
+	// 		if c.material.shader.handle != current_shader {
+	// 			bind_shader(c.material.shader)
+	// 			current_shader = c.material.shader.handle
+	// 		}
+	// 		if c.material.double_face {
+	// 			set_backface_culling(false)
+	// 			depth_mode(.Less_Equal)
+	// 		}
+	// 		model_mat := c.global_transform
+	// 		mvp := linalg.matrix_mul(ctx.projection_view, model_mat)
+	// 		if _, exist := c.material.shader.uniforms["mvp"]; exist {
+	// 			set_shader_uniform(c.material.shader, "mvp", &mvp[0][0])
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["matModel"]; exist {
+	// 			set_shader_uniform(c.material.shader, "matModel", &model_mat[0][0])
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["matModelLocal"]; exist {
+	// 			set_shader_uniform(c.material.shader, "matModelLocal", &c.local_transform[0][0])
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["matNormal"]; exist {
+	// 			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(model_mat)
+	// 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+	// 			set_shader_uniform(c.material.shader, "matNormal", &normal_mat[0][0])
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["matNormalLocal"]; exist {
+	// 			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
+	// 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+	// 			set_shader_uniform(c.material.shader, "matNormalLocal", &normal_mat[0][0])
+	// 		}
 
-			unit_index: u32
-			for kind in Material_Map {
-				if kind in c.material.maps {
-					texture := c.material.textures[kind]
-					texture_uniform_name: string
-					switch texture.kind {
-					case .Texture:
-						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
-					case .Cubemap:
-						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
-					}
-					bind_texture(c.material.textures[kind], unit_index)
-					if _, exist := c.material.shader.uniforms[texture_uniform_name]; exist {
-						set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
-					}
-					unit_index += 1
-				}
-			}
-			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
-				bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
-				set_shader_uniform(c.material.shader, "mapShadow", &unit_index)
-			}
-			unit_index += 1
+	// 		unit_index: u32
+	// 		for kind in Material_Map {
+	// 			if kind in c.material.maps {
+	// 				texture := c.material.textures[kind]
+	// 				texture_uniform_name: string
+	// 				switch texture.kind {
+	// 				case .Texture:
+	// 					texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
+	// 				case .Cubemap:
+	// 					texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
+	// 				}
+	// 				bind_texture(c.material.textures[kind], unit_index)
+	// 				if _, exist := c.material.shader.uniforms[texture_uniform_name]; exist {
+	// 					set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
+	// 				}
+	// 				unit_index += 1
+	// 			}
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
+	// 			bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
+	// 			set_shader_uniform(c.material.shader, "mapShadow", &unit_index)
+	// 		}
+	// 		unit_index += 1
 
-			if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
-				bind_texture(
-					&ctx.view_depth_framebuffer.maps[Framebuffer_Attachment.Depth],
-					unit_index,
-				)
-				set_shader_uniform(c.material.shader, "mapViewDepth", &unit_index)
-			}
+	// 		if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
+	// 			bind_texture(
+	// 				&ctx.view_depth_framebuffer.maps[Framebuffer_Attachment.Depth],
+	// 				unit_index,
+	// 			)
+	// 			set_shader_uniform(c.material.shader, "mapViewDepth", &unit_index)
+	// 		}
 
-			bind_attributes(c.mesh.attributes)
-			defer default_attributes()
-			link_packed_attributes_vertices(
-				c.mesh.attributes,
-				c.mesh.vertices.buf,
-				c.mesh.attributes_info,
-			)
-			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
-			draw_triangles(c.mesh.index_count)
+	// 		bind_attributes(c.mesh.attributes)
+	// 		defer default_attributes()
+	// 		link_packed_attributes_vertices(
+	// 			c.mesh.attributes,
+	// 			c.mesh.vertices.buf,
+	// 			c.mesh.attributes_info,
+	// 		)
+	// 		link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+	// 		draw_triangles(c.mesh.index_count)
 
-			for kind in Material_Map {
-				if kind in c.material.maps {
-					unbind_texture(c.material.textures[kind])
-				}
-			}
-			if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
-				unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
-			}
+	// 		for kind in Material_Map {
+	// 			if kind in c.material.maps {
+	// 				unbind_texture(c.material.textures[kind])
+	// 			}
+	// 		}
+	// 		if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
+	// 			unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
+	// 		}
 
-			if c.material.double_face {
-				set_backface_culling(true)
-				depth_mode(.Less)
-			}
+	// 		if c.material.double_face {
+	// 			set_backface_culling(true)
+	// 			depth_mode(.Less)
+	// 		}
 
-		case Render_Framebuffer_Command:
+	// 	case Render_Framebuffer_Command:
 
-		case Render_Custom_Command:
-			if .Disable_Culling in c.options {
-				set_backface_culling(false)
-				c.render_proc(c.data)
-				set_backface_culling(true)
-			} else {
-				c.render_proc(c.data)
-			}
-		}
-	}
-	ctx.previous_cmd_count = len(ctx.commands)
+	// 	case Render_Custom_Command:
+	// 		if .Disable_Culling in c.options {
+	// 			set_backface_culling(false)
+	// 			c.render_proc(c.data)
+	// 			set_backface_culling(true)
+	// 		} else {
+	// 			c.render_proc(c.data)
+	// 		}
+	// 	}
+	// }
+	// ctx.previous_cmd_count = len(ctx.commands)
 
-	for command in ctx.deferred_commands {
-		#partial switch c in command {
-		case Render_Framebuffer_Command:
-			depth(false)
-			defer depth(true)
-			set_backface_culling(false)
-					//odinfmt: disable
-			framebuffer_vertices := [?]f32{
-				-1.0, -1.0, 0.0, 0.0,
-				1.0, -1.0, 1.0, 0.0,
-				1.0,  1.0, 1.0, 1.0,
-				-1.0,  1.0, 0.0, 1.0,
-			}
-			framebuffer_indices := [?]u32{
-				1, 0, 2,
-				2, 0, 3,
-			}
-			//odinfmt: enable
+	// for command in ctx.deferred_commands {
+	// 	#partial switch c in command {
+	// 	case Render_Framebuffer_Command:
+	// 		depth(false)
+	// 		defer depth(true)
+	// 		set_backface_culling(false)
+	// 				//odinfmt: disable
+	// 		framebuffer_vertices := [?]f32{
+	// 			-1.0, -1.0, 0.0, 0.0,
+	// 			1.0, -1.0, 1.0, 0.0,
+	// 			1.0,  1.0, 1.0, 1.0,
+	// 			-1.0,  1.0, 0.0, 1.0,
+	// 		}
+	// 		framebuffer_indices := [?]u32{
+	// 			1, 0, 2,
+	// 			2, 0, 3,
+	// 		}
+	// 		//odinfmt: enable
 
 
-			texture_index: u32 = 0
+	// 		texture_index: u32 = 0
 
-			// Set the shader up
-			bind_shader(ctx.framebuffer_blit_shader)
-			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
-			bind_texture(framebuffer_texture(c.framebuffer, .Color0), texture_index)
-			send_buffer_data(
-				c.vertex_memory,
-				Buffer_Source{
-					data = &framebuffer_vertices[0],
-					byte_size = len(framebuffer_vertices) * size_of(f32),
-					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
-				},
-			)
-			send_buffer_data(
-				&Buffer_Memory{
-					buf = c.index_buffer,
-					size = len(framebuffer_vertices) * size_of(u32),
-					offset = 0,
-				},
-				Buffer_Source{
-					data = &framebuffer_indices[0],
-					byte_size = len(framebuffer_vertices) * size_of(u32),
-				},
-			)
+	// 		// Set the shader up
+	// 		bind_shader(ctx.framebuffer_blit_shader)
+	// 		set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
+	// 		bind_texture(framebuffer_texture(c.framebuffer, .Color0), texture_index)
+	// 		send_buffer_data(
+	// 			c.vertex_memory,
+	// 			Buffer_Source{
+	// 				data = &framebuffer_vertices[0],
+	// 				byte_size = len(framebuffer_vertices) * size_of(f32),
+	// 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+	// 			},
+	// 		)
+	// 		send_buffer_data(
+	// 			&Buffer_Memory{
+	// 				buf = c.index_buffer,
+	// 				size = len(framebuffer_vertices) * size_of(u32),
+	// 				offset = 0,
+	// 			},
+	// 			Buffer_Source{
+	// 				data = &framebuffer_indices[0],
+	// 				byte_size = len(framebuffer_vertices) * size_of(u32),
+	// 			},
+	// 		)
 
-			// prepare attributes
-			bind_attributes(ctx.framebuffer_blit_attributes)
-			defer {
-				default_attributes()
-				default_shader()
-				unbind_texture(framebuffer_texture(c.framebuffer, .Color0))
-			}
+	// 		// prepare attributes
+	// 		bind_attributes(ctx.framebuffer_blit_attributes)
+	// 		defer {
+	// 			default_attributes()
+	// 			default_shader()
+	// 			unbind_texture(framebuffer_texture(c.framebuffer, .Color0))
+	// 		}
 
-			link_interleaved_attributes_vertices(
-				ctx.framebuffer_blit_attributes,
-				c.vertex_memory.buf,
-			)
-			link_attributes_indices(ctx.framebuffer_blit_attributes, c.index_buffer)
+	// 		link_interleaved_attributes_vertices(
+	// 			ctx.framebuffer_blit_attributes,
+	// 			c.vertex_memory.buf,
+	// 		)
+	// 		link_attributes_indices(ctx.framebuffer_blit_attributes, c.index_buffer)
 
-			draw_triangles(len(framebuffer_indices))
-			set_backface_culling(true)
-		case:
-			assert(false)
-		}
-	}
+	// 		draw_triangles(len(framebuffer_indices))
+	// 		set_backface_culling(true)
+	// 	case:
+	// 		assert(false)
+	// 	}
+	// }
 
 	// set_backface_culling(false)
 	// flush_overlay_buffers(&ctx.overlay)

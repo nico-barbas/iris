@@ -108,196 +108,196 @@ init :: proc(data: iris.App_Data) {
 		iris.insert_node(g.scene, lantern_node, g.lantern)
 	}
 
-	mesh_res := iris.cube_mesh(1, 1, 1)
-	g.mesh = mesh_res.data.(^iris.Mesh)
+	// mesh_res := iris.cube_mesh(1, 1, 1)
+	// g.mesh = mesh_res.data.(^iris.Mesh)
 
-	flat_shader, f_exist := iris.shader_from_name("unlit")
-	assert(f_exist)
-	flat_material_res := iris.material_resource(
-		iris.Material_Loader{name = "flat", shader = flat_shader},
-	)
-	g.flat_material = flat_material_res.data.(^iris.Material)
+	// flat_shader, f_exist := iris.shader_from_name("unlit")
+	// assert(f_exist)
+	// flat_material_res := iris.material_resource(
+	// 	iris.Material_Loader{name = "flat", shader = flat_shader},
+	// )
+	// g.flat_material = flat_material_res.data.(^iris.Material)
 
-	skybox_shader, s_exist := iris.shader_from_name("skybox")
-	assert(s_exist)
-	skybox_material_res := iris.material_resource(
-		iris.Material_Loader{name = "skybox", shader = skybox_shader, double_face = true},
-	)
-	g.skybox_material = skybox_material_res.data.(^iris.Material)
-	iris.set_material_map(
-		g.skybox_material,
-		.Diffuse,
-		iris.texture_resource(
-			iris.Texture_Loader{
-				filter = .Linear,
-				wrap = .Repeat,
-				info = iris.File_Cubemap_Info{
-					paths = [6]string{
-						"skybox/front.png",
-						"skybox/back.png",
-						"skybox/top.png",
-						"skybox/bottom.png",
-						"skybox/left.png",
-						"skybox/right.png",
-					},
-				},
-			},
-		).data.(^iris.Texture),
-	)
+	// skybox_shader, s_exist := iris.shader_from_name("skybox")
+	// assert(s_exist)
+	// skybox_material_res := iris.material_resource(
+	// 	iris.Material_Loader{name = "skybox", shader = skybox_shader, double_face = true},
+	// )
+	// g.skybox_material = skybox_material_res.data.(^iris.Material)
+	// iris.set_material_map(
+	// 	g.skybox_material,
+	// 	.Diffuse,
+	// 	iris.texture_resource(
+	// 		iris.Texture_Loader{
+	// 			filter = .Linear,
+	// 			wrap = .Repeat,
+	// 			info = iris.File_Cubemap_Info{
+	// 				paths = [6]string{
+	// 					"skybox/front.png",
+	// 					"skybox/back.png",
+	// 					"skybox/top.png",
+	// 					"skybox/bottom.png",
+	// 					"skybox/left.png",
+	// 					"skybox/right.png",
+	// 				},
+	// 			},
+	// 		},
+	// 	).data.(^iris.Texture),
+	// )
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
-			pitch = 45,
-			target = {0, 0.5, 0},
-			target_distance = 10,
-			target_rotation = 90,
-			min_pitch = 10,
-			max_pitch = 170,
-			min_distance = 2,
-			distance_speed = 1,
-			position_speed = 12,
-			rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
-				m_right := iris.mouse_button_state(.Right)
-				if .Pressed in m_right {
+		pitch = 45,
+		target = {0, 0.5, 0},
+		target_distance = 10,
+		target_rotation = 90,
+		min_pitch = 10,
+		max_pitch = 170,
+		min_distance = 2,
+		distance_speed = 1,
+		position_speed = 12,
+		rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
+			m_right := iris.mouse_button_state(.Right)
+			if .Pressed in m_right {
+				trigger = true
+				delta = iris.mouse_delta()
+			} else {
+				KEY_CAMERA_PAN_SPEED :: 2
+				left_state := iris.key_state(.Q)
+				right_state := iris.key_state(.E)
+				if .Pressed in left_state {
 					trigger = true
-					delta = iris.mouse_delta()
-				} else {
-					KEY_CAMERA_PAN_SPEED :: 2
-					left_state := iris.key_state(.Q)
-					right_state := iris.key_state(.E)
-					if .Pressed in left_state {
-						trigger = true
-						delta = {KEY_CAMERA_PAN_SPEED, 0}
-					} else if .Pressed in right_state {
-						trigger = true
-						delta = {-KEY_CAMERA_PAN_SPEED, 0}
-					}
+					delta = {KEY_CAMERA_PAN_SPEED, 0}
+				} else if .Pressed in right_state {
+					trigger = true
+					delta = {-KEY_CAMERA_PAN_SPEED, 0}
 				}
-				return
-			},
-			distance_proc = proc() -> (trigger: bool, displacement: f32) {
-				displacement = f32(iris.mouse_scroll())
-				trigger = displacement != 0
-				return
-			},
-			position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
-				if .Pressed in iris.key_state(.W) {
-					trigger = true
-					fb = 1
-				} else if .Pressed in iris.key_state(.S) {
-					trigger = true
-					fb = -1
-				}
+			}
+			return
+		},
+		distance_proc = proc() -> (trigger: bool, displacement: f32) {
+			displacement = f32(iris.mouse_scroll())
+			trigger = displacement != 0
+			return
+		},
+		position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
+			if .Pressed in iris.key_state(.W) {
+				trigger = true
+				fb = 1
+			} else if .Pressed in iris.key_state(.S) {
+				trigger = true
+				fb = -1
+			}
 
-				if .Pressed in iris.key_state(.A) {
-					trigger = true
-					lr = -1
-				} else if .Pressed in iris.key_state(.D) {
-					trigger = true
-					lr = 1
-				}
-				return
-			},
-		})
+			if .Pressed in iris.key_state(.A) {
+				trigger = true
+				lr = -1
+			} else if .Pressed in iris.key_state(.D) {
+				trigger = true
+				lr = 1
+			}
+			return
+		},
+	})
 	iris.insert_node(g.scene, camera)
 
 	iris.add_light(.Directional, iris.Vector3{2, 10, 2}, {1, 1, 1, 1})
 
-	{
-		rig_document, _err := gltf.parse_from_file(
-			"human_rig/CesiumMan.gltf",
-			.Gltf_External,
-			context.temp_allocator,
-			context.temp_allocator,
-		)
-		assert(_err == nil)
-		iris.load_resources_from_gltf(&rig_document)
+	// {
+	// 	rig_document, _err := gltf.parse_from_file(
+	// 		"human_rig/CesiumMan.gltf",
+	// 		.Gltf_External,
+	// 		context.temp_allocator,
+	// 		context.temp_allocator,
+	// 	)
+	// 	assert(_err == nil)
+	// 	iris.load_resources_from_gltf(&rig_document)
 
-		node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
-		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-		iris.insert_node(g.scene, g.rig)
+	// 	node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
+	// 	g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
+	// 	iris.insert_node(g.scene, g.rig)
 
-		mesh_node := iris.new_node(g.scene, iris.Model_Node)
-		iris.model_node_from_gltf(
-			mesh_node,
-			iris.Model_Loader{
-				flags = {
-					.Use_Identity,
-					.Load_Position,
-					.Load_Normal,
-					.Load_TexCoord0,
-					.Load_Joints0,
-					.Load_Weights0,
-					.Load_Bones,
-				},
-				mode = .Flat_Lit,
-				rigged = true,
-			},
-			node,
-		)
-		iris.insert_node(g.scene, mesh_node, g.rig)
+	// 	mesh_node := iris.new_node(g.scene, iris.Model_Node)
+	// 	iris.model_node_from_gltf(
+	// 		mesh_node,
+	// 		iris.Model_Loader{
+	// 			flags = {
+	// 				.Use_Identity,
+	// 				.Load_Position,
+	// 				.Load_Normal,
+	// 				.Load_TexCoord0,
+	// 				.Load_Joints0,
+	// 				.Load_Weights0,
+	// 				.Load_Bones,
+	// 			},
+	// 			mode = .Flat_Lit,
+	// 			rigged = true,
+	// 		},
+	// 		node,
+	// 	)
+	// 	iris.insert_node(g.scene, mesh_node, g.rig)
 
-		skin_node := iris.new_node(g.scene, iris.Skin_Node)
-		iris.skin_node_from_gltf(skin_node, node)
-		iris.skin_node_target(skin_node, mesh_node)
-		iris.insert_node(g.scene, skin_node, g.rig)
+	// 	skin_node := iris.new_node(g.scene, iris.Skin_Node)
+	// 	iris.skin_node_from_gltf(skin_node, node)
+	// 	iris.skin_node_target(skin_node, mesh_node)
+	// 	iris.insert_node(g.scene, skin_node, g.rig)
 
-		animation, _ := iris.animation_from_name("animation0")
-		iris.skin_node_add_animation(skin_node, animation)
-		iris.skin_node_play_animation(skin_node, "animation0")
-	}
+	// 	animation, _ := iris.animation_from_name("animation0")
+	// 	iris.skin_node_add_animation(skin_node, animation)
+	// 	iris.skin_node_play_animation(skin_node, "animation0")
+	// }
 
-	{
-		g.terrain = Terrain {
-			scene       = g.scene,
-			width       = 200,
-			height      = 200,
-			octaves     = 5,
-			persistance = 0.5,
-			lacunarity  = 2,
-			factor      = 6,
-		}
-		init_terrain(&g.terrain)
-	}
+	// {
+	// 	g.terrain = Terrain {
+	// 		scene       = g.scene,
+	// 		width       = 200,
+	// 		height      = 200,
+	// 		octaves     = 5,
+	// 		persistance = 0.5,
+	// 		lacunarity  = 2,
+	// 		factor      = 6,
+	// 	}
+	// 	init_terrain(&g.terrain)
+	// }
 
-	{
-		g.ui_theme = iris.User_Interface_Theme {
-			borders = true,
-			border_color = {1, 1, 1, 1},
-			contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
-			base_color = {0.35, 0.35, 0.35, 1},
-			highlight_color = {0.7, 0.7, 0.8, 1},
-			text_color = 1,
-			text_size = 20,
-			font = g.font,
-			title_style = .Center_Left,
-		}
-		g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
-		iris.insert_node(g.scene, g.canvas)
-		ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
-		iris.insert_node(g.scene, ui_node, g.canvas)
-		iris.ui_node_theme(ui_node, g.ui_theme)
-		layout := iris.new_widget_from(
-			ui_node,
-			iris.Layout_Widget{
-				base = iris.Widget{
-					flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
-					rect = {100, 100, 200, 400},
-					background = iris.Widget_Background{style = .Solid},
-				},
-				options = {.Decorated, .Titled, .Moveable, .Close_Widget},
-				optional_title = "Window",
-				format = .Row,
-				origin = .Up,
-				margin = 3,
-				padding = 2,
-			},
-		)
+	// {
+	// 	g.ui_theme = iris.User_Interface_Theme {
+	// 		borders = true,
+	// 		border_color = {1, 1, 1, 1},
+	// 		contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
+	// 		base_color = {0.35, 0.35, 0.35, 1},
+	// 		highlight_color = {0.7, 0.7, 0.8, 1},
+	// 		text_color = 1,
+	// 		text_size = 20,
+	// 		font = g.font,
+	// 		title_style = .Center_Left,
+	// 	}
+	// 	g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
+	// 	iris.insert_node(g.scene, g.canvas)
+	// 	ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
+	// 	iris.insert_node(g.scene, ui_node, g.canvas)
+	// 	iris.ui_node_theme(ui_node, g.ui_theme)
+	// 	layout := iris.new_widget_from(
+	// 		ui_node,
+	// 		iris.Layout_Widget{
+	// 			base = iris.Widget{
+	// 				flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
+	// 				rect = {100, 100, 200, 400},
+	// 				background = iris.Widget_Background{style = .Solid},
+	// 			},
+	// 			options = {.Decorated, .Titled, .Moveable, .Close_Widget},
+	// 			optional_title = "Window",
+	// 			format = .Row,
+	// 			origin = .Up,
+	// 			margin = 3,
+	// 			padding = 2,
+	// 		},
+	// 	)
 
-		iris.scene_graph_to_list(layout, g.scene, 20)
+	// 	iris.scene_graph_to_list(layout, g.scene, 20)
 
-		init_terrain_ui(&g.terrain, ui_node)
-	}
+	// 	init_terrain_ui(&g.terrain, ui_node)
+	// }
 }
 
 update :: proc(data: iris.App_Data) {
@@ -313,12 +313,12 @@ draw :: proc(data: iris.App_Data) {
 	{
 		iris.render_scene(g.scene)
 
-		iris.draw_mesh(
-			g.mesh,
-			iris.transform(t = iris.Vector3{2, 10, 2}, s = {0.2, 0.2, 0.2}),
-			g.flat_material,
-		)
-		iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)
+		// iris.draw_mesh(
+		// 	g.mesh,
+		// 	iris.transform(t = iris.Vector3{2, 10, 2}, s = {0.2, 0.2, 0.2}),
+		// 	g.flat_material,
+		// )
+		// iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)
 	}
 	iris.end_render()
 }

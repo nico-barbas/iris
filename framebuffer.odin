@@ -133,7 +133,7 @@ clear_framebuffer :: proc(f: ^Framebuffer) {
 		a := Framebuffer_Attachment(i)
 		if a in f.attachments {
 			rgba := f.clear_colors[a].rgba
-			gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, 0, &rgba[0])
+			gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, i32(a), &rgba[0])
 		}
 	}
 	if .Depth in f.attachments {

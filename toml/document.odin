@@ -6,6 +6,7 @@ Node :: union {
 	Nil,
 	Float,
 	String,
+	Boolean,
 	Array,
 	Table,
 }
