@@ -62,12 +62,13 @@ float linearDepthValue(float near, float far, float depth) {
     float quadratic;
     
     uint mode;
+    uint padding;
 };
 const uint DIRECTIONAL_LIGHT = 0;
 const uint POINT_LIGHT = 1;
 const int MAX_LIGHTS = 128;
-const int MAX_SHADOW_CASTERS = 2;
-layout (std140 binding = 1) uniform LightingContext {
+const int MAX_SHADOW_CASTERS = 4;
+layout (std140, binding = 1) uniform LightingContext {
     Light lights[MAX_LIGHTS];
     uvec4 shadowCasters;                      // IDs of the lights used for shadow mapping
     mat4 matLightSpaces[MAX_SHADOW_CASTERS];  // Space matrices of the lights used for shadow mapping

@@ -16,6 +16,7 @@ Light_Info :: struct {
 	linear:    f32,
 	quadratic: f32,
 	kind:      Light_Kind,
+	padding: u32,
 }
 
 Light_ID :: distinct int

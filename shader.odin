@@ -234,8 +234,9 @@ compile_shader_source :: proc(
 		}
 		gl.GetShaderInfoLog(shader_handle, 512, &max_length, &message[0])
 		log.debugf(
-			"%s: Compilation error [%s]:\n\t%s\n",
+			"%s: %s Compilation error [%s]:\n\t%s\n",
 			App_Module.Shader,
+			shader_type,
 			file_name,
 			string(message[:max_length]),
 		)
@@ -257,6 +258,10 @@ format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allo
 @(private)
 uniform_type :: proc(t: u32) -> (type: Buffer_Data_Type) {
 	switch t {
+	case gl.BOOL:
+		type.kind = .Boolean
+		type.format = .Scalar
+
 	case gl.INT, gl.SAMPLER_2D, gl.SAMPLER_CUBE:
 		type.kind = .Signed_32
 		type.format = .Scalar
@@ -332,6 +337,8 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := 
 
 	case .Scalar:
 		#partial switch info.type.kind {
+		case .Boolean:
+			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
 		case .Signed_32:
 			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
 		case .Unsigned_32:

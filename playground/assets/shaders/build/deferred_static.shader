@@ -26,6 +26,7 @@ layout (std140, binding = 0) uniform ContextData {
 uniform mat4 mvp;
 uniform mat4 matModel;
 uniform mat3 matNormal;
+uniform bool useTangentSpace;
 
 void main()
 {
@@ -33,12 +34,14 @@ void main()
 	frag.normal = matNormal * attribNormal;
 	frag.texCoord = attribTexCoord;
 
-	vec3 t = normalize(matNormal * vec3(attribTangent));
-	vec3 n = normalize(matNormal * attribNormal);
-	t =  normalize(t - dot(t, n) * n);
-	vec3 b = cross(n, t);
+	if (useTangentSpace) {
+		vec3 t = normalize(matNormal * vec3(attribTangent));
+		vec3 n = normalize(matNormal * attribNormal);
+		t =  normalize(t - dot(t, n) * n);
+		vec3 b = cross(n, t);
 
-	frag.matTBN = transpose(mat3(t, b, n));
+		frag.matTBN = inverse(transpose(mat3(t, b, n)));
+	}
 
     gl_Position = mvp * vec4(attribPosition, 1.0);
 }
@@ -58,15 +61,15 @@ in VS_OUT {
 
 uniform sampler2D texture0;
 uniform sampler2D texture1;
+uniform bool useTangentSpace;
 
 void main() {
-	vec3 sampledNormal = texture(texture1, frag.texCoord).rgb;
-	if (length(sampledNormal) != 0) {
+	if (useTangentSpace) {
+		vec3 sampledNormal = texture(texture1, frag.texCoord).rgb;
 		sampledNormal = sampledNormal * 2.0 - 1.0;
 		sampledNormal = normalize(frag.matTBN * sampledNormal);
 
-		bufferedNormal.xyz = sampledNormal;
-		bufferedNormal.a = 1.0;
+		bufferedNormal = vec4(sampledNormal, 1.0);
 	} else {
 		bufferedNormal = vec4(normalize(frag.normal), 1.0);
 	}

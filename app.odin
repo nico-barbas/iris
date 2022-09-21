@@ -177,6 +177,7 @@ run_app :: proc() {
 		app.last_time = time.now()
 		app.update(app.data)
 
+		gl.ClearColor(0.6, 0.6, 0.6, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		app.draw(app.data)
 

@@ -18,6 +18,7 @@ Buffer_Source :: struct {
 
 Buffer_Data_Kind :: enum {
 	Byte,
+	Boolean,
 	Unsigned_16,
 	Signed_16,
 	Unsigned_32,
@@ -28,6 +29,7 @@ Buffer_Data_Kind :: enum {
 
 buffer_size_of := map[Buffer_Data_Kind]int {
 	.Byte        = size_of(byte),
+	.Boolean        = size_of(bool),
 	.Unsigned_16 = size_of(u16),
 	.Signed_16   = size_of(i16),
 	.Unsigned_32 = size_of(u32),

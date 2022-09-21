@@ -69,6 +69,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		return texture
 	}
 	framebuffer := Framebuffer {
+		clear_colors = l.clear_colors,
 		attachments = l.attachments,
 	}
 	gl.CreateFramebuffers(1, &framebuffer.handle)

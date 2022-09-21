@@ -39,6 +39,9 @@ Rendering_Context :: struct {
 	// view_depth_shader:           ^Shader,
 	deferred_framebuffer:        ^Framebuffer,
 	deferred_static_shader:      ^Shader,
+	deferred_composite_shader: ^Shader,
+	deferred_vertices: Buffer_Memory,
+	deferred_indices: Buffer_Memory,
 
 	//
 	framebuffer_blit_shader:     ^Shader,
@@ -71,7 +74,7 @@ Render_Context_Uniform_Data :: struct {
 Renderer_Lighting_Uniform_Data :: struct {
 	lights:              [RENDER_CTX_MAX_LIGHTS]Light_Info,
 	shadow_casters:      [4]u32,
-	mat_caster_spaces:   [4]Matrix4,
+	projections:   [4]Matrix4,
 	ambient:             Color,
 	light_count:         u32,
 	shadow_caster_count: u32,
@@ -131,6 +134,14 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 	ctx.eye = {}
 	ctx.centre = {}
 	ctx.up = VECTOR_UP
+	ctx.lighting_context.projection = linalg.matrix_ortho3d_f32(
+		-17.5,
+		17.5,
+		-10,
+		10,
+		f32(RENDER_CTX_DEFAULT_NEAR),
+		f32(20),
+	)
 
 	depth_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
@@ -182,13 +193,22 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 			},
 			width = ctx.render_width,
 			height = ctx.render_height,
-		},
+		}, 
 	)
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
 
 	deferred_shader_exist: bool
 	ctx.deferred_static_shader, deferred_shader_exist = shader_from_name("deferred_static")
 	assert(deferred_shader_exist)
+
+	ctx.deferred_composite_shader, deferred_shader_exist = shader_from_name("deferred_shading")
+	assert(deferred_shader_exist)
+
+	// TEMP
+	deferred_vertices_res := raw_buffer_resource(size_of(f32) * 4 * 4)
+	ctx.deferred_vertices = buffer_memory_from_buffer_resource(deferred_vertices_res)
+	deferred_indices_res := raw_buffer_resource(size_of(u32) * 6)
+	ctx.deferred_indices = buffer_memory_from_buffer_resource(deferred_indices_res)
 
 	context_buffer_res := raw_buffer_resource(size_of(Render_Context_Uniform_Data))
 	ctx.context_uniform_buffer = context_buffer_res.data.(^Buffer)
@@ -206,6 +226,7 @@ init_render_ctx :: proc(ctx: ^Rendering_Context, w, h: int) {
 		ambient = RENDER_CTX_DEFAULT_AMBIENT,
 	}
 	light_buffer_res := raw_buffer_resource(size_of(Renderer_Lighting_Uniform_Data))
+	fmt.println(offset_of(Renderer_Lighting_Uniform_Data, shadow_casters))
 	// ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
 	// ctx.light_uniform_memory = Buffer_Memory {
 	// 	buf    = ctx.light_uniform_buffer,
@@ -265,14 +286,14 @@ add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color) -> (id: Light_ID) {
 		position = {p.x, p.y, p.z, 1.0},
 		color = clr,
 	}
-	ctx.lighting_context.lights_projection[id] = linalg.matrix_ortho3d_f32(
-		-17.5,
-		17.5,
-		-10,
-		10,
-		f32(RENDER_CTX_DEFAULT_NEAR),
-		f32(20),
-	)
+	// ctx.lighting_context.lights_projection[id] = linalg.matrix_ortho3d_f32(
+	// 	-17.5,
+	// 	17.5,
+	// 	-10,
+	// 	10,
+	// 	f32(RENDER_CTX_DEFAULT_NEAR),
+	// 	f32(20),
+	// )
 	ctx.lighting_context.count += 1
 	ctx.view_dirty = true
 	return
@@ -304,43 +325,44 @@ start_render :: proc() {
 end_render :: proc() {
 	ctx := &app.render_ctx
 
+	set_viewport(ctx.render_width, ctx.render_height)
+
 	// Update light values
 	if ctx.view_dirty {
+		compute_projection(ctx)
+		lights: [RENDER_CTX_MAX_LIGHTS]Light_Info
 		for i in 0 ..< ctx.lighting_context.count {
 			compute_light_projection(&ctx.lighting_context, int(i), ctx.centre)
 			// compute_light_projection(&ctx.lighting_context, i ctx.centre)
+			lights[i] = ctx.lighting_context.lights[i]
 		}
+
 
 		send_buffer_data(
 			&ctx.light_uniform_memory,
 			Buffer_Source{
-				data = &Render_Uniform_Light_Data{
-					lights = [RENDER_CTX_MAX_LIGHTS]Light_Data{
-						ctx.lights[0].data,
-						ctx.lights[1].data,
-						ctx.lights[2].data,
-						ctx.lights[3].data,
-					},
-					light_space = ctx.lights[0].projection_view,
-					ambient_clr = ctx.light_ambient_clr.rgb,
-					ambient_strength = ctx.light_ambient_strength,
+				data = &Renderer_Lighting_Uniform_Data{
+					ambient = ctx.lighting_context.ambient,
+					light_count = ctx.lighting_context.count,
+					lights = lights,
+					shadow_caster_count = 1,
+					shadow_casters = {0 = 0},
+					projections = {0 = ctx.lighting_context.lights_projection[0]},
 				},
-				byte_size = size_of(Render_Uniform_Light_Data),
+				byte_size = size_of(Renderer_Lighting_Uniform_Data),
 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 			},
 		)
 		ctx.view_dirty = false
 	}
 
-	set_viewport(ctx.render_width, ctx.render_height)
-	compute_projection(ctx)
 
-	// Compute the scene's depth map
+	// Compute the multiple shadow maps
 	set_backface_culling(true)
 	bind_framebuffer(ctx.depth_framebuffer)
 	clear_framebuffer(ctx.depth_framebuffer)
 	bind_shader(ctx.depth_shader)
-	set_shader_uniform(ctx.depth_shader, "matLightSpace", &ctx.lights[0].projection_view[0][0])
+	set_shader_uniform(ctx.depth_shader, "matLightSpace", &ctx.lighting_context.lights_projection[0][0][0])
 	for command in &ctx.commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
@@ -407,6 +429,9 @@ end_render :: proc() {
 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
 			set_shader_uniform(ctx.deferred_static_shader, "matNormal", &normal_mat[0][0])
 
+			calculate_tangent_space := .Normal in c.material.maps
+			set_shader_uniform(ctx.deferred_static_shader, "useTangentSpace", &calculate_tangent_space)
+
 			unit_index: u32
 			for kind in Material_Map {
 				if kind in c.material.maps {
@@ -450,6 +475,78 @@ end_render :: proc() {
 	}
 	default_shader()
 	default_framebuffer()
+
+	bind_shader(ctx.deferred_composite_shader)
+	{
+			// depth(false)
+			// defer depth(true)
+			set_backface_culling(false)
+					//odinfmt: disable
+			quad_vertices := [?]f32{
+				-1.0, -1.0, 0.0, 0.0,
+				1.0, -1.0, 1.0, 0.0,
+				1.0,  1.0, 1.0, 1.0,
+				-1.0,  1.0, 0.0, 1.0,
+			}
+			quad_indices := [?]u32{
+				1, 0, 2,
+				2, 0, 3,
+			}
+			//odinfmt: enable
+
+
+			position_buffer_index : u32 = 0
+			normal_buffer_index : u32 = 1
+			albedo_buffer_index : u32 = 2
+			shadow_map_index: u32 = 3
+
+			set_shader_uniform(ctx.deferred_composite_shader, "bufferedPosition", &position_buffer_index)
+			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0), position_buffer_index)
+			set_shader_uniform(ctx.deferred_composite_shader, "bufferedNormal", &normal_buffer_index)
+			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1), normal_buffer_index)
+			set_shader_uniform(ctx.deferred_composite_shader, "bufferedAlbedo", &albedo_buffer_index)
+			bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
+			set_shader_uniform(ctx.deferred_composite_shader, "mapShadow", &shadow_map_index)
+			bind_texture(framebuffer_texture(ctx.depth_framebuffer, .Depth), shadow_map_index)
+
+
+			send_buffer_data(
+				&ctx.deferred_vertices,
+				Buffer_Source{
+					data = &quad_vertices[0],
+					byte_size = len(quad_vertices) * size_of(f32),
+					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+				},
+			)
+			send_buffer_data(
+				&ctx.deferred_indices,
+				Buffer_Source{
+					data = &quad_indices[0],
+					byte_size = len(quad_indices) * size_of(u32),
+					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+				},
+			)
+
+			// prepare attributes
+			bind_attributes(ctx.framebuffer_blit_attributes)
+			defer {
+				default_attributes()
+				default_shader()
+				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0))
+				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1))
+				unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2))
+			}
+
+			link_interleaved_attributes_vertices(
+				ctx.framebuffer_blit_attributes,
+				ctx.deferred_vertices.buf,
+			)
+			link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
+
+			draw_triangles(len(quad_indices))
+			set_backface_culling(true)
+		}
+
 
 	// current_shader: u32 = 0
 	// for command in &ctx.commands {
@@ -647,6 +744,7 @@ compute_projection :: proc(ctx: ^Rendering_Context) {
 			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 		},
 	)
+	ctx.lighting_context.projection = ctx.projection
 }
 
 @(private)

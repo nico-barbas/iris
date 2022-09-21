@@ -108,15 +108,15 @@ init :: proc(data: iris.App_Data) {
 		iris.insert_node(g.scene, lantern_node, g.lantern)
 	}
 
-	// mesh_res := iris.cube_mesh(1, 1, 1)
-	// g.mesh = mesh_res.data.(^iris.Mesh)
+	mesh_res := iris.cube_mesh(1, 1, 1)
+	g.mesh = mesh_res.data.(^iris.Mesh)
 
-	// flat_shader, f_exist := iris.shader_from_name("unlit")
-	// assert(f_exist)
-	// flat_material_res := iris.material_resource(
-	// 	iris.Material_Loader{name = "flat", shader = flat_shader},
-	// )
-	// g.flat_material = flat_material_res.data.(^iris.Material)
+	flat_shader, f_exist := iris.shader_from_name("unlit")
+	assert(f_exist)
+	flat_material_res := iris.material_resource(
+		iris.Material_Loader{name = "flat", shader = flat_shader},
+	)
+	g.flat_material = flat_material_res.data.(^iris.Material)
 
 	// skybox_shader, s_exist := iris.shader_from_name("skybox")
 	// assert(s_exist)
@@ -201,7 +201,7 @@ init :: proc(data: iris.App_Data) {
 	})
 	iris.insert_node(g.scene, camera)
 
-	iris.add_light(.Directional, iris.Vector3{2, 10, 2}, {1, 1, 1, 1})
+	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {1, 1, 1, 1})
 
 	// {
 	// 	rig_document, _err := gltf.parse_from_file(
@@ -304,6 +304,12 @@ update :: proc(data: iris.App_Data) {
 	g := cast(^Game)data
 	dt := f32(iris.elapsed_time())
 
+	g.delta += dt
+	if g.delta >= 5 {
+		g.delta = 0 
+	}
+	iris.light_position(g.light,  iris.Vector3{2, 3 + g.delta, 2})
+
 	iris.update_scene(g.scene, dt)
 }
 
@@ -313,11 +319,11 @@ draw :: proc(data: iris.App_Data) {
 	{
 		iris.render_scene(g.scene)
 
-		// iris.draw_mesh(
-		// 	g.mesh,
-		// 	iris.transform(t = iris.Vector3{2, 10, 2}, s = {0.2, 0.2, 0.2}),
-		// 	g.flat_material,
-		// )
+		iris.draw_mesh(
+			g.mesh,
+			iris.transform(t = iris.Vector3{2, 3 + g.delta, 2}, s = {0.2, 0.2, 0.2}),
+			g.flat_material,
+		)
 		// iris.draw_mesh(g.mesh, iris.transform(s = {95, 95, 95}), g.skybox_material)
 	}
 	iris.end_render()
