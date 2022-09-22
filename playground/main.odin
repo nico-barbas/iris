@@ -260,44 +260,44 @@ init :: proc(data: iris.App_Data) {
 	// 	init_terrain(&g.terrain)
 	// }
 
-	// {
-	// 	g.ui_theme = iris.User_Interface_Theme {
-	// 		borders = true,
-	// 		border_color = {1, 1, 1, 1},
-	// 		contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
-	// 		base_color = {0.35, 0.35, 0.35, 1},
-	// 		highlight_color = {0.7, 0.7, 0.8, 1},
-	// 		text_color = 1,
-	// 		text_size = 20,
-	// 		font = g.font,
-	// 		title_style = .Center_Left,
-	// 	}
-	// 	g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
-	// 	iris.insert_node(g.scene, g.canvas)
-	// 	ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
-	// 	iris.insert_node(g.scene, ui_node, g.canvas)
-	// 	iris.ui_node_theme(ui_node, g.ui_theme)
-	// 	layout := iris.new_widget_from(
-	// 		ui_node,
-	// 		iris.Layout_Widget{
-	// 			base = iris.Widget{
-	// 				flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
-	// 				rect = {100, 100, 200, 400},
-	// 				background = iris.Widget_Background{style = .Solid},
-	// 			},
-	// 			options = {.Decorated, .Titled, .Moveable, .Close_Widget},
-	// 			optional_title = "Window",
-	// 			format = .Row,
-	// 			origin = .Up,
-	// 			margin = 3,
-	// 			padding = 2,
-	// 		},
-	// 	)
+	{
+		g.ui_theme = iris.User_Interface_Theme {
+			borders = true,
+			border_color = {1, 1, 1, 1},
+			contrast_values = {0 = 0.35, 1 = 0.75, 2 = 1, 3 = 1.25, 4 = 1.5},
+			base_color = {0.35, 0.35, 0.35, 1},
+			highlight_color = {0.7, 0.7, 0.8, 1},
+			text_color = 1,
+			text_size = 20,
+			font = g.font,
+			title_style = .Center_Left,
+		}
+		g.canvas = iris.new_node_from(g.scene, iris.Canvas_Node{width = 1600, height = 900})
+		iris.insert_node(g.scene, g.canvas)
+		ui_node := iris.new_node_from(g.scene, iris.User_Interface_Node{canvas = g.canvas})
+		iris.insert_node(g.scene, ui_node, g.canvas)
+		iris.ui_node_theme(ui_node, g.ui_theme)
+		layout := iris.new_widget_from(
+			ui_node,
+			iris.Layout_Widget{
+				base = iris.Widget{
+					flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
+					rect = {100, 100, 200, 400},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				options = {.Decorated, .Titled, .Moveable, .Close_Widget},
+				optional_title = "Window",
+				format = .Row,
+				origin = .Up,
+				margin = 3,
+				padding = 2,
+			},
+		)
 
-	// 	iris.scene_graph_to_list(layout, g.scene, 20)
+		iris.scene_graph_to_list(layout, g.scene, 20)
 
 	// 	init_terrain_ui(&g.terrain, ui_node)
-	// }
+	}
 }
 
 update :: proc(data: iris.App_Data) {

@@ -116,7 +116,7 @@ render_scene :: proc(scene: ^Scene) {
 			case ^Model_Node:
 				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 				for mesh, i in n.meshes {
-					def := .Transparent in n.options
+					def := .Transparent not_in n.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
@@ -135,7 +135,7 @@ render_scene :: proc(scene: ^Scene) {
 						joint_matrices := skin_node_joint_matrices(n)
 						set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
 					}
-					def := .Transparent in n.target.options
+					def := .Transparent not_in n.target.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
@@ -152,7 +152,7 @@ render_scene :: proc(scene: ^Scene) {
 					Render_Custom_Command{
 						data = n,
 						render_proc = flush_canvas_node_buffers,
-						options = {.Disable_Culling},
+						options = {},
 					},
 					.Other,
 				)
@@ -904,7 +904,7 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 				push_canvas_line(node.canvas, Canvas_Line_Options(c))
 			}
 		}
-		// node.dirty = false
+		node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}

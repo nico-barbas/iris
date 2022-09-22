@@ -69,6 +69,8 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		return texture
 	}
 	framebuffer := Framebuffer {
+		width = l.width,
+		height = l.height,
 		clear_colors = l.clear_colors,
 		attachments = l.attachments,
 	}
@@ -157,6 +159,84 @@ framebuffer_texture :: proc(f: ^Framebuffer, a: Framebuffer_Attachment) -> ^Text
 
 destroy_framebuffer :: proc(f: ^Framebuffer) {
 	gl.DeleteFramebuffers(1, &f.handle)
+}
+
+blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
+	// dst_width := app.render_ctx.render_width if dst == nil else dst.width
+	// dst_height := app.render_ctx.render_height if dst == nil else dst.height
+	// gl.BlitNamedFramebuffer(
+	// 	readFramebuffer = src.handle,
+	// 	drawFramebuffer = 0 if dst == nil else dst.handle,
+	// 	srcX0 = 0, srcY0 = 0,
+	// 	srcX1 = i32(src.width), 
+	// 	srcY1 = i32(src.height),
+	// 	dstX0 = 0, 
+	// 	dstY0 = 0,
+	// 	dstX1 = i32(dst_width), 
+	// 	dstY1 = i32(dst_height),
+	// 	mask = gl.COLOR_BUFFER_BIT,
+	// 	filter = gl.NEAREST,
+	// )
+	ctx := &app.render_ctx
+	if dst == nil {
+		default_framebuffer()
+	} else {
+		bind_framebuffer(dst)
+	}
+	
+	depth(false)
+					//odinfmt: disable
+			framebuffer_vertices := [?]f32{
+				-1.0,  1.0, 0.0, 1.0,
+				1.0,  1.0, 1.0, 1.0,
+				-1.0, -1.0, 0.0, 0.0,
+				1.0, -1.0, 1.0, 0.0,
+			}
+			framebuffer_indices := [?]u32{
+				2, 1, 0,
+				2, 3, 1,
+			}
+			//odinfmt: enable
+
+
+			texture_index: u32 = 0
+
+			// Set the shader up
+			bind_shader(ctx.framebuffer_blit_shader)
+			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
+			bind_texture(framebuffer_texture(src, .Color0), texture_index)
+			send_buffer_data(
+				v_mem,
+				Buffer_Source{
+					data = &framebuffer_vertices[0],
+					byte_size = len(framebuffer_vertices) * size_of(f32),
+					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+				},
+			)
+			send_buffer_data(
+				i_mem,
+				Buffer_Source{
+					data = &framebuffer_indices[0],
+					byte_size = len(framebuffer_vertices) * size_of(u32),
+				},
+			)
+
+			// prepare attributes
+			bind_attributes(ctx.framebuffer_blit_attributes)
+			defer {
+				depth(true)
+				default_attributes()
+				default_shader()
+				unbind_texture(framebuffer_texture(src, .Color0))
+			}
+
+			link_interleaved_attributes_vertices(
+				ctx.framebuffer_blit_attributes,
+				v_mem.buf,
+			)
+			link_attributes_indices(ctx.framebuffer_blit_attributes, i_mem.buf)
+
+			draw_triangles(len(framebuffer_indices))
 }
 
 @(private)

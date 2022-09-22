@@ -306,14 +306,15 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 			)
 		}
 	}
-	push_draw_command(
-		Render_Framebuffer_Command{
-			render_order = 1,
-			framebuffer = canvas.framebuffer,
-			vertex_memory = &canvas.tri_sub_buffer,
-			index_buffer = canvas.index_buffer,
-		},
-	)
+	// push_draw_command(
+	// 	Render_Framebuffer_Command{
+	// 		render_order = 1,
+	// 		framebuffer = canvas.framebuffer,
+	// 		vertex_memory = &canvas.tri_sub_buffer,
+	// 		index_buffer = canvas.index_buffer,
+	// 	},
+	// )
+	blit_framebuffer(canvas.framebuffer, nil, &canvas.tri_sub_buffer, &canvas.it_sub_buffer)
 	canvas.previous_v_count = len(canvas.vertices)
 	canvas.previous_lv_count = len(canvas.line_vertices)
 	canvas.tri_index_offset = 0

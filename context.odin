@@ -340,6 +340,7 @@ end_render :: proc() {
 	ctx := &app.render_ctx
 
 	set_viewport(ctx.render_width, ctx.render_height)
+	blend(true)
 
 	// Update light values
 	if ctx.view_dirty {
@@ -508,17 +509,17 @@ end_render :: proc() {
 	// Composite the deferred geometry
 	bind_shader(ctx.deferred_composite_shader)
 	{
-		set_backface_culling(false)
+		// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
+				-1.0,  1.0, 0.0, 1.0,
+				1.0,  1.0, 1.0, 1.0,
 				-1.0, -1.0, 0.0, 0.0,
 				1.0, -1.0, 1.0, 0.0,
-				1.0,  1.0, 1.0, 1.0,
-				-1.0,  1.0, 0.0, 1.0,
 			}
 			quad_indices := [?]u32{
-				1, 0, 2,
-				2, 0, 3,
+				2, 1, 0,
+				2, 3, 1,
 			}
 			//odinfmt: enable
 
@@ -576,7 +577,7 @@ end_render :: proc() {
 		link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
 
 		draw_triangles(len(quad_indices))
-		set_backface_culling(true)
+		// set_backface_culling(true)
 	}
 
 	render_forward_geometry(ctx)
