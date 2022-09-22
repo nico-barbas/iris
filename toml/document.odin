@@ -1,7 +1,5 @@
 package toml
 
-Document :: distinct Table
-
 Value :: union {
 	Nil,
 	Float,
@@ -26,6 +24,6 @@ Key :: union {
 Bare_Key :: string
 
 Dotted_Key :: struct {
-	using key: Bare_Key,
+	data: Bare_Key,
 	next: ^Key,
 }

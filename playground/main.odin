@@ -5,10 +5,23 @@ import "core:fmt"
 import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
+import toml "../toml"
 
 UNIT_PER_METER :: 2
 
+TOML_TEST :: `
+height = 10
+[world]
+population = 24
+forest.age = 20
+forest.growing = true
+`
+
 main :: proc() {
+	toml_document := toml.parse_string(TOML_TEST)
+	fmt.println(toml_document)
+	toml.destroy(toml_document)
+
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
@@ -296,7 +309,7 @@ init :: proc(data: iris.App_Data) {
 
 		iris.scene_graph_to_list(layout, g.scene, 20)
 
-	// 	init_terrain_ui(&g.terrain, ui_node)
+		// 	init_terrain_ui(&g.terrain, ui_node)
 	}
 }
 

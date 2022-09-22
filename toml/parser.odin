@@ -1,16 +1,18 @@
 package toml
 
+import "core:strings"
 import "core:strconv"
 
-Parser :: struct {
-	lexer:    Lexer,
-	current:  Token,
-	previous: Token,
-	root:     Table,
-	table:    ^Table,
+DEFAULT_KEY_BUFFER_CAP :: 64
 
-	key_buffer: []Key,
-	key_count: int,
+Parser :: struct {
+	lexer:      Lexer,
+	current:    Token,
+	previous:   Token,
+	root:       Table,
+	table:      ^Table,
+	key_buffer: [DEFAULT_KEY_BUFFER_CAP]Key,
+	key_count:  int,
 }
 
 Error :: union {
@@ -75,13 +77,29 @@ expect_one_of_next :: proc(
 	return p.current.kind, expect_one_of(p, allowed)
 }
 
-parse :: proc(data: []byte, allocator := context.allocator) -> (document: Document) {
+parse_string :: proc(data: string, allocator := context.allocator) -> (root: Value) {
+	return parse(transmute([]byte)data, allocator)
+}
+
+parse :: proc(data: []byte, allocator := context.allocator) -> (root: Value) {
 	context.allocator = allocator
+	parser := Parser {
+		root = make(Table),
+		lexer = Lexer{current = {line = 1}, data = string(data)},
+	}
+	for {
+		token := consume_token(&parser)
+		if token.kind == .Eof {
+			break
+		} else {
+			parse_next(&parser)
+		}
+	}
 	return
 }
 
-parse_node :: proc(p: ^Parser) -> (result: Node, err: Error) {
-	#partial switch next {
+parse_next :: proc(p: ^Parser) -> (err: Error) {
+	#partial switch p.current.kind {
 	case .Open_Bracket:
 		expect_one_of_next(p, {.Identifier}) or_return
 		p.root[p.current.text] = make(Table)
@@ -90,9 +108,9 @@ parse_node :: proc(p: ^Parser) -> (result: Node, err: Error) {
 		assert(false)
 	case .Identifier:
 		key := parse_key(p) or_return
-		value := pase_value(p) or_return
+		value := parse_value(p) or_return
 
-		insert_key_value(p, key, value) or_return
+		insert_key_value(p.table, key, value) or_return
 	}
 	return
 }
@@ -103,7 +121,7 @@ parse_key :: proc(p: ^Parser) -> (key: Key, err: Error) {
 	#partial switch next {
 	case .Dot:
 		dotted_key: Dotted_Key
-		dotted_key = first_key
+		dotted_key.data = first_key
 		next_key := parse_key(p) or_return
 		dotted_key.next = store_temp_key(p, next_key)
 	case .Equal:
@@ -116,13 +134,13 @@ parse_value :: proc(p: ^Parser) -> (value: Value, err: Error) {
 	next := expect_one_of_next(p, {.Float, .String, .True, .False}) or_return
 	#partial switch next {
 	case .Float:
-		result, _ = strconv.parse_f64(p.current.text)
+		value, _ = strconv.parse_f64(p.current.text)
 	case .String:
-		result = p.current.text
+		value = strings.clone(p.current.text)
 	case .True:
-		result = true
+		value = true
 	case .False:
-		result = false
+		value = false
 	}
 	return
 }
@@ -130,11 +148,37 @@ parse_value :: proc(p: ^Parser) -> (value: Value, err: Error) {
 insert_key_value :: proc(table: ^Table, key: Key, value: Value) -> (err: Error) {
 	switch k in key {
 	case Bare_Key:
-		p.table[k] = value
+		table[k] = value
 	case Dotted_Key:
-		if k not_in table {
-			table[k] = make(Table) 
+		if k.data not_in table {
+			table[k.data] = make(Table)
 		}
-		insert_key_value(&table[k], k.next^, value)
+		t := cast(^Table)&table[k.data]
+		insert_key_value(t, k.next^, value) or_return
 	}
+	return
+}
+
+destroy :: proc(table: Table) {
+	destroy_value :: proc(value: Value) {
+		switch v in value {
+		case Nil:
+		case Float:
+		case String:
+			delete(v)
+		case Boolean:
+		case Array:
+			for _v in v {
+				destroy_value(_v)
+			}
+			delete(v)
+		case Table:
+			for key, _v in v {
+				destroy_value(_v)
+				delete(key)
+			}
+			delete(v)
+		}
+	}
+	destroy_value(table)
 }
