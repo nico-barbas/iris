@@ -130,19 +130,20 @@ render_scene :: proc(scene: ^Scene) {
 			case ^Skin_Node:
 				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
 				for mesh, i in n.target.meshes {
-					model_shader := n.target.materials[i].shader
-					if _, exist := model_shader.uniforms["matJoints"]; exist {
-						joint_matrices := skin_node_joint_matrices(n)
-						set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
-					}
+					// model_shader := n.target.materials[i].shader
+					// if _, exist := model_shader.uniforms["matJoints"]; exist {
+						// 	set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
+						// }
+					joint_matrices := skin_node_joint_matrices(n)
 					def := .Transparent not_in n.target.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
 							global_transform = mat_model,
 							local_transform = n.target.local_transform,
+							joints = joint_matrices,
 							material = n.target.materials[i],
-							options = n.target.options,
+							options = n.target.options + {.Use_Joints},
 						},
 						.Deferred_Geometry if def else .Forward_Geometry,
 					)

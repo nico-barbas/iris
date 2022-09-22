@@ -79,7 +79,7 @@ init_terrain :: proc(t: ^Terrain) {
 	t.material = material_res.data.(^iris.Material)
 	iris.set_material_map(
 		t.material,
-		.Diffuse,
+		.Diffuse0,
 		iris.texture_resource(
 			iris.Texture_Loader{
 				info = iris.File_Texture_Info{path = "textures/grass.png"},
@@ -90,7 +90,7 @@ init_terrain :: proc(t: ^Terrain) {
 	)
 	iris.set_material_map(
 		t.material,
-		.Normal,
+		.Diffuse1,
 		iris.texture_resource(
 			iris.Texture_Loader{
 				info = iris.File_Texture_Info{path = "textures/dirt.png"},
@@ -100,7 +100,7 @@ init_terrain :: proc(t: ^Terrain) {
 		).data.(^iris.Texture),
 	)
 
-	samplers := [2]i32{i32(iris.Material_Map.Diffuse), i32(iris.Material_Map.Normal)}
+	samplers := [2]i32{i32(iris.Material_Map.Diffuse0), i32(iris.Material_Map.Normal0)}
 	iris.set_shader_uniform(terrain_shader, "textures", &samplers[0])
 
 	generate_terrain_vertices(t)
@@ -119,7 +119,7 @@ init_terrain :: proc(t: ^Terrain) {
 	t.water_material = water_material_res.data.(^iris.Material)
 	iris.set_material_map(
 		t.water_material,
-		.Diffuse,
+		.Diffuse0,
 		iris.texture_resource(
 			iris.Texture_Loader{
 				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},
@@ -130,7 +130,7 @@ init_terrain :: proc(t: ^Terrain) {
 	)
 	iris.set_material_map(
 		t.water_material,
-		.Normal,
+		.Normal0,
 		iris.texture_resource(
 			iris.Texture_Loader{
 				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},

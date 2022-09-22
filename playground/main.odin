@@ -203,62 +203,62 @@ init :: proc(data: iris.App_Data) {
 
 	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {1, 1, 1, 1})
 
-	// {
-	// 	rig_document, _err := gltf.parse_from_file(
-	// 		"human_rig/CesiumMan.gltf",
-	// 		.Gltf_External,
-	// 		context.temp_allocator,
-	// 		context.temp_allocator,
-	// 	)
-	// 	assert(_err == nil)
-	// 	iris.load_resources_from_gltf(&rig_document)
+	{
+		rig_document, _err := gltf.parse_from_file(
+			"human_rig/CesiumMan.gltf",
+			.Gltf_External,
+			context.temp_allocator,
+			context.temp_allocator,
+		)
+		assert(_err == nil)
+		iris.load_resources_from_gltf(&rig_document)
 
-	// 	node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
-	// 	g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-	// 	iris.insert_node(g.scene, g.rig)
+		node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
+		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
+		iris.insert_node(g.scene, g.rig)
 
-	// 	mesh_node := iris.new_node(g.scene, iris.Model_Node)
-	// 	iris.model_node_from_gltf(
-	// 		mesh_node,
-	// 		iris.Model_Loader{
-	// 			flags = {
-	// 				.Use_Identity,
-	// 				.Load_Position,
-	// 				.Load_Normal,
-	// 				.Load_TexCoord0,
-	// 				.Load_Joints0,
-	// 				.Load_Weights0,
-	// 				.Load_Bones,
-	// 			},
-	// 			mode = .Flat_Lit,
-	// 			rigged = true,
-	// 		},
-	// 		node,
-	// 	)
-	// 	iris.insert_node(g.scene, mesh_node, g.rig)
+		mesh_node := iris.new_node(g.scene, iris.Model_Node)
+		iris.model_node_from_gltf(
+			mesh_node,
+			iris.Model_Loader{
+				flags = {
+					.Use_Identity,
+					.Load_Position,
+					.Load_Normal,
+					.Load_TexCoord0,
+					.Load_Joints0,
+					.Load_Weights0,
+					.Load_Bones,
+				},
+				mode = .Flat_Lit,
+				rigged = true,
+			},
+			node,
+		)
+		iris.insert_node(g.scene, mesh_node, g.rig)
 
-	// 	skin_node := iris.new_node(g.scene, iris.Skin_Node)
-	// 	iris.skin_node_from_gltf(skin_node, node)
-	// 	iris.skin_node_target(skin_node, mesh_node)
-	// 	iris.insert_node(g.scene, skin_node, g.rig)
+		skin_node := iris.new_node(g.scene, iris.Skin_Node)
+		iris.skin_node_from_gltf(skin_node, node)
+		iris.skin_node_target(skin_node, mesh_node)
+		iris.insert_node(g.scene, skin_node, g.rig)
 
-	// 	animation, _ := iris.animation_from_name("animation0")
-	// 	iris.skin_node_add_animation(skin_node, animation)
-	// 	iris.skin_node_play_animation(skin_node, "animation0")
-	// }
+		animation, _ := iris.animation_from_name("animation0")
+		iris.skin_node_add_animation(skin_node, animation)
+		iris.skin_node_play_animation(skin_node, "animation0")
+	}
 
-	// {
-	// 	g.terrain = Terrain {
-	// 		scene       = g.scene,
-	// 		width       = 200,
-	// 		height      = 200,
-	// 		octaves     = 5,
-	// 		persistance = 0.5,
-	// 		lacunarity  = 2,
-	// 		factor      = 6,
-	// 	}
-	// 	init_terrain(&g.terrain)
-	// }
+	{
+		g.terrain = Terrain {
+			scene       = g.scene,
+			width       = 200,
+			height      = 200,
+			octaves     = 5,
+			persistance = 0.5,
+			lacunarity  = 2,
+			factor      = 6,
+		}
+		init_terrain(&g.terrain)
+	}
 
 	{
 		g.ui_theme = iris.User_Interface_Theme {

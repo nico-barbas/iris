@@ -313,7 +313,7 @@ uniform_type :: proc(t: u32) -> (type: Buffer_Data_Type) {
 	return
 }
 
-set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := #caller_location) {
+set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, caller_loc := #caller_location) {
 	if exist := name in shader.uniforms; !exist {
 		if exist = name in shader.uniform_warnings; !exist {
 			log.fatalf(
@@ -321,7 +321,7 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := 
 				App_Module.Shader,
 				shader.handle,
 				name,
-				loc,
+				caller_loc,
 			)
 			allocator := shader.uniform_warnings.allocator
 			shader.uniform_warnings[strings.clone(name, allocator)] = true
@@ -338,7 +338,12 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, loc := 
 	case .Scalar:
 		#partial switch info.type.kind {
 		case .Boolean:
-			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
+			b := 1 if (cast(^bool)value)^ else 0
+			// if b {
+			// 	log.debug("????")
+			// }
+			// log.debugf("at %v: %t", caller_loc, b)
+			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)&b)
 		case .Signed_32:
 			gl.Uniform1iv(loc, i32(info.count), cast([^]i32)value)
 		case .Unsigned_32:

@@ -1,0 +1,7 @@
+[Extends: deferred_geometry]
+
+@implementation sampleAlbedo
+vec3 sampleAlbedo(vec2 texCoord) {
+    vec3 result = texture(mapDiffuse0, texCoord).rgb;
+    return result;
+}

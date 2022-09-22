@@ -6,8 +6,11 @@ Parser :: struct {
 	lexer:    Lexer,
 	current:  Token,
 	previous: Token,
-	root:     ^Table,
+	root:     Table,
 	table:    ^Table,
+
+	key_buffer: []Key,
+	key_count: int,
 }
 
 Error :: union {
@@ -35,6 +38,12 @@ Invalid_Token_Error :: struct {
 
 Lexing_Error :: struct {
 	using base: Error_Info,
+}
+
+@(private)
+store_temp_key :: proc(p: ^Parser, key: Key) -> ^Key {
+	p.key_buffer[p.key_count] = key
+	return &p.key_buffer[p.key_count]
 }
 
 @(private)
@@ -72,38 +81,42 @@ parse :: proc(data: []byte, allocator := context.allocator) -> (document: Docume
 }
 
 parse_node :: proc(p: ^Parser) -> (result: Node, err: Error) {
-	next := expect_one_of_next(p, {.Equal, .Dot}) or_return
 	#partial switch next {
 	case .Open_Bracket:
 		expect_one_of_next(p, {.Identifier}) or_return
-		p.table[p.current.text] = make(Table)
+		p.root[p.current.text] = make(Table)
 		p.table = cast(^Table)&p.table[p.current.text]
 	case .Double_Open_Bracket:
 		assert(false)
 	case .Identifier:
-		key, value := parse_pair(p) or_return
+		key := parse_key(p) or_return
+		value := pase_value(p) or_return
+
+		insert_key_value(p, key, value) or_return
 	}
 	return
 }
 
-parse_pair :: proc(p: ^Parser) -> (key: Node, value: Node, err: Error) {
-	key = p.current.text
-	next := expect_one_of_next(p, {.Equal, .Dot}) or_return
+parse_key :: proc(p: ^Parser) -> (key: Key, err: Error) {
+	first_key := p.current.text
+	next := expect_one_of_next(p, {.Dot, .Equal}) or_return
 	#partial switch next {
-	case .Equal:
-		value = parse_value(p) or_return
 	case .Dot:
+		dotted_key: Dotted_Key
+		dotted_key = first_key
+		next_key := parse_key(p) or_return
+		dotted_key.next = store_temp_key(p, next_key)
+	case .Equal:
+		key = first_key
 	}
 	return
 }
 
-parse_value :: proc(p: ^Parser) -> (result: Node, err: Error) {
+parse_value :: proc(p: ^Parser) -> (value: Value, err: Error) {
 	next := expect_one_of_next(p, {.Float, .String, .True, .False}) or_return
 	#partial switch next {
 	case .Float:
-		// ok: bool
 		result, _ = strconv.parse_f64(p.current.text)
-	// if !ok {}
 	case .String:
 		result = p.current.text
 	case .True:
@@ -114,7 +127,14 @@ parse_value :: proc(p: ^Parser) -> (result: Node, err: Error) {
 	return
 }
 
-// parse_key_value :: proc(p: ^Parser) -> (result: Node, err: Error) {
-
-// 	return
-// }
+insert_key_value :: proc(table: ^Table, key: Key, value: Value) -> (err: Error) {
+	switch k in key {
+	case Bare_Key:
+		p.table[k] = value
+	case Dotted_Key:
+		if k not_in table {
+			table[k] = make(Table) 
+		}
+		insert_key_value(&table[k], k.next^, value)
+	}
+}

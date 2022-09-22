@@ -8,12 +8,9 @@ import "core:path/filepath"
 
 Compiler :: struct {
 	flag:         Compiler_Flag,
-	data:         string,
-	source:       [dynamic]string,
+	files: map[string]^File,
 	current:      Stage_Kind,
-	output:       Shader_Output,
-	entry_points: [dynamic]int,
-	directives:   [dynamic]Directive,
+	outputs:       map[string]Shader_Output,
 	includes:     map[string]Include,
 }
 
@@ -22,10 +19,49 @@ Compiler_Flag :: enum {
 	Compile,
 }
 
+File :: struct {
+	name: string,
+	data:         string,
+	source:       [dynamic]string,
+	directives:   [dynamic]Directive,
+	derived: Any_File,
+}
+
+Any_File :: union {
+	^Standalone_File,
+	^Template_File,
+}
+
+Standalone_File :: struct {
+	using file: File,
+	entry_points: [dynamic]int,
+}
+
+Template_File :: struct {
+	using file: File,
+	entry_points: [dynamic]int,
+	abstract_declarations: map[string]bool,
+}
+
+Extension_File :: struct {
+	using file: File,
+	parent: ^Template_File,
+	parent_name: string,
+}
+
+new_file :: proc($T: typeid) -> ^T {
+	file := new(T)
+	file.derived = file
+
+	return file
+}
+
 Directive :: struct {
 	kind:  enum {
 		Stage_Declaration,
 		Textual_Inclusion,
+		Abstract_Procedure_Declaration,
+		Abstract_Procedure_Implementation,
 	},
 	line:  int,
 	value: string,
@@ -143,11 +179,15 @@ build_shaders :: proc(
 		fmt.printf("Failed to walk the directory: %v", err)
 		return
 	}
-
+	
+	compiler: Compiler
+	compiler.flag = .Compile
+	compiler.includes = includes
 	for path in matches {
 		if !strings.has_suffix(path, ".aether") {
 			continue
 		}
+		name := strings.trim_right(path, "aether")
 		source, ok := os.read_entire_file(path)
 		lines := strings.split_lines_after(string(source))
 		defer {
@@ -158,24 +198,36 @@ build_shaders :: proc(
 			err = .Failed_To_Read_File
 			return
 		}
-
-		compiler: Compiler
-		compiler.flag = .Compile
-		compiler.data = string(source)
-		compiler.includes = includes
+		file: ^File
+		switch {
+		case strings.has_prefix(lines[0], "#Template"):
+			file = new_file(Template_File)
+		case strings.has_prefix(lines[0], "#Extension"):
+			file = new_file(Extension_File)
+			ext := cast(^Extension_File)file
+			str := strings.trim_left("#Extension", lines[0])
+			str = strings.trim_space(str)
+			ext.parent_name = str
+		case strings.has_prefix(lines[0], "#Standalone"):
+			file = new_file(Standalone_File)
+		}
+		file.name = name
+		file.data = string(source)
 		d := transmute([dynamic]string)mem.Raw_Dynamic_Array{
 			data = raw_data(lines),
 			len = len(lines),
 			cap = len(lines),
 			allocator = context.allocator,
 		}
-		compiler.source = d
+		file.source = d
 
+		compiler.files[name] = file
+		campiler.outputs[name] = {}
 
 		find_main(&compiler) or_return
 		build_directives(&compiler) or_return
 		resolve_stages(&compiler) or_return
-		resolve_directives(&compiler) or_return
+		resolve_includes(&compiler) or_return
 
 		file_name := filepath.stem(path)
 		file_path := filepath.join(
@@ -215,31 +267,42 @@ build_shaders :: proc(
 }
 
 @(private)
-find_main :: proc(c: ^Compiler) -> (err: Error) {
+find_main :: proc(file: ^File) -> (err: Error) {
+	entry_points: ^[dynamic]int
+	switch f in file {
+	case ^Standalone_File:
+		entry_points = &f.entry_points
+	case ^Template_File:
+		entry_points = &f.entry_points
+	case ^Extension_File:
+		return
+	}
 	for line, i in c.source {
 		if strings.has_prefix(line, "void main()") {
-			append(&c.entry_points, i)
+			append(entry_points, i)
 		}
 	}
-	if len(c.entry_points) < 2 {
+	if len(entry_points) < 2 {
 		err = .Main_Declaration_Not_Found
 	}
 	return
 }
 
 @(private)
-build_directives :: proc(c: ^Compiler) -> (err: Error) {
-	for line, i in c.source {
+build_directives :: proc(file: ^File) -> (err: Error) {
+	for line, i in file.source {
 		directive: Directive
 		switch {
 		case strings.has_prefix(line, "@"):
 			str := line[1:]
 			INCLUDE_PREFIX :: "include"
+			ABSTRACT_PREFIX :: "abstract"
 			if strings.has_prefix(str, INCLUDE_PREFIX) {
 				directive.kind = .Textual_Inclusion
-				directive.line = i
 				directive.value = strings.trim_space(strings.trim_left(str, INCLUDE_PREFIX))
-				append(&c.directives, directive)
+			} else if strings.has_prefix(str, ABSTRACT_PREFIX) {
+				directive.kind = .Abstract_Procedure_Declaration
+				directive.value = strings.trim_space(strings.trim_left(str, ABSTRACT_PREFIX))
 			} else {
 				err = .Invalid_Directive
 				return
@@ -249,22 +312,23 @@ build_directives :: proc(c: ^Compiler) -> (err: Error) {
 			str = strings.trim_right_space(str)
 			if strings.has_suffix(str, "]") {
 				directive.kind = .Stage_Declaration
-				directive.line = i
 				directive.value = str[:len(str) - 1]
-				append(&c.directives, directive)
 			} else {
 				err = .Invalid_Stage_Declaration_Directive
 				return
 			}
 		}
+		directive.line = i
+		append(&file.directives, directive)
 	}
 	return
 }
 
 @(private)
-resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
+resolve_stages :: proc(c: ^Compiler, file: ^File) -> (err: Error) {
 	stages: Stage_Kinds
-	for directive in c.directives {
+	output: Shader_Output
+	for directive in file.directives {
 		#partial switch directive.kind {
 		case .Stage_Declaration:
 			previous := c.current
@@ -290,18 +354,18 @@ resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
 				return
 			}
 
-			c.output.stages[c.current] = Stage {
+			output.stages[c.current] = Stage {
 				kind       = c.current,
 				line_start = directive.line,
 			}
 			if previous != .Invalid {
-				c.output.stages[previous].line_end = directive.line - 1
+				output.stages[previous].line_end = directive.line - 1
 			}
 		}
 	}
 
-	c.output.stages[c.current].line_end = len(c.source) - 1
-	c.output.active_stages = stages
+	output.stages[c.current].line_end = len(c.source) - 1
+	output.active_stages = stages
 
 	if !(REQUIRED_STAGES <= stages) {
 		err = .Missing_Required_Stage
@@ -316,7 +380,7 @@ resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
 			}
 
 			matches: int
-			stage := &c.output.stages[kind]
+			stage := &output.stages[kind]
 			for entry_point in c.entry_points {
 				if entry_point >= stage.line_start && entry_point <= stage.line_end {
 					stage.entry_point_line = entry_point
@@ -338,9 +402,9 @@ resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
 				continue
 			}
 
-			stage := &c.output.stages[kind]
+			stage := &output.stages[kind]
 			current: int
-			for line, i in c.source[:stage.line_end + 1] {
+			for line, i in file.source[:stage.line_end + 1] {
 				current += len(line)
 				if i == stage.line_start {
 					stage.start = current
@@ -357,7 +421,7 @@ resolve_stages :: proc(c: ^Compiler) -> (err: Error) {
 }
 
 @(private)
-resolve_directives :: proc(c: ^Compiler) -> (err: Error) {
+resolve_includes :: proc(c: ^Compiler) -> (err: Error) {
 	for directive in c.directives {
 		#partial switch directive.kind {
 		case .Textual_Inclusion:

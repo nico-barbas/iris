@@ -20,9 +20,16 @@ Material_Loader :: struct {
 Material_Maps :: distinct bit_set[Material_Map]
 
 Material_Map :: enum byte {
-	Diffuse = 0,
-	Normal  = 1,
-	Shadow  = 2,
+	Diffuse0 = 0,
+	Diffuse1 = 1,
+	Normal0  = 2,
+	// Shadow  = 2,
+}
+
+material_map_name := map[Material_Map]string {
+	.Diffuse0 = "mapDiffuse0",
+	.Diffuse1 = "mapDiffuse1",
+	.Normal0 = "mapNormal0",
 }
 
 @(private)
@@ -43,11 +50,11 @@ load_material_from_gltf :: proc(m: gltf.Material) -> ^Material {
 	material := resource.data.(^Material)
 	if m.base_color_texture.present {
 		path := m.base_color_texture.texture.source.reference.(string)
-		set_material_map(material, .Diffuse, texture_from_name(path))
+		set_material_map(material, .Diffuse0, texture_from_name(path))
 	}
 	if m.normal_texture.present {
 		path := m.normal_texture.texture.source.reference.(string)
-		set_material_map(material, .Normal, texture_from_name(path))
+		set_material_map(material, .Normal0, texture_from_name(path))
 	}
 	return material
 }

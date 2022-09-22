@@ -105,6 +105,7 @@ Render_Mesh_Command :: struct {
 	mesh:             ^Mesh,
 	local_transform:  Matrix4,
 	global_transform: Matrix4,
+	joints: []Matrix4,
 	material:         ^Material,
 	options:          Rendering_Options,
 }
@@ -115,19 +116,13 @@ Render_Custom_Command :: struct {
 	options:     Rendering_Options,
 }
 
-// Render_Framebuffer_Command :: struct {
-// 	render_order:  uint,
-// 	framebuffer:   ^Framebuffer,
-// 	vertex_memory: ^Buffer_Memory,
-// 	index_buffer:  ^Buffer,
-// }
-
 Rendering_Options :: distinct bit_set[Rendering_Option]
 
 Rendering_Option :: enum {
 	Enable_Culling,
 	Disable_Culling,
 	Transparent,
+	Use_Joints,
 	Cast_Shadows,
 }
 
@@ -204,7 +199,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
 
 	deferred_shader_exist: bool
-	ctx.deferred_static_shader, deferred_shader_exist = shader_from_name("deferred_static")
+	ctx.deferred_static_shader, deferred_shader_exist = shader_from_name("deferred_geometry")
 	assert(deferred_shader_exist)
 
 	ctx.deferred_composite_shader, deferred_shader_exist = shader_from_name("deferred_shading")
@@ -443,46 +438,54 @@ end_render :: proc() {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
 			if .Transparent in c.options {
-				continue
+				assert(false, "No transparent geometry allowed in the deferred pass")
 			}
 			mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
 			set_shader_uniform(ctx.deferred_static_shader, "mvp", &mvp[0][0])
 
 			set_shader_uniform(ctx.deferred_static_shader, "matModel", &c.global_transform[0][0])
+			set_shader_uniform(ctx.deferred_static_shader, "matModelLocal", &c.local_transform[0][0])
 
 
 			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.global_transform)
 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
 			set_shader_uniform(ctx.deferred_static_shader, "matNormal", &normal_mat[0][0])
 
-			calculate_tangent_space := .Normal in c.material.maps
+			local_inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
+			local_normal_mat := linalg.matrix3_from_matrix4_f32(local_inverse_transpose_mat)
+			set_shader_uniform(ctx.deferred_static_shader, "matNormalLocal", &local_normal_mat[0][0])
+
+			calculate_tangent_space := .Normal0 in c.material.maps
 			set_shader_uniform(
 				ctx.deferred_static_shader,
 				"useTangentSpace",
 				&calculate_tangent_space,
 			)
 
-			unit_index: u32
+			calculate_joint_deform := .Use_Joints in c.options
+			set_shader_uniform(
+				ctx.deferred_static_shader,
+				"useJointSpace",
+				&calculate_joint_deform,
+			)
+			if calculate_joint_deform {
+				set_shader_uniform(ctx.deferred_static_shader, "matJoints", &c.joints[0])
+			}
+
 			for kind in Material_Map {
 				if kind in c.material.maps {
+					map_uniform_value := u32(kind)
 					texture := c.material.textures[kind]
-					texture_uniform_name: string
-					switch texture.kind {
-					case .Texture:
-						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
-					case .Cubemap:
-						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
-					}
-					bind_texture(c.material.textures[kind], unit_index)
-					if _, exist := ctx.deferred_static_shader.uniforms[texture_uniform_name];
+					map_uniform_name := material_map_name[kind]
+					bind_texture(c.material.textures[kind], map_uniform_value)
+					if _, exist := ctx.deferred_static_shader.uniforms[map_uniform_name];
 					   exist {
 						set_shader_uniform(
 							ctx.deferred_static_shader,
-							texture_uniform_name,
-							&unit_index,
+							map_uniform_name,
+							&map_uniform_value,
 						)
 					}
-					unit_index += 1
 				}
 			}
 
