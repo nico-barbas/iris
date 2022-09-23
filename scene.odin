@@ -132,8 +132,8 @@ render_scene :: proc(scene: ^Scene) {
 				for mesh, i in n.target.meshes {
 					// model_shader := n.target.materials[i].shader
 					// if _, exist := model_shader.uniforms["matJoints"]; exist {
-						// 	set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
-						// }
+					// 	set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
+					// }
 					joint_matrices := skin_node_joint_matrices(n)
 					def := .Transparent not_in n.target.options
 					push_draw_command(
@@ -339,10 +339,13 @@ Model_Node :: struct {
 }
 
 Model_Loader :: struct {
-	flags:   Model_Loader_Flags,
-	mode:    Model_Rendering_Mode,
-	options: Rendering_Options,
-	rigged:  bool,
+	shader_ref: union {
+		string,
+		^Shader,
+	},
+	flags:      Model_Loader_Flags,
+	options:    Rendering_Options,
+	rigged:     bool,
 }
 
 Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
@@ -363,12 +366,6 @@ Model_Loader_Flag :: enum {
 	Load_Bones,
 }
 
-Model_Rendering_Mode :: enum {
-	Lit,
-	Flat_Lit,
-	Unlit,
-}
-
 Model_Loading_Error :: enum {
 	None,
 	Invalid_Node,
@@ -376,32 +373,32 @@ Model_Loading_Error :: enum {
 	Missing_Mesh_Attribute,
 }
 
-@(private)
-model_shader :: proc(mode: Model_Rendering_Mode, rigged := false) -> ^Shader {
-	name: string
-	if !rigged {
-		switch mode {
-		case .Lit:
-			name = "lit"
-		case .Flat_Lit:
-			name = "flat_lit"
-		case .Unlit:
-			name = "unlit"
-		}
-	} else {
-		switch mode {
-		case .Lit:
-			name = "skeletal_lit"
-		case .Flat_Lit:
-			name = "skeletal_flat_lit"
-		case .Unlit:
-			name = "skeletal_unlit"
-		}
-	}
-	shader, exist := shader_from_name(name)
-	assert(exist)
-	return shader
-}
+// @(private)
+// model_shader :: proc(mode: Model_Rendering_Mode, rigged := false) -> ^Shader {
+// name: string
+// if !rigged {
+// 	switch mode {
+// 	case .Lit:
+// 		name = "lit"
+// 	case .Flat_Lit:
+// 		name = "flat_lit"
+// 	case .Unlit:
+// 		name = "unlit"
+// 	}
+// } else {
+// 	switch mode {
+// 	case .Lit:
+// 		name = "skeletal_lit"
+// 	case .Flat_Lit:
+// 		name = "skeletal_flat_lit"
+// 	case .Unlit:
+// 		name = "skeletal_unlit"
+// 	}
+// }
+// shader, exist := shader_from_name(name)
+// assert(exist)
+// return shader
+// }
 
 model_node_from_gltf :: proc(
 	model: ^Model_Node,
@@ -419,7 +416,15 @@ model_node_from_gltf :: proc(
 		} else {
 			model.mesh_transform = linalg.MATRIX4F32_IDENTITY
 		}
-		shader := model_shader(loader.mode, loader.rigged)
+
+		shader: ^Shader
+		switch ref in loader.shader_ref {
+		case string:
+			exist: bool
+			shader, exist = shader_from_name(ref)
+		case ^Shader:
+			shader = ref
+		}
 		for _, i in data.primitives {
 			begin_temp_allocation()
 

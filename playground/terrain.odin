@@ -24,7 +24,7 @@ Terrain :: struct {
 	// States
 	positions:          []iris.Vector3,
 	normals:            []iris.Vector3,
-	texcoords:          []iris.Vector3,
+	texcoords:          []iris.Vector2,
 	triangles:          []iris.Triangle,
 	seed:               []f32,
 	octaves:            uint,
@@ -71,10 +71,24 @@ Terrain_Option :: enum {
 
 init_terrain :: proc(t: ^Terrain) {
 	// Terrain
-	terrain_shader, exist := iris.shader_from_name("terrain_lit")
-	assert(exist)
+	// terrain_shader, exist := iris.shader_from_name("terrain_lit")
+	// assert(exist)
+	terrain_shader_res := iris.shader_resource(
+		iris.Shader_Builder{
+			info = {
+				build_name = "deferred_geometry_default",
+				prototype_name = "deferred_geometry",
+				stages = {.Vertex, .Fragment},
+				stages_info = {
+					iris.Shader_Stage.Vertex = {with_extension = false},
+					iris.Shader_Stage.Fragment = {with_extension = true, name = "terrain"},
+				},
+			},
+			document_name = "shaders/lib.helios",
+		},
+	)
 	material_res := iris.material_resource(
-		iris.Material_Loader{name = "terrain", shader = terrain_shader},
+		iris.Material_Loader{name = "terrain", shader = terrain_shader_res.data.(^iris.Shader)},
 	)
 	t.material = material_res.data.(^iris.Material)
 	iris.set_material_map(
@@ -82,26 +96,26 @@ init_terrain :: proc(t: ^Terrain) {
 		.Diffuse0,
 		iris.texture_resource(
 			iris.Texture_Loader{
-				info = iris.File_Texture_Info{path = "textures/grass.png"},
+				info = iris.File_Texture_Info{path = "textures/terrain_sheet.png"},
 				filter = .Linear,
 				wrap = .Repeat,
 			},
 		).data.(^iris.Texture),
 	)
-	iris.set_material_map(
-		t.material,
-		.Diffuse1,
-		iris.texture_resource(
-			iris.Texture_Loader{
-				info = iris.File_Texture_Info{path = "textures/dirt.png"},
-				filter = .Linear,
-				wrap = .Repeat,
-			},
-		).data.(^iris.Texture),
-	)
+	// iris.set_material_map(
+	// 	t.material,
+	// 	.Diffuse1,
+	// 	iris.texture_resource(
+	// 		iris.Texture_Loader{
+	// 			info = iris.File_Texture_Info{path = "textures/dirt.png"},
+	// 			filter = .Linear,
+	// 			wrap = .Repeat,
+	// 		},
+	// 	).data.(^iris.Texture),
+	// )
 
-	samplers := [2]i32{i32(iris.Material_Map.Diffuse0), i32(iris.Material_Map.Normal0)}
-	iris.set_shader_uniform(terrain_shader, "textures", &samplers[0])
+	// samplers := [2]i32{i32(iris.Material_Map.Diffuse0), i32(iris.Material_Map.Normal0)}
+	// iris.set_shader_uniform(terrain_shader, "textures", &samplers[0])
 
 	generate_terrain_vertices(t)
 	t.seed = make([]f32, (t.width + 1) * (t.height + 1))
@@ -111,10 +125,22 @@ init_terrain :: proc(t: ^Terrain) {
 	compute_height(t)
 
 	// Water
-	water_shader, w_exist := iris.shader_from_name("water_lit")
-	assert(w_exist)
+	water_shader_res := iris.shader_resource(
+		iris.Shader_Builder{
+			info = {
+				build_name = "forward_water",
+				prototype_name = "forward_water",
+				stages = {.Vertex, .Fragment},
+				stages_info = {
+					iris.Shader_Stage.Vertex = {with_extension = false},
+					iris.Shader_Stage.Fragment = {with_extension = false},
+				},
+			},
+			document_name = "shaders/lib.helios",
+		},
+	)
 	water_material_res := iris.material_resource(
-		iris.Material_Loader{name = "water", shader = water_shader},
+		iris.Material_Loader{name = "water", shader = water_shader_res.data.(^iris.Shader)},
 	)
 	t.water_material = water_material_res.data.(^iris.Material)
 	iris.set_material_map(
@@ -313,7 +339,7 @@ modify_terrain_options :: proc(data: rawptr, btn_id: iris.Widget_ID) {
 	}
 
 	compute_height(terrain)
-	compute_sea_height(terrain)
+	// compute_sea_height(terrain)
 }
 
 format_widget_value :: proc(widget: ^Terrain_Option_Widget, value: f32, float: bool) {
@@ -338,10 +364,10 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 
 	t.positions = make([]iris.Vector3, v_count)
 	t.normals = make([]iris.Vector3, v_count)
-	t.texcoords = make([]iris.Vector3, v_count)
+	t.texcoords = make([]iris.Vector2, v_count)
 	p_size := (size_of(iris.Vector3) * v_count)
 	n_size := p_size
-	t_size := (size_of(iris.Vector3) * v_count)
+	t_size := (size_of(iris.Vector2) * v_count)
 
 	offset := iris.Vector2{f32(w / 2), f32(h / 2)}
 	step_x := f32(w) / f32(s_w)
@@ -355,7 +381,10 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 			}
 			t.normals[y * t.v_width + x] = iris.VECTOR_UP
 			// t.texcoords[y * t.v_width + x] = {f32(x) / f32(s_w), f32(y) / f32(s_h)}
-			t.texcoords[y * t.v_width + x] = {f32(x) / 4, f32(y) / 4, 0}
+
+			u := (f32(x % 4) / 4) / 2
+			v := (f32(y % 4) / 4)
+			t.texcoords[y * t.v_width + x] = {u, v}
 		}
 	}
 
@@ -399,7 +428,7 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 				iris.Attribute_Kind.Tex_Coord = iris.Buffer_Source{
 					data = &t.texcoords[0],
 					byte_size = t_size,
-					accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+					accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 				},
 			},
 			indices = iris.Buffer_Source{
@@ -476,7 +505,7 @@ compute_height :: proc(t: ^Terrain) {
 		position.y = max((position.y * 2) - 1, -rand.float32_range(0.43, 0.435))
 		position.y *= t.factor
 
-		t.texcoords[i].z = range_from_height(position.y)
+		// t.texcoords[i].z = range_from_height(position.y)
 	}
 
 	for triangle in t.triangles {
@@ -519,8 +548,8 @@ compute_height :: proc(t: ^Terrain) {
 		&t.texcoord_memory,
 		iris.Buffer_Source{
 			data = &t.texcoords[0],
-			byte_size = size_of(iris.Vector3) * len(t.texcoords),
-			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+			byte_size = size_of(iris.Vector2) * len(t.texcoords),
+			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Vector2},
 		},
 	)
 
@@ -543,67 +572,3 @@ compute_sea_height :: proc(terrain: ^Terrain) {
 		iris.transform(t = {0, terrain.factor * SEA_LEVEL, 0}),
 	)
 }
-
-// draw_terrain :: proc(terrain: ^Terrain) {
-// }
-
-// TERRAIN_COMPUTE_SHADER :: `
-// #version 450 core
-// layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-// layout (std140, binding = 2) buffer VertexBuffer {
-// 	vec4 positions[];
-// 	vec4 normals[];
-// 	vec2 texCoords[];
-// };
-
-// layout (std140, binding = 3) readonly buffer TerrainData {
-// 	float inputs[];
-// 	int computeMode;
-// 	int octaves;
-// 	float lacunarity;
-// 	float persistance;
-// };
-
-// const int GenerateMode = 0;
-// const int SmoothMode = 1;
-
-// const int width = 101;
-// const int height = 101;
-
-// void main() {
-// 	ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-// 	int index = int(gl_GlobalInvocationID.y) * width + int(gl_GlobalInvocationID.x);
-
-// 	if (computeMode == GenerateMode) {
-// 		float heightValue = 0.0;
-// 		float accumulator = 0.0;
-// 		float scale = 1.0;
-// 		int freq = width;
-// 		for (int i = 0; i < octaves; i += 1) {
-// 			int samplerX1 = (coord.x / freq) * freq;
-// 			int samplerY1 = (coord.y / freq) * freq;
-
-// 			int samplerX2 = (samplerX1 + freq) % width;
-// 			int samplerY2 = (samplerY1 + freq) % width;
-
-// 			float blendX = float(coord.x - samplerX1) / float(freq);
-// 			float blendY = float(coord.x - samplerY1) / float(freq);
-
-// 			float inValueS1 = inputs[samplerY1 * width + samplerX1];
-// 			float inValueS2 = inputs[samplerY1 * width + samplerX2];
-// 			float inValueT1 = inputs[samplerY2 * width + samplerX1];
-// 			float inValueT2 = inputs[samplerY2 * width + samplerX2];
-// 			float sampleS = mix(inValueS1, inValueS2, blendX);
-// 			float sampleT = mix(inValueT1, inValueT2, blendX);
-
-// 			accumulator += scale;
-// 			heightValue += (blendY * (sampleT - sampleS) + sampleS) * scale;
-// 			scale *= persistance;
-// 			freq = int(float(freq) / lacunarity);
-// 			freq = max(freq, 1);
-// 		}
-// 		positions[index].y = heightValue / accumulator;
-// 	}
-// }
-// `

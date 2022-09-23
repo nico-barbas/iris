@@ -1,5 +1,10 @@
 package toml
 
+Document :: struct {
+	keys: map[string]string,
+	root: Table,
+}
+
 Value :: union {
 	Nil,
 	Float,

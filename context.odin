@@ -28,7 +28,6 @@ Render_Context :: struct {
 
 	// Lighting states
 	lighting_context:            Lighting_Context,
-	// light_uniform_buffer:        ^Buffer,
 	light_uniform_memory:        Buffer_Memory,
 
 	// Shadow mapping states
@@ -36,8 +35,6 @@ Render_Context :: struct {
 	depth_shader:                ^Shader,
 
 	// View depth framebuffer
-	// view_depth_framebuffer:      ^Framebuffer,
-	// view_depth_shader:           ^Shader,
 	deferred_framebuffer:        ^Framebuffer,
 	deferred_static_shader:      ^Shader,
 	deferred_composite_shader:   ^Shader,
@@ -50,10 +47,6 @@ Render_Context :: struct {
 
 	// Command buffer
 	states:                      [dynamic]^Attributes,
-	// commands:                    [dynamic]Render_Command,
-	// previous_cmd_count:          int,
-	// deferred_commands:           [dynamic]Render_Command,
-	// previous_def_cmd_count:      int,
 	queues:                      [len(Render_Queue_Kind)]Render_Queue,
 }
 
@@ -105,7 +98,7 @@ Render_Mesh_Command :: struct {
 	mesh:             ^Mesh,
 	local_transform:  Matrix4,
 	global_transform: Matrix4,
-	joints: []Matrix4,
+	joints:           []Matrix4,
 	material:         ^Material,
 	options:          Rendering_Options,
 }
@@ -129,7 +122,8 @@ Rendering_Option :: enum {
 init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	DEFAULT_FOVY :: 45
 
-	load_shaders_from_dir("shaders/build")
+	// load_shaders_from_dir("shaders/build")
+	load_shader_document("shaders/lib.helios")
 
 	set_backface_culling(true)
 	ctx.render_width = w
@@ -153,7 +147,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	)
 	ctx.depth_framebuffer = depth_framebuffer_res.data.(^Framebuffer)
 	depth_shader_res := shader_resource(
-		Shader_Loader{
+		Raw_Shader_Loader{
 			name = "depth_map",
 			kind = .Byte,
 			stages = {
@@ -198,12 +192,37 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	)
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
 
-	deferred_shader_exist: bool
-	ctx.deferred_static_shader, deferred_shader_exist = shader_from_name("deferred_geometry")
-	assert(deferred_shader_exist)
+	deferred_geo_res := shader_resource(
+		Shader_Builder{
+			info = {
+				build_name = "deferred_geometry_default",
+				prototype_name = "deferred_geometry",
+				stages = {.Vertex, .Fragment},
+				stages_info = {
+					Shader_Stage.Vertex = {with_extension = false},
+					Shader_Stage.Fragment = {with_extension = true, name = "default"},
+				},
+			},
+			document_name = "shaders/lib.helios",
+		},
+	)
+	ctx.deferred_static_shader = deferred_geo_res.data.(^Shader)
 
-	ctx.deferred_composite_shader, deferred_shader_exist = shader_from_name("deferred_shading")
-	assert(deferred_shader_exist)
+	deferred_shading_res := shader_resource(
+		Shader_Builder{
+			info = {
+				build_name = "deferred_shading",
+				prototype_name = "deferred_shading",
+				stages = {.Vertex, .Fragment},
+				stages_info = {
+					Shader_Stage.Vertex = {with_extension = false},
+					Shader_Stage.Fragment = {with_extension = false},
+				},
+			},
+			document_name = "shaders/lib.helios",
+		},
+	)
+	ctx.deferred_composite_shader = deferred_shading_res.data.(^Shader)
 
 	// TEMP
 	deferred_vertices_res := raw_buffer_resource(size_of(f32) * 4 * 4)
@@ -232,13 +251,6 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 		),
 	}
 	light_buffer_res := raw_buffer_resource(size_of(Lighting_Uniform_Data))
-	fmt.println(offset_of(Lighting_Uniform_Data, shadow_casters))
-	// ctx.light_uniform_buffer = light_buffer_res.data.(^Buffer)
-	// ctx.light_uniform_memory = Buffer_Memory {
-	// 	buf    = ctx.light_uniform_buffer,
-	// 	size   = size_of(Renderer_Lighting_Context),
-	// 	offset = 0,
-	// }
 	ctx.light_uniform_memory = buffer_memory_from_buffer_resource(light_buffer_res)
 	set_uniform_buffer_binding(
 		ctx.light_uniform_memory.buf,
@@ -247,7 +259,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 
 	// Framebuffer blitting states
 	blit_shader_res := shader_resource(
-		Shader_Loader{
+		Raw_Shader_Loader{
 			name = "blit_framebuffer",
 			kind = .Byte,
 			stages = {
@@ -433,43 +445,40 @@ end_render :: proc() {
 
 	bind_framebuffer(ctx.deferred_framebuffer)
 	clear_framebuffer(ctx.deferred_framebuffer)
-	bind_shader(ctx.deferred_static_shader)
 	for command in &deferred_commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
+			shader: ^Shader
+			if c.material.shader == nil {
+				shader = ctx.deferred_static_shader
+			} else {
+				shader = c.material.shader
+			}
 			if .Transparent in c.options {
 				assert(false, "No transparent geometry allowed in the deferred pass")
 			}
 			mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
-			set_shader_uniform(ctx.deferred_static_shader, "mvp", &mvp[0][0])
+			set_shader_uniform(shader, "mvp", &mvp[0][0])
 
-			set_shader_uniform(ctx.deferred_static_shader, "matModel", &c.global_transform[0][0])
-			set_shader_uniform(ctx.deferred_static_shader, "matModelLocal", &c.local_transform[0][0])
+			set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
+			set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
 
 
 			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.global_transform)
 			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
-			set_shader_uniform(ctx.deferred_static_shader, "matNormal", &normal_mat[0][0])
+			set_shader_uniform(shader, "matNormal", &normal_mat[0][0])
 
 			local_inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
 			local_normal_mat := linalg.matrix3_from_matrix4_f32(local_inverse_transpose_mat)
-			set_shader_uniform(ctx.deferred_static_shader, "matNormalLocal", &local_normal_mat[0][0])
+			set_shader_uniform(shader, "matNormalLocal", &local_normal_mat[0][0])
 
 			calculate_tangent_space := .Normal0 in c.material.maps
-			set_shader_uniform(
-				ctx.deferred_static_shader,
-				"useTangentSpace",
-				&calculate_tangent_space,
-			)
+			set_shader_uniform(shader, "useTangentSpace", &calculate_tangent_space)
 
 			calculate_joint_deform := .Use_Joints in c.options
-			set_shader_uniform(
-				ctx.deferred_static_shader,
-				"useJointSpace",
-				&calculate_joint_deform,
-			)
+			set_shader_uniform(shader, "useJointSpace", &calculate_joint_deform)
 			if calculate_joint_deform {
-				set_shader_uniform(ctx.deferred_static_shader, "matJoints", &c.joints[0])
+				set_shader_uniform(shader, "matJoints", &c.joints[0])
 			}
 
 			for kind in Material_Map {
@@ -478,13 +487,8 @@ end_render :: proc() {
 					texture := c.material.textures[kind]
 					map_uniform_name := material_map_name[kind]
 					bind_texture(c.material.textures[kind], map_uniform_value)
-					if _, exist := ctx.deferred_static_shader.uniforms[map_uniform_name];
-					   exist {
-						set_shader_uniform(
-							ctx.deferred_static_shader,
-							map_uniform_name,
-							&map_uniform_value,
-						)
+					if _, exist := shader.uniforms[map_uniform_name]; exist {
+						set_shader_uniform(shader, map_uniform_name, &map_uniform_value)
 					}
 				}
 			}
@@ -512,7 +516,7 @@ end_render :: proc() {
 	// Composite the deferred geometry
 	bind_shader(ctx.deferred_composite_shader)
 	{
-		// set_backface_culling(false)
+	// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
@@ -580,6 +584,7 @@ end_render :: proc() {
 		link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
 
 		draw_triangles(len(quad_indices))
+		blit_framebuffer_depth(ctx.deferred_framebuffer)
 		// set_backface_culling(true)
 	}
 
@@ -771,6 +776,7 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 	for command in &forward_commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
+			bind_shader(c.material.shader)
 			if c.material.double_face {
 				set_backface_culling(false)
 				depth_mode(.Less_Equal)
@@ -852,15 +858,6 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 				set_backface_culling(true)
 				depth_mode(.Less)
 			}
-
-		// case Render_Custom_Command:
-		// 	if .Disable_Culling in c.options {
-		// 		set_backface_culling(false)
-		// 		c.render_proc(c.data)
-		// 		set_backface_culling(true)
-		// 	} else {
-		// 		c.render_proc(c.data)
-		// 	}
 		}
 	}
 }
@@ -904,7 +901,6 @@ compute_projection :: proc(ctx: ^Render_Context) {
 			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 		},
 	)
-	// ctx.lighting_context.projection = ctx.projection
 }
 
 @(private)
@@ -912,12 +908,6 @@ push_draw_command :: proc(cmd: Render_Command, kind: Render_Queue_Kind) {
 	queue := &app.render_ctx.queues[kind]
 	queue.commands[queue.count] = cmd
 	queue.count += 1
-	// switch c in cmd {
-	// case Render_Mesh_Command, Render_Custom_Command:
-	// 	append(&app.render_ctx.commands, cmd)
-	// case Render_Framebuffer_Command:
-	// 	append(&app.render_ctx.deferred_commands, cmd)
-	// }
 }
 
 @(private)

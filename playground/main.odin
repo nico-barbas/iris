@@ -2,33 +2,74 @@ package main
 
 import "core:mem"
 import "core:fmt"
+// import "core:os"
 import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
-import toml "../toml"
 
 UNIT_PER_METER :: 2
 
-TOML_TEST :: `
-height = 10
-[world]
-population = 24
-forest.age = 20
-forest.growing = true
-`
+// TOML_TEST :: `
+// `
 
 main :: proc() {
-	toml_document, err := toml.parse_string(TOML_TEST)
-	if err != nil {
-		fmt.println(err)
-		assert(false)
-	}
-	fmt.println(toml_document)
-	toml.destroy(toml_document)
-
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
+
+	// toml_document, toml_err := toml.parse_string(TOML_TEST)
+	// if toml_err != nil {
+	// 	fmt.println(toml_err)
+	// 	assert(false)
+	// }
+	// fmt.println(toml_document)
+	// toml.destroy(toml_document)
+
+	// helios_source, _ := os.read_entire_file("playground/assets/shaders/lib.helios")
+	// helios_document, err := helios.parse(helios_source)
+
+	// if err != nil {
+	// 	fmt.println(err)
+	// 	assert(false)
+	// }
+
+	// shader, build_err := helios.build_shader(
+	// 	&helios_document,
+	// 	helios.Builder{
+	// 		build_name = "deferred_geometry_terrain",
+	// 		prototype_name = "deferred_geometry",
+	// 		stages = helios.DEFAULT_REQUIRED_STAGE,
+	// 		stages_info = {
+	// 			helios.Stage.Vertex = {with_extension = false},
+	// 			helios.Stage.Fragment = {with_extension = true, name = "terrain"},
+	// 		},
+	// 	},
+	// )
+
+	// if build_err != nil {
+	// 	fmt.println(build_err)
+	// 	assert(false)
+	// }
+	// fmt.println(shader.stages[helios.Stage.Vertex])
+	// fmt.println(shader.stages[helios.Stage.Fragment])
+
+	// helios.destroy(helios_document)
+	// helios.destroy_shader(&shader)
+
+	// if len(track.allocation_map) > 0 {
+	// 	fmt.printf("Leaks:")
+	// 	for _, v in track.allocation_map {
+	// 		fmt.printf("\t%v\n\n", v)
+	// 	}
+	// }
+	// fmt.printf("Leak count: %d\n", len(track.allocation_map))
+	// if len(track.bad_free_array) > 0 {
+	// 	fmt.printf("Bad Frees:")
+	// 	for v in track.bad_free_array {
+	// 		fmt.printf("\t%v\n\n", v)
+	// 	}
+	// }
+
 
 	iris.init_app(
 		&iris.App_Config{
@@ -117,7 +158,6 @@ init :: proc(data: iris.App_Data) {
 					.Load_Tangent,
 					.Load_TexCoord0,
 				},
-				mode = .Lit,
 				rigged = false,
 			},
 			node,
@@ -128,11 +168,9 @@ init :: proc(data: iris.App_Data) {
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
 
-	flat_shader, f_exist := iris.shader_from_name("unlit")
-	assert(f_exist)
-	flat_material_res := iris.material_resource(
-		iris.Material_Loader{name = "flat", shader = flat_shader},
-	)
+	// flat_shader, f_exist := iris.shader_from_name("unlit")
+	// assert(f_exist)
+	flat_material_res := iris.material_resource(iris.Material_Loader{name = "flat"})
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
 	// skybox_shader, s_exist := iris.shader_from_name("skybox")
@@ -164,58 +202,58 @@ init :: proc(data: iris.App_Data) {
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
-			pitch = 45,
-			target = {0, 0.5, 0},
-			target_distance = 10,
-			target_rotation = 90,
-			min_pitch = 10,
-			max_pitch = 170,
-			min_distance = 2,
-			distance_speed = 1,
-			position_speed = 12,
-			rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
-				m_right := iris.mouse_button_state(.Right)
-				if .Pressed in m_right {
+		pitch = 45,
+		target = {0, 0.5, 0},
+		target_distance = 10,
+		target_rotation = 90,
+		min_pitch = 10,
+		max_pitch = 170,
+		min_distance = 2,
+		distance_speed = 1,
+		position_speed = 12,
+		rotation_proc = proc() -> (trigger: bool, delta: iris.Vector2) {
+			m_right := iris.mouse_button_state(.Right)
+			if .Pressed in m_right {
+				trigger = true
+				delta = iris.mouse_delta()
+			} else {
+				KEY_CAMERA_PAN_SPEED :: 2
+				left_state := iris.key_state(.Q)
+				right_state := iris.key_state(.E)
+				if .Pressed in left_state {
 					trigger = true
-					delta = iris.mouse_delta()
-				} else {
-					KEY_CAMERA_PAN_SPEED :: 2
-					left_state := iris.key_state(.Q)
-					right_state := iris.key_state(.E)
-					if .Pressed in left_state {
-						trigger = true
-						delta = {KEY_CAMERA_PAN_SPEED, 0}
-					} else if .Pressed in right_state {
-						trigger = true
-						delta = {-KEY_CAMERA_PAN_SPEED, 0}
-					}
+					delta = {KEY_CAMERA_PAN_SPEED, 0}
+				} else if .Pressed in right_state {
+					trigger = true
+					delta = {-KEY_CAMERA_PAN_SPEED, 0}
 				}
-				return
-			},
-			distance_proc = proc() -> (trigger: bool, displacement: f32) {
-				displacement = f32(iris.mouse_scroll())
-				trigger = displacement != 0
-				return
-			},
-			position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
-				if .Pressed in iris.key_state(.W) {
-					trigger = true
-					fb = 1
-				} else if .Pressed in iris.key_state(.S) {
-					trigger = true
-					fb = -1
-				}
+			}
+			return
+		},
+		distance_proc = proc() -> (trigger: bool, displacement: f32) {
+			displacement = f32(iris.mouse_scroll())
+			trigger = displacement != 0
+			return
+		},
+		position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
+			if .Pressed in iris.key_state(.W) {
+				trigger = true
+				fb = 1
+			} else if .Pressed in iris.key_state(.S) {
+				trigger = true
+				fb = -1
+			}
 
-				if .Pressed in iris.key_state(.A) {
-					trigger = true
-					lr = -1
-				} else if .Pressed in iris.key_state(.D) {
-					trigger = true
-					lr = 1
-				}
-				return
-			},
-		})
+			if .Pressed in iris.key_state(.A) {
+				trigger = true
+				lr = -1
+			} else if .Pressed in iris.key_state(.D) {
+				trigger = true
+				lr = 1
+			}
+			return
+		},
+	})
 	iris.insert_node(g.scene, camera)
 
 	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {1, 1, 1, 1})
@@ -247,7 +285,6 @@ init :: proc(data: iris.App_Data) {
 					.Load_Weights0,
 					.Load_Bones,
 				},
-				mode = .Flat_Lit,
 				rigged = true,
 			},
 			node,
@@ -313,7 +350,7 @@ init :: proc(data: iris.App_Data) {
 
 		iris.scene_graph_to_list(layout, g.scene, 20)
 
-		// 	init_terrain_ui(&g.terrain, ui_node)
+		init_terrain_ui(&g.terrain, ui_node)
 	}
 }
 

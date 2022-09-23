@@ -2,9 +2,11 @@ package iris
 
 import "core:os"
 import "core:log"
+import "core:fmt"
 import "core:runtime"
 import "core:strings"
 import gl "vendor:OpenGL"
+import "helios"
 
 Shader :: struct {
 	name:             string,
@@ -14,22 +16,14 @@ Shader :: struct {
 	uniform_warnings: map[string]bool,
 }
 
-Shader_Stages :: distinct bit_set[Shader_Stage]
+Shader_Stages :: helios.Stages
 
-Shader_Stage :: enum i32 {
-	None,
-	Fragment,
-	Vertex,
-	Geometry,
-	Compute,
-	Tessalation_Eval,
-	Tessalation_Control,
-}
+Shader_Stage :: helios.Stage
 
 @(private)
 gl_shader_type :: proc(s: Shader_Stage) -> gl.Shader_Type {
 	switch s {
-	case .None:
+	case .Invalid:
 		return .NONE
 	case .Fragment:
 		return .FRAGMENT_SHADER
@@ -55,7 +49,18 @@ Shader_Uniform_Info :: struct {
 	count: int,
 }
 
-Shader_Loader :: struct {
+Shader_Loader :: union {
+	Shader_Builder,
+	Raw_Shader_Loader,
+}
+
+Shader_Builder :: struct {
+	using info:    helios.Builder,
+	document_name: string,
+	document:      ^helios.Document,
+}
+
+Raw_Shader_Loader :: struct {
 	name:   string,
 	kind:   enum {
 		File,
@@ -70,8 +75,37 @@ Shader_Stage_Loader :: struct {
 }
 
 @(private)
+internal_build_shader :: proc(builder: Shader_Builder, allocator := context.allocator) -> Shader {
+	output, build_err := helios.build_shader(builder.document, builder, allocator)
+
+	if build_err != nil {
+		log.errorf(
+			"[%s]: Failed to build shader from document\n\tBuild Options: %#v\n\tError: %#v",
+			App_Module.Shader,
+			builder.info,
+			build_err,
+		)
+		assert(false)
+	}
+
+	loader := Raw_Shader_Loader {
+		name = output.name,
+		kind = .Byte,
+	}
+	for stage in helios.Stage {
+		if stage in output.active_stages {
+			loader.stages[stage] = Shader_Stage_Loader {
+				source = output.stages[stage],
+			}
+		}
+	}
+
+	return internal_load_shader_from_bytes(loader, allocator)
+}
+
+@(private)
 internal_load_shader_from_file :: proc(
-	loader: Shader_Loader,
+	loader: Raw_Shader_Loader,
 	allocator := context.allocator,
 ) -> Shader {
 	l := loader
@@ -102,7 +136,7 @@ internal_load_shader_from_file :: proc(
 
 @(private)
 internal_load_shader_from_bytes :: proc(
-	loader: Shader_Loader,
+	loader: Raw_Shader_Loader,
 	allocator := context.allocator,
 ) -> (
 	shader: Shader,
@@ -234,12 +268,17 @@ compile_shader_source :: proc(
 		}
 		gl.GetShaderInfoLog(shader_handle, 512, &max_length, &message[0])
 		log.debugf(
-			"%s: %s Compilation error [%s]:\n\t%s\n",
+			"[%s]: %s Compilation error [%s]:\n%s\n\nSource:\n",
 			App_Module.Shader,
 			shader_type,
 			file_name,
 			string(message[:max_length]),
 		)
+
+		lines := strings.split_lines(shader_data, context.temp_allocator)
+		for line, i in lines {
+			fmt.printf("%d\t%s\n", i + 1, line)
+		}
 	}
 	return
 }
@@ -313,7 +352,12 @@ uniform_type :: proc(t: u32) -> (type: Buffer_Data_Type) {
 	return
 }
 
-set_shader_uniform :: proc(shader: ^Shader, name: string, value: rawptr, caller_loc := #caller_location) {
+set_shader_uniform :: proc(
+	shader: ^Shader,
+	name: string,
+	value: rawptr,
+	caller_loc := #caller_location,
+) {
 	if exist := name in shader.uniforms; !exist {
 		if exist = name in shader.uniform_warnings; !exist {
 			log.fatalf(

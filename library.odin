@@ -1,29 +1,33 @@
 package iris
 
 import "core:log"
+import "core:os"
 import "core:fmt"
 import "core:mem"
 import "core:time"
-import "core:strings"
-import "core:path/filepath"
+import "core:intrinsics"
+// import "core:strings"
+// import "core:path/filepath"
 import "allocators"
 import "gltf"
-import "aether"
+import "helios"
+// import "aether"
 
 Resource_Library :: struct {
-	free_list:      allocators.Free_List_Allocator,
-	allocator:      mem.Allocator,
-	temp_allocator: mem.Allocator,
-	buffers:        [dynamic]^Resource,
-	attributes:     [dynamic]^Resource,
-	textures:       [dynamic]^Resource,
-	shaders:        [dynamic]^Resource,
-	fonts:          [dynamic]^Resource,
-	framebuffers:   [dynamic]^Resource,
-	meshes:         [dynamic]^Resource,
-	materials:      map[string]^Resource,
-	animations:     map[string]^Resource,
-	scenes:         map[string]^Resource,
+	free_list:        allocators.Free_List_Allocator,
+	allocator:        mem.Allocator,
+	temp_allocator:   mem.Allocator,
+	shader_documents: map[string]helios.Document,
+	buffers:          [dynamic]^Resource,
+	attributes:       [dynamic]^Resource,
+	textures:         [dynamic]^Resource,
+	shaders:          [dynamic]^Resource,
+	fonts:            [dynamic]^Resource,
+	framebuffers:     [dynamic]^Resource,
+	meshes:           [dynamic]^Resource,
+	materials:        map[string]^Resource,
+	animations:       map[string]^Resource,
+	scenes:           map[string]^Resource,
 }
 
 Resource :: struct {
@@ -50,12 +54,13 @@ Resource_Loader :: union {
 }
 
 init_library :: proc(lib: ^Resource_Library) {
-	DEFAULT_ALLOCATOR_SIZE :: mem.Megabyte * 300
+	DEFAULT_ALLOCATOR_SIZE :: mem.Megabyte * 400
 	buf := make([]byte, DEFAULT_ALLOCATOR_SIZE, context.allocator)
 	allocators.init_free_list_allocator(&lib.free_list, buf, .Find_Best, 8)
 	lib.allocator = allocators.free_list_allocator(&lib.free_list)
 	lib.temp_allocator = context.temp_allocator
 
+	lib.shader_documents.allocator = lib.allocator
 	lib.buffers.allocator = lib.allocator
 	lib.attributes.allocator = lib.allocator
 	lib.textures.allocator = lib.allocator
@@ -122,6 +127,10 @@ close_library :: proc(lib: ^Resource_Library) {
 	}
 	delete(lib.scenes)
 
+	for _, document in lib.shader_documents {
+		helios.destroy(document)
+	}
+	delete(lib.shader_documents)
 	free_all(lib.allocator)
 }
 
@@ -192,11 +201,30 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	context.temp_allocator = lib.temp_allocator
 
 	data: Resource_Data
-	switch loader.kind {
-	case .Byte:
-		data = new_clone(internal_load_shader_from_bytes(loader))
-	case .File:
-		data = new_clone(internal_load_shader_from_file(loader))
+	switch l in loader {
+	case Shader_Builder:
+		if l.document == nil && l.document_name != "" {
+			if l.document_name in lib.shader_documents {
+				builder := l
+				builder.document = &lib.shader_documents[l.document_name]
+				data = new_clone(internal_build_shader(builder))
+			} else {
+				log.errorf("[%s]: Invalid document name: %s", App_Module.IO, l.document_name)
+			}
+		} else {
+			log.errorf(
+				"[%s]: Invalid Shader Builder settings:\n\tDetails: Both the document and the document name are nil",
+				App_Module.IO,
+			)
+			unreachable()
+		}
+	case Raw_Shader_Loader:
+		switch l.kind {
+		case .Byte:
+			data = new_clone(internal_load_shader_from_bytes(l))
+		case .File:
+			data = new_clone(internal_load_shader_from_file(l))
+		}
 	}
 
 	resource := new_resource(lib, data)
@@ -374,43 +402,72 @@ load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	}
 }
 
-load_shaders_from_dir :: proc(dir: string) {
+load_shader_document :: proc(file_path: string) {
 	lib := &app.library
-	context.allocator = lib.allocator
-	context.temp_allocator = lib.temp_allocator
+	begin_temp_allocation()
 
-	matches, glob_err := filepath.glob(fmt.tprintf("%s/*", dir), context.temp_allocator)
-
-	if glob_err != nil {
-		log.fatalf("%s: Failed to load Shaders from directory %s", App_Module.Shader, dir)
-		assert(false)
+	lib_source, read_ok := os.read_entire_file(file_path, context.temp_allocator)
+	if !read_ok {
+		log.fatalf(
+			"[%s]: Failed to read shader library from filepath: %s",
+			App_Module.IO,
+			file_path,
+		)
+		intrinsics.trap()
 	}
-	for path in matches {
-		if !strings.has_suffix(path, ".shader") {
-			continue
-		}
-		output, err := aether.split_shader_stages(path, context.temp_allocator)
 
-		if err != .None {
-			log.errorf("%s: [%s] Failed to load shader %s", App_Module.IO, err, path)
-			continue
-		}
-
-		loader := Shader_Loader {
-			name = filepath.stem(path),
-			kind = .Byte,
-			stages = {
-				Shader_Stage.Vertex = Shader_Stage_Loader{
-					source = aether.stage_source(&output, .Vertex),
-				},
-				Shader_Stage.Fragment = Shader_Stage_Loader{
-					source = aether.stage_source(&output, .Fragment),
-				},
-			},
-		}
-		shader_resource(loader)
+	shader_document, parse_err := helios.parse(file_path, lib_source, lib.allocator)
+	if parse_err != nil {
+		log.fatalf(
+			"[%s]: Failed to parse shader library: %s\n\tDetails: %#v",
+			App_Module.IO,
+			file_path,
+			parse_err,
+		)
+		intrinsics.trap()
 	}
+	lib.shader_documents[file_path] = shader_document
+
+	end_temp_allocation()
 }
+
+// load_shaders_from_dir :: proc(dir: string) {
+// 	lib := &app.library
+// 	context.allocator = lib.allocator
+// 	context.temp_allocator = lib.temp_allocator
+
+// 	matches, glob_err := filepath.glob(fmt.tprintf("%s/*", dir), context.temp_allocator)
+
+// 	if glob_err != nil {
+// 		log.fatalf("%s: Failed to load Shaders from directory %s", App_Module.Shader, dir)
+// 		assert(false)
+// 	}
+// 	for path in matches {
+// 		if !strings.has_suffix(path, ".shader") {
+// 			continue
+// 		}
+// 		output, err := aether.split_shader_stages(path, context.temp_allocator)
+
+// 		if err != .None {
+// 			log.errorf("%s: [%s] Failed to load shader %s", App_Module.IO, err, path)
+// 			continue
+// 		}
+
+// 		loader := Shader_Loader {
+// 			name = filepath.stem(path),
+// 			kind = .Byte,
+// 			stages = {
+// 				Shader_Stage.Vertex = Shader_Stage_Loader{
+// 					source = aether.stage_source(&output, .Vertex),
+// 				},
+// 				Shader_Stage.Fragment = Shader_Stage_Loader{
+// 					source = aether.stage_source(&output, .Fragment),
+// 				},
+// 			},
+// 		}
+// 		shader_resource(loader)
+// 	}
+// }
 
 
 // Searching procedures

@@ -138,7 +138,7 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	canvas.texture_count = 1
 
 	paint_shader_res := shader_resource(
-		Shader_Loader{
+		Raw_Shader_Loader{
 			name = "paint_canvas",
 			kind = .Byte,
 			stages = {

@@ -52,15 +52,27 @@ Token_Kind :: enum {
 @(private)
 scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 	if is_eof(l) {
+		token.kind = .Eof
+		token.start = l.current
+		token.end = l.current
 		return
 	}
 	skip_whitespace(l)
 
-	token.span.start = l.current
+	assign_end := true
+	token.start = l.current
 	c := advance(l)
 	switch c {
+	case '#':
+		comment: for {
+			if advance(l) == '\n' {
+				continue comment
+			}
+		}
+		fallthrough
 	case '\n':
 		l.line += 1
+		l.column = 0
 		token.kind = .Newline
 	case '.':
 		token.kind = .Dot
@@ -74,18 +86,34 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 		token.kind = .Close_Brace
 	case '[':
 		if !is_eof(l) && peek(l) == '[' {
+			advance(l)
 			token.kind = .Double_Open_Bracket
 		} else {
 			token.kind = .Open_Bracket
 		}
 	case ']':
 		if !is_eof(l) && peek(l) == ']' {
+			advance(l)
 			token.kind = .Double_Close_Bracket
 		} else {
 			token.kind = .Close_Bracket
 		}
 	case '"':
 		token.kind = .String
+		escape_sequence := `"`
+		assign_end = false
+		if peek(l) == '"' {
+			advance(l)
+			if advance(l) == '"' {
+				escape_sequence = `"""`
+			} else {
+				err = Lexing_Error {
+					base = {kind = .Malformed_Multiline_String, position = l.current},
+				}
+				return
+			}
+		}
+		token.start = l.current
 		lex_string: for {
 			if is_eof(l) {
 				err = Lexing_Error {
@@ -94,8 +122,33 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 				return
 			}
 
-			if advance(l) == '"' {
-				break lex_string
+			if peek(l) == '"' {
+				token.end = l.current
+				advance(l)
+				switch escape_sequence {
+				case `"`:
+					if peek(l) == '"' {
+						err = Lexing_Error {
+							base = {kind = .Malformed_String, position = l.current},
+						}
+						return
+					}
+					break lex_string
+
+				case `"""`:
+					if !(advance(l) == '"' && advance(l) == '"') {
+						err = Lexing_Error {
+							base = {kind = .Malformed_Multiline_String, position = l.current},
+						}
+						return
+					}
+					break lex_string
+				}
+			}
+			next := advance(l)
+			if next == '\n' {
+				l.line += 1
+				l.column = 0
 			}
 		}
 	case:
@@ -129,7 +182,8 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 					break lex_identifier
 				}
 
-				if is_letter(peek(l)) {
+				next := peek(l)
+				if is_letter(next) || next == '_' {
 					advance(l)
 				} else {
 					break lex_identifier
@@ -147,7 +201,9 @@ scan_token :: proc(l: ^Lexer) -> (token: Token, err: Error) {
 		}
 	}
 
-	token.end = l.current
+	if assign_end {
+		token.end = l.current
+	}
 	token.text = l.data[token.start.offset:token.end.offset]
 	return
 }

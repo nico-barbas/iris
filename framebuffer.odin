@@ -69,10 +69,10 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		return texture
 	}
 	framebuffer := Framebuffer {
-		width = l.width,
-		height = l.height,
+		width        = l.width,
+		height       = l.height,
 		clear_colors = l.clear_colors,
-		attachments = l.attachments,
+		attachments  = l.attachments,
 	}
 	gl.CreateFramebuffers(1, &framebuffer.handle)
 
@@ -183,9 +183,9 @@ blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
 	} else {
 		bind_framebuffer(dst)
 	}
-	
+
 	depth(false)
-					//odinfmt: disable
+			//odinfmt: disable
 			framebuffer_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
 				1.0,  1.0, 1.0, 1.0,
@@ -199,44 +199,60 @@ blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
 			//odinfmt: enable
 
 
-			texture_index: u32 = 0
+	texture_index: u32 = 0
 
-			// Set the shader up
-			bind_shader(ctx.framebuffer_blit_shader)
-			set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
-			bind_texture(framebuffer_texture(src, .Color0), texture_index)
-			send_buffer_data(
-				v_mem,
-				Buffer_Source{
-					data = &framebuffer_vertices[0],
-					byte_size = len(framebuffer_vertices) * size_of(f32),
-					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
-				},
-			)
-			send_buffer_data(
-				i_mem,
-				Buffer_Source{
-					data = &framebuffer_indices[0],
-					byte_size = len(framebuffer_vertices) * size_of(u32),
-				},
-			)
+	// Set the shader up
+	bind_shader(ctx.framebuffer_blit_shader)
+	set_shader_uniform(ctx.framebuffer_blit_shader, "texture0", &texture_index)
+	bind_texture(framebuffer_texture(src, .Color0), texture_index)
+	send_buffer_data(
+		v_mem,
+		Buffer_Source{
+			data = &framebuffer_vertices[0],
+			byte_size = len(framebuffer_vertices) * size_of(f32),
+			accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+		},
+	)
+	send_buffer_data(
+		i_mem,
+		Buffer_Source{
+			data = &framebuffer_indices[0],
+			byte_size = len(framebuffer_vertices) * size_of(u32),
+		},
+	)
 
-			// prepare attributes
-			bind_attributes(ctx.framebuffer_blit_attributes)
-			defer {
-				depth(true)
-				default_attributes()
-				default_shader()
-				unbind_texture(framebuffer_texture(src, .Color0))
-			}
+	// prepare attributes
+	bind_attributes(ctx.framebuffer_blit_attributes)
+	defer {
+		depth(true)
+		default_attributes()
+		default_shader()
+		unbind_texture(framebuffer_texture(src, .Color0))
+	}
 
-			link_interleaved_attributes_vertices(
-				ctx.framebuffer_blit_attributes,
-				v_mem.buf,
-			)
-			link_attributes_indices(ctx.framebuffer_blit_attributes, i_mem.buf)
+	link_interleaved_attributes_vertices(ctx.framebuffer_blit_attributes, v_mem.buf)
+	link_attributes_indices(ctx.framebuffer_blit_attributes, i_mem.buf)
 
-			draw_triangles(len(framebuffer_indices))
+	draw_triangles(len(framebuffer_indices))
+}
+
+blit_framebuffer_depth :: proc(src: ^Framebuffer, dst: ^Framebuffer = nil) {
+	dst_width := app.render_ctx.render_width if dst == nil else dst.width
+	dst_height := app.render_ctx.render_height if dst == nil else dst.height
+	gl.BlitNamedFramebuffer(
+		readFramebuffer = src.handle,
+		drawFramebuffer = 0 if dst == nil else dst.handle,
+		srcX0 = 0,
+		srcY0 = 0,
+		srcX1 = i32(src.width),
+		srcY1 = i32(src.height),
+		dstX0 = 0,
+		dstY0 = 0,
+		dstX1 = i32(dst_width),
+		dstY1 = i32(dst_height),
+		mask = gl.DEPTH_BUFFER_BIT,
+		filter = gl.NEAREST,
+	)
 }
 
 @(private)
