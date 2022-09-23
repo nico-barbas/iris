@@ -835,6 +835,7 @@ User_Interface_Command :: union {
 	User_Interface_Rect_Command,
 	User_Interface_Text_Command,
 	User_Interface_Line_Command,
+	User_Interface_Image_Command,
 }
 
 User_Interface_Rect_Command :: struct {
@@ -852,6 +853,12 @@ User_Interface_Text_Command :: struct {
 }
 
 User_Interface_Line_Command :: distinct Canvas_Line_Options
+
+User_Interface_Image_Command :: struct {
+	texture: ^Texture,
+	rect: Rectangle,
+	tint: Color,
+}
 
 init_ui_node :: proc(node: ^User_Interface_Node, allocator: mem.Allocator) {
 	mem.arena_init(&node.arena, make([]byte, mem.Megabyte * 1, allocator))
@@ -908,9 +915,17 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 				draw_text(node.canvas, c.font, c.text, c.position, c.size, c.color)
 			case User_Interface_Line_Command:
 				push_canvas_line(node.canvas, Canvas_Line_Options(c))
+			case User_Interface_Image_Command:
+				draw_sub_texture(
+					node.canvas, 
+					c.texture, 
+					c.rect, 
+					Rectangle {0, 0, c.texture.width, c.texture.height,}, 
+					c.tint,
+				)
 			}
 		}
-		node.dirty = false
+		// node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}
@@ -1031,6 +1046,7 @@ Any_Widget :: union {
 	^List_Widget,
 	^Button_Widget,
 	^Label_Widget,
+	^Image_Widget,
 }
 
 new_widget_from :: proc(node: ^User_Interface_Node, from: $T) -> ^T {
@@ -1062,6 +1078,8 @@ init_widget :: proc(widget: ^Widget) {
 		init_button(w)
 	case ^Label_Widget:
 		text_position(&w.text, w.rect)
+	case ^Image_Widget:
+		init_image(w)
 	}
 	widget.flags += {.Initialized}
 }
@@ -1101,6 +1119,8 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 		w.text.font = theme.font
 		w.text.size = theme.text_size
 		w.text.color = theme.text_color
+	case ^Image_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_0]
 	}
 	widget.background.color.rbg = theme.base_color.rgb * contrast
 	widget.background.border_color = theme.border_color
@@ -1123,7 +1143,7 @@ update_widget :: proc(widget: ^Widget) {
 		update_list(w)
 	case ^Button_Widget:
 		update_button(w)
-	case ^Label_Widget:
+	case ^Label_Widget, ^Image_Widget:
 	}
 }
 
@@ -1157,6 +1177,9 @@ offset_widget :: proc(widget: ^Widget, offset: Vector2) {
 		}
 	case ^Label_Widget:
 		text_position(&w.text, w.rect)
+	case ^Image_Widget:
+		w.content_rect.x += offset.x
+		w.content_rect.y += offset.y
 	}
 }
 
@@ -1237,12 +1260,20 @@ draw_widget :: proc(widget: ^Widget) {
 			color    = t.color,
 		}
 		append(buf, text_cmd)
+	case ^Image_Widget:
+		draw_widget_background(buf, w.background, w.rect)
+		img_cmd := User_Interface_Image_Command {
+			texture = w.content,
+			rect = w.content_rect,
+			tint = w.tint,
+		}
+		append(buf, img_cmd)
 	}
 }
 
 widget_height :: proc(widget: ^Widget) -> (result: f32) {
 	switch w in widget.derived {
-	case ^Layout_Widget, ^Button_Widget, ^Label_Widget:
+	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget:
 		result = widget.rect.height
 	case ^List_Widget:
 		if .Folded not_in w.states {
@@ -1610,11 +1641,42 @@ set_label_text :: proc(label: ^Label_Widget, str: string) {
 
 Image_Widget :: struct {
 	using base: Widget,
+	constraint: Image_Constraint,
 	content:    ^Texture,
-	constraint: enum {
-		Fit_Width,
-		Fit_Both,
-	},
+	content_rect: Rectangle,
+	tint: Color,
+}
+
+Image_Constraint :: enum {
+	Fit_Width,
+	Fit_Height,
+}
+
+init_image :: proc(image: ^Image_Widget) {
+	i_w := image.content.width
+	i_h := image.content.height
+	switch image.constraint {
+	case .Fit_Width:
+		image.content_rect = Rectangle {
+			x = image.rect.x,
+			y = image.rect.y,
+			width = image.rect.width,
+			height = (image.rect.width * i_h) / i_w, 
+		}
+	case .Fit_Height:
+		image.content_rect = Rectangle {
+			x = image.rect.x,
+			y = image.rect.y,
+			width = (image.rect.height * i_w) / i_h,
+			height = image.rect.height, 
+		}
+	}
+	offset := Vector2 {
+		(image.rect.width - image.content_rect.width) / 2,
+		(image.rect.height - image.content_rect.height) / 2,
+	}
+	image.content_rect.x += offset.x
+	image.content_rect.y += offset.y
 }
 
 Button_Widget :: struct {

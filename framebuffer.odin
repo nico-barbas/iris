@@ -43,6 +43,8 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		precision := 8,
 	) -> Texture {
 		texture: Texture
+		texture.width = f32(w)
+		texture.height = f32(h)
 		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 		if a >= .Color0 && a <= .Color3 {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)

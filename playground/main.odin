@@ -17,60 +17,6 @@ main :: proc() {
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
-	// toml_document, toml_err := toml.parse_string(TOML_TEST)
-	// if toml_err != nil {
-	// 	fmt.println(toml_err)
-	// 	assert(false)
-	// }
-	// fmt.println(toml_document)
-	// toml.destroy(toml_document)
-
-	// helios_source, _ := os.read_entire_file("playground/assets/shaders/lib.helios")
-	// helios_document, err := helios.parse(helios_source)
-
-	// if err != nil {
-	// 	fmt.println(err)
-	// 	assert(false)
-	// }
-
-	// shader, build_err := helios.build_shader(
-	// 	&helios_document,
-	// 	helios.Builder{
-	// 		build_name = "deferred_geometry_terrain",
-	// 		prototype_name = "deferred_geometry",
-	// 		stages = helios.DEFAULT_REQUIRED_STAGE,
-	// 		stages_info = {
-	// 			helios.Stage.Vertex = {with_extension = false},
-	// 			helios.Stage.Fragment = {with_extension = true, name = "terrain"},
-	// 		},
-	// 	},
-	// )
-
-	// if build_err != nil {
-	// 	fmt.println(build_err)
-	// 	assert(false)
-	// }
-	// fmt.println(shader.stages[helios.Stage.Vertex])
-	// fmt.println(shader.stages[helios.Stage.Fragment])
-
-	// helios.destroy(helios_document)
-	// helios.destroy_shader(&shader)
-
-	// if len(track.allocation_map) > 0 {
-	// 	fmt.printf("Leaks:")
-	// 	for _, v in track.allocation_map {
-	// 		fmt.printf("\t%v\n\n", v)
-	// 	}
-	// }
-	// fmt.printf("Leak count: %d\n", len(track.allocation_map))
-	// if len(track.bad_free_array) > 0 {
-	// 	fmt.printf("Bad Frees:")
-	// 	for v in track.bad_free_array {
-	// 		fmt.printf("\t%v\n\n", v)
-	// 	}
-	// }
-
-
 	iris.init_app(
 		&iris.App_Config{
 			width = 1600,
@@ -349,6 +295,20 @@ init :: proc(data: iris.App_Data) {
 		)
 
 		iris.scene_graph_to_list(layout, g.scene, 20)
+
+		position_buffer_view := iris.new_widget_from(
+			ui_node,
+			iris.Image_Widget{
+				base = iris.Widget {
+					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				constraint = .Fit_Height,
+				content = iris.g_buffer_texture(.Color0),
+				tint = 1,
+			},
+		)
+		iris.layout_add_widget(layout, position_buffer_view, 70)
 
 		init_terrain_ui(&g.terrain, ui_node)
 	}

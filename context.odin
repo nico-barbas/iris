@@ -910,6 +910,10 @@ push_draw_command :: proc(cmd: Render_Command, kind: Render_Queue_Kind) {
 	queue.count += 1
 }
 
+g_buffer_texture :: proc(a: Framebuffer_Attachment) -> ^Texture {
+	return framebuffer_texture(app.render_ctx.deferred_framebuffer, a)
+}
+
 @(private)
 LIGHT_DEPTH_VERTEX_SHADER :: `
 #version 450 core
@@ -950,47 +954,3 @@ void main() {
 	gl_Position = projView * matModel * vec4(attribPosition, 1.0);
 }
 `
-
-// @(private)
-// ORTHO_VERTEX_SHADER :: `
-// #version 450 core
-// layout (location = 0) in vec2 attribPosition;
-// layout (location = 1) in vec2 attribTexCoord;
-// layout (location = 2) in float attribTexIndex;
-// layout (location = 3) in vec4 attribColor;
-
-// out VS_OUT {
-// 	vec2 texCoord;
-// 	float texIndex;
-// 	vec4 color;
-// } frag;
-
-// uniform mat4 matProj;
-
-// void main() {
-// 	frag.texCoord = attribTexCoord;
-// 	frag.texIndex = attribTexIndex;
-// 	frag.color = attribColor;
-// 	gl_Position = matProj * vec4(attribPosition, 0.0, 1.0);
-// }
-// `
-
-// @(private)
-// ORTHO_FRAGMENT_SHADER :: `
-// #version 450 core
-// in VS_OUT {
-// 	vec2 texCoord;
-// 	float texIndex;
-// 	vec4 color;
-// } frag;
-
-// out vec4 fragColor;
-
-// uniform sampler2D textures[16];
-
-// void main() {
-// 	int index = int(frag.texIndex);
-// 	fragColor = texture(textures[index], frag.texCoord) * frag.color;
-// 	// fragColor = vec4(1.0, 0.0, 0.0, 1.0);
-// }
-// `

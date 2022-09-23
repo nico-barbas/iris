@@ -198,11 +198,6 @@ push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Quad_Options) {
 				x2, y2, uvx2, uvy2, f32(texture_index), r, g, b, a,
 				x1, y2, uvx1, uvy2, f32(texture_index), r, g, b, a,
 			)
-			// append(
-			// 	&canvas.indices,
-			// 	i_off + 1, i_off + 0, i_off + 2,
-			// 	i_off + 2, i_off + 0, i_off + 3,
-			// )
 			//odinfmt: enable
 	i_off := canvas.tri_index_offset
 	start := canvas.tri_index_count
@@ -251,8 +246,10 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 		clear_framebuffer(canvas.framebuffer)
 		bind_shader(canvas.paint_shader)
 		set_shader_uniform(canvas.paint_shader, "matProj", &canvas.projection[0][0])
-		bind_texture(canvas.textures[0], u32(0))
-		bind_texture(canvas.textures[1], u32(1))
+		for i in 0..<canvas.texture_count {
+			bind_texture(canvas.textures[i], u32(i))
+			// bind_texture(canvas.textures[1], u32(1))
+		}
 		bind_attributes(canvas.attributes)
 		defer {
 			default_attributes()
