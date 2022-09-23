@@ -77,22 +77,26 @@ expect_one_of_next :: proc(
 	return p.current.kind, expect_one_of(p, allowed)
 }
 
-parse_string :: proc(data: string, allocator := context.allocator) -> (root: Value) {
+parse_string :: proc(data: string, allocator := context.allocator) -> (root: Table, err: Error) {
 	return parse(transmute([]byte)data, allocator)
 }
 
-parse :: proc(data: []byte, allocator := context.allocator) -> (root: Value) {
+parse :: proc(data: []byte, allocator := context.allocator) -> (root: Table, err: Error) {
 	context.allocator = allocator
 	parser := Parser {
 		root = make(Table),
 		lexer = Lexer{current = {line = 1}, data = string(data)},
 	}
-	for {
+	parser.table = &parser.root
+	loop: for {
 		token := consume_token(&parser)
-		if token.kind == .Eof {
-			break
-		} else {
-			parse_next(&parser)
+		#partial switch token.kind {
+		case .Eof:
+			break loop
+		case .Newline:
+			continue loop
+		case:
+			parse_next(&parser) or_return
 		}
 	}
 	return
@@ -104,6 +108,7 @@ parse_next :: proc(p: ^Parser) -> (err: Error) {
 		expect_one_of_next(p, {.Identifier}) or_return
 		p.root[p.current.text] = make(Table)
 		p.table = cast(^Table)&p.table[p.current.text]
+		expect_one_of_next(p, {.Close_Bracket}) or_return
 	case .Double_Open_Bracket:
 		assert(false)
 	case .Identifier:

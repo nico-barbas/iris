@@ -164,7 +164,7 @@ is_number :: proc(c: byte) -> bool {
 
 @(private)
 is_letter :: proc(c: byte) -> bool {
-	return (c >= 'a' && c <= 'z') && (c >= 'A' && c <= 'Z')
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 @(private)

@@ -18,7 +18,11 @@ forest.growing = true
 `
 
 main :: proc() {
-	toml_document := toml.parse_string(TOML_TEST)
+	toml_document, err := toml.parse_string(TOML_TEST)
+	if err != nil {
+		fmt.println(err)
+		assert(false)
+	}
 	fmt.println(toml_document)
 	toml.destroy(toml_document)
 
