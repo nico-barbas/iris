@@ -1608,6 +1608,15 @@ set_label_text :: proc(label: ^Label_Widget, str: string) {
 	text_position(&label.text, label.rect)
 }
 
+Image_Widget :: struct {
+	using base: Widget,
+	content:    ^Texture,
+	constraint: enum {
+		Fit_Width,
+		Fit_Both,
+	},
+}
+
 Button_Widget :: struct {
 	using base:     Widget,
 	state:          Button_Widget_State,
