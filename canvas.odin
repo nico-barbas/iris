@@ -246,7 +246,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 		clear_framebuffer(canvas.framebuffer)
 		bind_shader(canvas.paint_shader)
 		set_shader_uniform(canvas.paint_shader, "matProj", &canvas.projection[0][0])
-		for i in 0..<canvas.texture_count {
+		for i in 0 ..< canvas.texture_count {
 			bind_texture(canvas.textures[i], u32(i))
 			// bind_texture(canvas.textures[1], u32(1))
 		}
@@ -423,6 +423,5 @@ uniform sampler2D textures[16];
 void main() {
 	int index = int(frag.texIndex);
 	fragColor = texture(textures[index], frag.texCoord) * frag.color;
-	// fragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
 `

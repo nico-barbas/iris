@@ -282,7 +282,7 @@ init :: proc(data: iris.App_Data) {
 			iris.Layout_Widget{
 				base = iris.Widget{
 					flags = {.Active, .Initialized_On_New, .Root_Widget, .Fit_Theme},
-					rect = {100, 100, 200, 400},
+					rect = {100, 100, 350, 500},
 					background = iris.Widget_Background{style = .Solid},
 				},
 				options = {.Decorated, .Titled, .Moveable, .Close_Widget},
@@ -294,21 +294,92 @@ init :: proc(data: iris.App_Data) {
 			},
 		)
 
-		iris.scene_graph_to_list(layout, g.scene, 20)
+		tabs := iris.new_widget_from(
+			ui_node,
+			iris.Tab_Viewer_Widget{
+				layout = iris.Layout_Widget{
+					base = iris.Widget{
+						flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+						background = iris.Widget_Background{style = .Solid},
+					},
+					format = .Row,
+					origin = .Up,
+				},
+			},
+		)
+
+		iris.layout_add_widget(layout, tabs, iris.layout_remaining_size(layout))
+
+		scene_layout := iris.tab_viewer_add_tab(
+			tabs,
+			iris.Tab_Config{
+				name = "world",
+				id = 24,
+				format = .Row,
+				origin = .Up,
+				set_as_active = true,
+			},
+		)
+		g_buffer_layout := iris.tab_viewer_add_tab(
+			tabs,
+			iris.Tab_Config{
+				name = "g-buffer",
+				id = 25,
+				format = .Row,
+				origin = .Up,
+				set_as_active = false,
+			},
+		)
+
+		iris.scene_graph_to_list(scene_layout, g.scene, 20)
 
 		position_buffer_view := iris.new_widget_from(
 			ui_node,
 			iris.Image_Widget{
-				base = iris.Widget {
+				base = iris.Widget{
 					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
 					background = iris.Widget_Background{style = .Solid},
 				},
 				constraint = .Fit_Height,
+				display_option = .Stream,
 				content = iris.g_buffer_texture(.Color0),
 				tint = 1,
+				flip_y = true,
 			},
 		)
-		iris.layout_add_widget(layout, position_buffer_view, 70)
+		iris.layout_add_widget(g_buffer_layout, position_buffer_view, 150)
+
+		normal_buffer_view := iris.new_widget_from(
+			ui_node,
+			iris.Image_Widget{
+				base = iris.Widget{
+					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				constraint = .Fit_Height,
+				display_option = .Stream,
+				content = iris.g_buffer_texture(.Color1),
+				tint = 1,
+				flip_y = true,
+			},
+		)
+		iris.layout_add_widget(g_buffer_layout, normal_buffer_view, 150)
+
+		albedo_buffer_view := iris.new_widget_from(
+			ui_node,
+			iris.Image_Widget{
+				base = iris.Widget{
+					flags = iris.DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+					background = iris.Widget_Background{style = .Solid},
+				},
+				constraint = .Fit_Height,
+				display_option = .Stream,
+				content = iris.g_buffer_texture(.Color2),
+				tint = 1,
+				flip_y = true,
+			},
+		)
+		iris.layout_add_widget(g_buffer_layout, albedo_buffer_view, 150)
 
 		init_terrain_ui(&g.terrain, ui_node)
 	}

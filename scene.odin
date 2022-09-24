@@ -856,8 +856,9 @@ User_Interface_Line_Command :: distinct Canvas_Line_Options
 
 User_Interface_Image_Command :: struct {
 	texture: ^Texture,
-	rect: Rectangle,
-	tint: Color,
+	rect:    Rectangle,
+	tint:    Color,
+	flip_y:  bool,
 }
 
 init_ui_node :: proc(node: ^User_Interface_Node, allocator: mem.Allocator) {
@@ -916,13 +917,11 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 			case User_Interface_Line_Command:
 				push_canvas_line(node.canvas, Canvas_Line_Options(c))
 			case User_Interface_Image_Command:
-				draw_sub_texture(
-					node.canvas, 
-					c.texture, 
-					c.rect, 
-					Rectangle {0, 0, c.texture.width, c.texture.height,}, 
-					c.tint,
-				)
+				src_rect := Rectangle{0, 0, c.texture.width, c.texture.height}
+				if c.flip_y {
+					src_rect.height *= -1
+				}
+				draw_sub_texture(node.canvas, c.texture, c.rect, src_rect, c.tint)
 			}
 		}
 		// node.dirty = false
@@ -947,6 +946,8 @@ scene_graph_to_list :: proc(parent: ^Widget, scene: ^Scene, node_size: f32) -> ^
 			indent = 10,
 		},
 	)
+	list.background.borders = true
+	list.background.border_color = 1
 	#partial switch p in parent.derived {
 	case ^Layout_Widget:
 		layout_add_widget(p, list, node_size)
@@ -1044,6 +1045,7 @@ Widget_Background :: struct {
 Any_Widget :: union {
 	^Layout_Widget,
 	^List_Widget,
+	^Tab_Viewer_Widget,
 	^Button_Widget,
 	^Label_Widget,
 	^Image_Widget,
@@ -1074,6 +1076,9 @@ init_widget :: proc(widget: ^Widget) {
 	case ^List_Widget:
 		w.children.allocator = widget.ui.allocator
 		init_list(w)
+	case ^Tab_Viewer_Widget:
+		w.tabs.allocator = widget.ui.allocator
+		init_tab_viewer(w)
 	case ^Button_Widget:
 		init_button(w)
 	case ^Label_Widget:
@@ -1102,6 +1107,8 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 		w.line_color.rgb =
 			theme.base_color.rgb * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.line_color.a = 1
+	case ^Tab_Viewer_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
 	case ^Button_Widget:
 		w.color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.hover_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
@@ -1143,7 +1150,14 @@ update_widget :: proc(widget: ^Widget) {
 		update_list(w)
 	case ^Button_Widget:
 		update_button(w)
-	case ^Label_Widget, ^Image_Widget:
+	case ^Tab_Viewer_Widget:
+		update_widget(w.tabs_selector)
+		update_widget(w.tabs[w.active_tab])
+	case ^Image_Widget:
+		if w.display_option == .Stream {
+			ui_node_dirty(w.ui)
+		}
+	case ^Label_Widget:
 	}
 }
 
@@ -1161,6 +1175,11 @@ offset_widget :: proc(widget: ^Widget, offset: Vector2) {
 		offset_widget_slice(w.children[:], offset)
 	case ^List_Widget:
 		offset_widget_slice(w.children[:], offset)
+	case ^Tab_Viewer_Widget:
+		offset_widget(w.tabs_selector, offset)
+		for _, tab in w.tabs {
+			offset_widget(tab, offset)
+		}
 	case ^Button_Widget:
 		if w.text != nil {
 			t := w.text.?
@@ -1202,6 +1221,7 @@ draw_widget :: proc(widget: ^Widget) {
 		}
 
 	case ^List_Widget:
+		draw_widget_background(buf, w.background, w.rect)
 		if .Folded not_in w.states {
 			for child, i in w.children {
 				draw_widget(child)
@@ -1236,6 +1256,9 @@ draw_widget :: proc(widget: ^Widget) {
 			draw_widget(w.root)
 		}
 
+	case ^Tab_Viewer_Widget:
+		draw_widget(w.tabs_selector)
+		draw_widget(w.tabs[w.active_tab])
 	case ^Button_Widget:
 		draw_widget_background(buf, w.background, w.rect)
 		if w.text != nil {
@@ -1264,8 +1287,9 @@ draw_widget :: proc(widget: ^Widget) {
 		draw_widget_background(buf, w.background, w.rect)
 		img_cmd := User_Interface_Image_Command {
 			texture = w.content,
-			rect = w.content_rect,
-			tint = w.tint,
+			rect    = w.content_rect,
+			tint    = w.tint,
+			flip_y  = w.flip_y,
 		}
 		append(buf, img_cmd)
 	}
@@ -1275,10 +1299,13 @@ widget_height :: proc(widget: ^Widget) -> (result: f32) {
 	switch w in widget.derived {
 	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget:
 		result = widget.rect.height
+	case ^Tab_Viewer_Widget:
+		result = widget.rect.height
 	case ^List_Widget:
 		if .Folded not_in w.states {
+			result = w.margin
 			for child in w.children {
-				result += widget_height(child)
+				result += widget_height(child) + w.padding
 			}
 			w.rect.height = result
 		} else {
@@ -1611,6 +1638,7 @@ update_list :: proc(list: ^List_Widget) {
 					list.line_height += height + list.padding
 				}
 			}
+			list.rect.height = list.next.y
 			list.flags -= {.Dirty_Hierarchy}
 		}
 	}
@@ -1629,6 +1657,92 @@ collapse_list :: proc(data: rawptr, id: Widget_ID) {
 	}
 }
 
+Tab_Viewer_Widget :: struct {
+	using layout:  Layout_Widget,
+	tabs_selector: ^Layout_Widget,
+	tabs:          map[Widget_ID]^Layout_Widget,
+	active_tab:    Widget_ID,
+}
+
+Tab_Config :: struct {
+	name:          string,
+	id:            Widget_ID,
+	format:        Layout_Format,
+	origin:        Direction,
+	set_as_active: bool,
+}
+
+tab_viewer_add_tab :: proc(viewer: ^Tab_Viewer_Widget, cfg: Tab_Config) -> (tab: ^Layout_Widget) {
+	tab_btn := new_widget_from(
+		viewer.ui,
+		Button_Widget{
+			base = Widget{
+				id = cfg.id,
+				flags = DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+				background = Widget_Background{style = .Solid},
+			},
+			text = Text{data = cfg.name, style = .Center},
+			data = viewer,
+			callback = switch_active_tab,
+		},
+	)
+	layout_add_widget(viewer.tabs_selector, tab_btn, 75)
+
+	tab = new_widget_from(
+		viewer.ui,
+		Layout_Widget{
+			base = Widget{
+				id = cfg.id,
+				flags = DEFAULT_LAYOUT_FLAGS + {.Fit_Theme},
+				rect = Rectangle{
+					x = viewer.rect.x,
+					y = viewer.rect.y + viewer.tabs_selector.rect.height,
+					width = viewer.rect.width,
+					height = viewer.rect.height - viewer.tabs_selector.rect.height,
+				},
+				background = Widget_Background{style = .Solid},
+			},
+			format = cfg.format,
+			origin = cfg.origin,
+			margin = 0,
+			padding = 1,
+		},
+	)
+	viewer.tabs[cfg.id] = tab
+	if cfg.set_as_active {
+		viewer.active_tab = cfg.id
+	}
+	return
+}
+
+switch_active_tab :: proc(data: rawptr, id: Widget_ID) {
+	viewer := cast(^Tab_Viewer_Widget)data
+	if id in viewer.tabs {
+		viewer.active_tab = id
+	}
+}
+
+init_tab_viewer :: proc(viewer: ^Tab_Viewer_Widget) {
+	init_layout(viewer)
+
+	base := Widget {
+		flags = DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme},
+		background = Widget_Background{style = .Solid},
+	}
+	viewer.tabs_selector = new_widget_from(
+		viewer.ui,
+		Layout_Widget{
+			base = base,
+			options = {.Child_Handle},
+			format = .Column,
+			origin = .Left,
+			margin = 0,
+			padding = 1,
+		},
+	)
+	layout_add_widget(viewer, viewer.tabs_selector, 20)
+}
+
 Label_Widget :: struct {
 	using base: Widget,
 	text:       Text,
@@ -1640,16 +1754,23 @@ set_label_text :: proc(label: ^Label_Widget, str: string) {
 }
 
 Image_Widget :: struct {
-	using base: Widget,
-	constraint: Image_Constraint,
-	content:    ^Texture,
-	content_rect: Rectangle,
-	tint: Color,
+	using base:     Widget,
+	constraint:     Image_Constraint,
+	display_option: Image_Display_Option,
+	flip_y:         bool,
+	content:        ^Texture,
+	content_rect:   Rectangle,
+	tint:           Color,
 }
 
 Image_Constraint :: enum {
 	Fit_Width,
 	Fit_Height,
+}
+
+Image_Display_Option :: enum {
+	Static,
+	Stream,
 }
 
 init_image :: proc(image: ^Image_Widget) {
@@ -1658,20 +1779,20 @@ init_image :: proc(image: ^Image_Widget) {
 	switch image.constraint {
 	case .Fit_Width:
 		image.content_rect = Rectangle {
-			x = image.rect.x,
-			y = image.rect.y,
-			width = image.rect.width,
-			height = (image.rect.width * i_h) / i_w, 
+			x      = image.rect.x,
+			y      = image.rect.y,
+			width  = image.rect.width,
+			height = (image.rect.width * i_h) / i_w,
 		}
 	case .Fit_Height:
 		image.content_rect = Rectangle {
-			x = image.rect.x,
-			y = image.rect.y,
-			width = (image.rect.height * i_w) / i_h,
-			height = image.rect.height, 
+			x      = image.rect.x,
+			y      = image.rect.y,
+			width  = (image.rect.height * i_w) / i_h,
+			height = image.rect.height,
 		}
 	}
-	offset := Vector2 {
+	offset := Vector2{
 		(image.rect.width - image.content_rect.width) / 2,
 		(image.rect.height - image.content_rect.height) / 2,
 	}
