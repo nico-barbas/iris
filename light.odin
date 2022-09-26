@@ -47,7 +47,7 @@ Light_Kind :: enum u32 {
 @(private)
 Lighting_Uniform_Data :: struct {
 	lights:             [RENDER_CTX_MAX_LIGHTS]Light_Info,
-	light_casters:      [4]Light_ID,
+	light_casters:      [4][4]u32,
 	projections:        [4]Matrix4,
 	ambient:            Color,
 	light_count:        u32,
@@ -131,11 +131,11 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 	}
 
 	if ctx_dirty {
-		casters_id := [4]Light_ID{
-			ctx.light_casters[0].id,
-			ctx.light_casters[1].id,
-			ctx.light_casters[2].id,
-			ctx.light_casters[3].id,
+		casters_id := [4][4]u32{
+			{0 = u32(ctx.light_casters[0].id)},
+			{0 = u32(ctx.light_casters[1].id)},
+			{0 = u32(ctx.light_casters[2].id)},
+			{0 = u32(ctx.light_casters[3].id)},
 		}
 		slice0 := ctx.shadow_map_slices[0][1]
 		slice1 := ctx.shadow_map_slices[1][1]
@@ -151,10 +151,10 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 					light_caster_count = u32(ctx.light_caster_count),
 					light_casters = casters_id,
 					projections = {
-						0 = ctx.lights_projection[casters_id[0]],
-						1 = ctx.lights_projection[casters_id[1]],
-						2 = ctx.lights_projection[casters_id[2]],
-						3 = ctx.lights_projection[casters_id[3]],
+						0 = ctx.lights_projection[casters_id[0].x],
+						1 = ctx.lights_projection[casters_id[1].x],
+						2 = ctx.lights_projection[casters_id[2].x],
+						3 = ctx.lights_projection[casters_id[3].x],
 					},
 					shadow_map_size = Vector2{
 						f32(ctx.shadow_map_atlas.width),

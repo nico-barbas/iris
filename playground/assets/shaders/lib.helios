@@ -32,7 +32,7 @@ const int MAX_LIGHTS = 128;
 const int MAX_LIGHT_CASTERS = 4;
 layout (std140, binding = 1) uniform LightingContext {
     Light lights[MAX_LIGHTS];
-    uint shadowCasters[MAX_LIGHT_CASTERS];                      // IDs of the lights used for shadow mapping
+    uvec4 shadowCasters[MAX_LIGHT_CASTERS];                      // IDs of the lights used for shadow mapping
     mat4 matLightSpaces[MAX_LIGHT_CASTERS];  // Space matrices of the lights used for shadow mapping
     vec4 ambient;                             // .rgb for the color and .a for the intensity
     uint lightCount;
