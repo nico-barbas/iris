@@ -25,6 +25,23 @@ draw_lines :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
 	)
 }
 
+clip_mode_on :: proc() {
+	gl.Enable(gl.SCISSOR_TEST)
+}
+
+clip_mode_off :: proc() {
+	gl.Disable(gl.SCISSOR_TEST)
+}
+
+set_clip_rect :: proc(r: Rectangle) {
+	h := i32(app.height)
+	gl.Scissor(i32(r.x), h - i32(r.y + r.height), i32(r.width), i32(r.height))
+}
+
+default_clip_rect :: proc() {
+	gl.Scissor(0, 0, i32(app.width), i32(app.height))
+}
+
 set_backface_culling :: proc(on: bool) {
 	if on {
 		gl.Enable(gl.CULL_FACE)
@@ -129,8 +146,8 @@ transform_from_matrix :: proc(m: Matrix4) -> (result: Transform) {
 }
 
 
-set_viewport :: proc(width, height: int) {
-	gl.Viewport(0, 0, i32(width), i32(height))
+set_viewport :: proc(r: Rectangle) {
+	gl.Viewport(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
 }
 
 // clear_viewport :: proc(clr: Color) {

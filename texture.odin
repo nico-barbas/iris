@@ -29,6 +29,16 @@ Texture :: struct {
 	unit_index: u32,
 }
 
+Texture_Slice :: struct {
+	unit_index:   i32,
+	atlas_width:  f32,
+	atlas_height: f32,
+	x:            f32,
+	y:            f32,
+	width:        f32,
+	height:       f32,
+}
+
 Texture_Filter_Mode :: enum uint {
 	Nearest                = 9728,
 	Linear                 = 9729,

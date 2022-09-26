@@ -24,7 +24,7 @@ draw_mesh :: proc(mesh: ^Mesh, t: Transform, mat: ^Material) {
 	transform := linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
 	push_draw_command(
 		Render_Mesh_Command{mesh = mesh, global_transform = transform, material = mat},
-		.Deferred_Geometry,
+		.Deferred_Geometry_Static,
 	)
 }
 

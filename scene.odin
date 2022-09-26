@@ -124,7 +124,7 @@ render_scene :: proc(scene: ^Scene) {
 							material = n.materials[i],
 							options = n.options,
 						},
-						.Deferred_Geometry if def else .Forward_Geometry,
+						.Deferred_Geometry_Static if def else .Forward_Geometry,
 					)
 				}
 			case ^Skin_Node:
@@ -145,7 +145,7 @@ render_scene :: proc(scene: ^Scene) {
 							material = n.target.materials[i],
 							options = n.target.options + {.Use_Joints},
 						},
-						.Deferred_Geometry if def else .Forward_Geometry,
+						.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
 					)
 				}
 			case ^Canvas_Node:
@@ -832,11 +832,14 @@ Contrast_Level :: enum {
 }
 
 User_Interface_Command :: union {
+	User_Interface_Clip_Command,
 	User_Interface_Rect_Command,
 	User_Interface_Text_Command,
 	User_Interface_Line_Command,
 	User_Interface_Image_Command,
 }
+
+User_Interface_Clip_Command :: Rectangle
 
 User_Interface_Rect_Command :: struct {
 	outline: bool,
@@ -883,32 +886,24 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 
 		for command in node.commands {
 			switch c in command {
+			case User_Interface_Clip_Command:
+				push_canvas_clip(node.canvas, Rectangle(c))
+
 			case User_Interface_Rect_Command:
 				if c.outline {
+					x := c.rect.x + 1
+					y := c.rect.y + 1
+					width := c.rect.width - 1
+					height := c.rect.height - 1
+					draw_line(node.canvas, {x, y}, {x, y + height}, c.color)
 					draw_line(
 						node.canvas,
-						{c.rect.x, c.rect.y},
-						{c.rect.x, c.rect.y + c.rect.height},
+						{x, y + height - 1},
+						{x + width, y + height - 1},
 						c.color,
 					)
-					draw_line(
-						node.canvas,
-						{c.rect.x, c.rect.y + c.rect.height},
-						{c.rect.x + c.rect.width, c.rect.y + c.rect.height},
-						c.color,
-					)
-					draw_line(
-						node.canvas,
-						{c.rect.x + c.rect.width, c.rect.y + c.rect.height},
-						{c.rect.x + c.rect.width, c.rect.y},
-						c.color,
-					)
-					draw_line(
-						node.canvas,
-						{c.rect.x + c.rect.width, c.rect.y},
-						{c.rect.x, c.rect.y},
-						c.color,
-					)
+					draw_line(node.canvas, {x + width, y + height}, {x + width, y}, c.color)
+					draw_line(node.canvas, {x + width, y}, {x, y}, c.color)
 				} else {
 					draw_rect(node.canvas, c.rect, c.color)
 				}
@@ -1216,12 +1211,18 @@ draw_widget :: proc(widget: ^Widget) {
 	switch w in widget.derived {
 	case ^Layout_Widget:
 		draw_widget_background(buf, w.background, w.rect)
+		if .Clip_Children in w.options {
+			append(buf, User_Interface_Clip_Command(w.rect))
+		}
 		for child in w.children {
 			draw_widget(child)
 		}
 
 	case ^List_Widget:
 		draw_widget_background(buf, w.background, w.rect)
+		if .Clip_Children in w.options {
+			append(buf, User_Interface_Clip_Command(w.rect))
+		}
 		if .Folded not_in w.states {
 			for child, i in w.children {
 				draw_widget(child)
@@ -1361,6 +1362,7 @@ Layout_Option :: enum {
 	Moveable,
 	Moving,
 	Child_Handle,
+	Clip_Children,
 }
 
 DEFAULT_LAYOUT_FLAGS :: Widget_Flags{.Active, .Initialized_On_New}
@@ -1417,6 +1419,10 @@ init_layout :: proc(layout: ^Layout_Widget) {
 		padding := layout.padding
 		layout.margin = 0
 		layout.padding = 0
+
+		if .Root_Widget in layout.flags {
+			layout.options += {.Clip_Children}
+		}
 
 		flags := DEFAULT_LAYOUT_CHILD_FLAGS + {.Fit_Theme}
 		base := Widget {
@@ -1538,6 +1544,7 @@ List_Options :: distinct bit_set[List_Option]
 List_Option :: enum {
 	Named_Header,
 	Indent_Children,
+	Clip_Children,
 	Foldable,
 	Tree_View,
 }

@@ -29,23 +29,42 @@ struct Light {
 const uint DIRECTIONAL_LIGHT = 0;
 const uint POINT_LIGHT = 1;
 const int MAX_LIGHTS = 128;
-const int MAX_SHADOW_CASTERS = 4;
+const int MAX_LIGHT_CASTERS = 4;
 layout (std140, binding = 1) uniform LightingContext {
     Light lights[MAX_LIGHTS];
-    uvec4 shadowCasters;                      // IDs of the lights used for shadow mapping
-    mat4 matLightSpaces[MAX_SHADOW_CASTERS];  // Space matrices of the lights used for shadow mapping
+    uint shadowCasters[MAX_LIGHT_CASTERS];                      // IDs of the lights used for shadow mapping
+    mat4 matLightSpaces[MAX_LIGHT_CASTERS];  // Space matrices of the lights used for shadow mapping
     vec4 ambient;                             // .rgb for the color and .a for the intensity
     uint lightCount;
     uint shadowCasterCount;
+    vec2 shadowMapSize;
 };
-"""
 
-[[includes]]
-name = "computeShadowValue"
-type = "procedure"
-decl = "float computeShadowValue(vec4 lightSpacePosition, float bias);"
-body = """
-float computeShadowValue(vec4 lightSpacePosition, float bias) {
+uniform sampler2D mapShadow;
+
+float sampleShadowMap (int casterIndex, vec2 texCoord) {
+    vec2 tileSize = vec2(
+        shadowMapSize.x / 2,
+        shadowMapSize.x / float(MAX_LIGHT_CASTERS));
+
+    vec2 pixelCoord = vec2(
+        tileSize.x + (tileSize.x * texCoord.x), 
+        (tileSize.y * float(casterIndex)) + (tileSize.y * texCoord.y));
+    vec2 absUVCoord = vec2(
+        pixelCoord.x / shadowMapSize.x,
+        pixelCoord.y / shadowMapSize.y);
+
+    return texture(mapShadow, absUVCoord).r;
+}
+
+float computeShadowValue(int casterIndex, vec3 position, vec3 normal) {
+    uint lightID = shadowCasters[casterIndex];
+    Light light = lights[lightID];
+    vec3 lightDir = normalize(light.position.xyz);
+    vec4 lightSpacePosition = matLightSpaces[lightID] * vec4(position, 1.0);
+    float bias = 0.05 * (1.0 - dot(normal, lightDir));
+	bias = max(bias, 0.005);
+
     vec3 projCoord = lightSpacePosition.xyz / lightSpacePosition.w;
     if (projCoord.z > 1.0) {
         return 0.0;
@@ -53,12 +72,17 @@ float computeShadowValue(vec4 lightSpacePosition, float bias) {
     projCoord = projCoord * 0.5 + 0.5;
     float currentDepth = projCoord.z;
 
+
+    vec2 tileSize = vec2(
+        shadowMapSize.x / 2,
+        shadowMapSize.x / float(MAX_LIGHT_CASTERS));
     float result = 0.0;
-    vec2 texelSize = 1.0 / textureSize(mapShadow, 0);
+    vec2 texelSize = 1.0 / tileSize;
     for (int x = -1; x <= 1; x += 1) {
         for (int y = -1; y <= 1; y += 1) {
             vec2 pcfCoord = projCoord.xy + vec2(x, y) * texelSize;
-            float pcfDepth = texture(mapShadow, pcfCoord).r;
+            // float pcfDepth = texture(mapShadow, pcfCoord).r;
+            float pcfDepth = sampleShadowMap(casterIndex, pcfCoord);
             result += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
         }
     }
@@ -265,7 +289,7 @@ void main() {
 
 [shaders.fragment]
 template = false
-includes = ["ContextData", "LightingContext", "computeShadowValue", "applyAtmosphericFog"]
+includes = ["ContextData", "LightingContext", "applyAtmosphericFog"]
 include_line = 8
 source = """
 #version 450 core
@@ -280,7 +304,6 @@ uniform sampler2D bufferedPosition;
 uniform sampler2D bufferedNormal;
 uniform sampler2D bufferedAlbedo;
 uniform sampler2D bufferedDepth;
-uniform sampler2D mapShadow;
 
 vec3 computeDirectionalLighting( Light light, vec3 p, vec3 n );
 vec3 computePointLighting( Light light, vec3 p, vec3 n );
@@ -300,12 +323,13 @@ void main() {
 
     float shadowValue = 0.0;
     for (int i = 0; i < shadowCasterCount; i += 1) {
-        Light light = lights[i];
-        vec3 lightDir = normalize(light.position.xyz);
-        vec4 lightSpacePosition = matLightSpaces[i] * vec4(position, 1.0);
-        float bias = 0.05 * (1.0 - dot(normal, lightDir));
-	    bias = max(bias, 0.005);
-        shadowValue += computeShadowValue(lightSpacePosition, bias);
+        // Light light = lights[i];
+        // vec3 lightDir = normalize(light.position.xyz);
+        // vec4 lightSpacePosition = matLightSpaces[i] * vec4(position, 1.0);
+        // float bias = 0.05 * (1.0 - dot(normal, lightDir));
+	    // bias = max(bias, 0.005);
+        // shadowValue += computeShadowValue(lightSpacePosition, bias);
+        shadowValue += computeShadowValue(i, position, normal);
     }
 
     vec3 lightValue = vec3(0);

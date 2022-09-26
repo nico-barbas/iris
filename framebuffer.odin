@@ -238,23 +238,27 @@ blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
 	draw_triangles(len(framebuffer_indices))
 }
 
-blit_framebuffer_depth :: proc(src: ^Framebuffer, dst: ^Framebuffer = nil) {
-	dst_width := app.render_ctx.render_width if dst == nil else dst.width
-	dst_height := app.render_ctx.render_height if dst == nil else dst.height
+blit_framebuffer_depth :: proc(src: ^Framebuffer, dst: ^Framebuffer = nil, sr, dr: Rectangle) {
+	dst_width := app.render_ctx.render_width if dst == nil else int(dr.width)
+	dst_height := app.render_ctx.render_height if dst == nil else int(dr.height)
 	gl.BlitNamedFramebuffer(
 		readFramebuffer = src.handle,
 		drawFramebuffer = 0 if dst == nil else dst.handle,
-		srcX0 = 0,
-		srcY0 = 0,
-		srcX1 = i32(src.width),
-		srcY1 = i32(src.height),
-		dstX0 = 0,
-		dstY0 = 0,
+		srcX0 = i32(sr.x),
+		srcY0 = i32(sr.y),
+		srcX1 = i32(sr.width),
+		srcY1 = i32(sr.height),
+		dstX0 = i32(dr.x),
+		dstY0 = i32(dr.y),
 		dstX1 = i32(dst_width),
 		dstY1 = i32(dst_height),
 		mask = gl.DEPTH_BUFFER_BIT,
 		filter = gl.NEAREST,
 	)
+}
+
+framebuffer_bounding_rect :: proc(f: ^Framebuffer) -> Rectangle {
+	return Rectangle{x = 0, y = 0, width = f32(f.width), height = f32(f.height)}
 }
 
 @(private)

@@ -2,6 +2,8 @@ package iris
 
 import "core:math/linalg"
 
+CANVAS_MAX_CLIP :: 32
+
 Canvas_Node :: struct {
 	using base:        Node,
 	width:             int,
@@ -24,6 +26,10 @@ Canvas_Node :: struct {
 	il_sub_buffer:     Buffer_Memory,
 
 	// CPU Buffers
+	clips: [CANVAS_MAX_CLIP]Canvas_Clipping_Info,
+	clip_count: int,
+	clip_tri_index_start: u32,
+	clip_line_index_start: u32,
 	vertices:          [dynamic]f32,
 	line_vertices:     [dynamic]f32,
 	textures:          [16]^Texture,
@@ -57,6 +63,12 @@ Canvas_Line_Options :: struct {
 	p1:    Vector2,
 	p2:    Vector2,
 	color: Color,
+}
+
+Canvas_Clipping_Info :: struct {
+	bounds: Rectangle,
+	tri_count: u32,
+	line_count: u32,
 }
 
 VERTEX_CAP :: 5000
@@ -238,10 +250,27 @@ push_canvas_line :: proc(canvas: ^Canvas_Node, c: Canvas_Line_Options) {
 	canvas.line_index_count += 2
 }
 
+push_canvas_clip :: proc(canvas: ^Canvas_Node, rect: Rectangle) {
+	canvas.clips[canvas.clip_count] = Canvas_Clipping_Info {
+		bounds = rect,
+	}
+	if canvas.clip_count > 0 {
+		previous_clip := &canvas.clips[canvas.clip_count - 1]
+		previous_clip.tri_count = canvas.tri_index_count - canvas.clip_tri_index_start
+		previous_clip.line_count = canvas.line_index_count - canvas.clip_line_index_start
+	}
+	canvas.clip_tri_index_start = canvas.tri_index_count
+	canvas.clip_line_index_start = canvas.line_index_count
+	canvas.clip_count += 1
+}
+
 @(private)
 flush_canvas_node_buffers :: proc(data: rawptr) {
 	canvas := cast(^Canvas_Node)data
 	if .Preserve_Last_Frame not_in canvas.derived_flags {
+		clip_mode_on()
+		default_clip_rect()
+
 		bind_framebuffer(canvas.framebuffer)
 		clear_framebuffer(canvas.framebuffer)
 		bind_shader(canvas.paint_shader)
@@ -252,14 +281,18 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 		}
 		bind_attributes(canvas.attributes)
 		defer {
+			default_shader()
 			default_attributes()
 			for i in 0 ..< canvas.texture_count {
 				unbind_texture(canvas.textures[i])
 			}
 			default_framebuffer()
+			default_clip_rect()
+			clip_mode_off()
 		}
 		link_interleaved_attributes_vertices(canvas.attributes, canvas.vertex_buffer)
 		link_attributes_indices(canvas.attributes, canvas.index_buffer)
+
 		if canvas.tri_index_count > 0 {
 			send_buffer_data(
 				&canvas.it_sub_buffer,
@@ -277,7 +310,20 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
 				},
 			)
-			draw_triangles(int(canvas.tri_index_count))
+			if canvas.clip_count > 0 {
+				last_clip := &canvas.clips[canvas.clip_count - 1]
+				last_clip.tri_count = canvas.tri_index_count - canvas.clip_tri_index_start
+				
+				tri_byte_offset : uintptr = 0
+				for clip in canvas.clips[:canvas.clip_count] {
+					set_clip_rect(clip.bounds)
+					draw_triangles(int(clip.tri_count), tri_byte_offset)
+					tri_byte_offset += uintptr(clip.tri_count * size_of(u32))
+					default_clip_rect()
+				}
+			} else {
+				draw_triangles(int(canvas.tri_index_count))
+			}
 		}
 		if canvas.line_index_count > 0 {
 			send_buffer_data(
@@ -296,11 +342,28 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
 				},
 			)
-			draw_lines(
-				int(canvas.line_index_count),
-				uintptr(canvas.il_sub_buffer.offset),
-				QUAD_VERTICES,
-			)
+			if canvas.clip_count > 0 {
+				last_clip := &canvas.clips[canvas.clip_count - 1]
+				last_clip.line_count = canvas.line_index_count - canvas.clip_line_index_start
+				
+				line_byte_offset : uintptr = 0
+				for clip in canvas.clips[:canvas.clip_count] {
+					set_clip_rect(clip.bounds)
+					draw_lines(
+						int(clip.line_count),
+						uintptr(canvas.il_sub_buffer.offset) + line_byte_offset,
+						QUAD_VERTICES,
+					)
+					line_byte_offset += uintptr(clip.line_count * size_of(u32))
+					default_clip_rect()
+				}
+			} else {
+				draw_lines(
+					int(canvas.line_index_count),
+					uintptr(canvas.il_sub_buffer.offset),
+					QUAD_VERTICES,
+				)
+			}
 		}
 	}
 	// push_draw_command(
@@ -318,6 +381,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 	canvas.tri_index_count = 0
 	canvas.line_index_offset = 0
 	canvas.line_index_count = 0
+	canvas.clip_count = 0
 	canvas.derived_flags -= {.Preserve_Last_Frame}
 }
 
