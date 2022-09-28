@@ -147,6 +147,13 @@ clear_framebuffer :: proc(f: ^Framebuffer) {
 	}
 }
 
+clear_framebuffer_region :: proc(f: ^Framebuffer, r: Rectangle) {
+	clip_mode_on()
+	defer clip_mode_off()
+	gl.Scissor(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
+	clear_framebuffer(f)
+}
+
 bind_framebuffer :: proc(f: ^Framebuffer) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, f.handle)
 }
@@ -164,21 +171,6 @@ destroy_framebuffer :: proc(f: ^Framebuffer) {
 }
 
 blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
-	// dst_width := app.render_ctx.render_width if dst == nil else dst.width
-	// dst_height := app.render_ctx.render_height if dst == nil else dst.height
-	// gl.BlitNamedFramebuffer(
-	// 	readFramebuffer = src.handle,
-	// 	drawFramebuffer = 0 if dst == nil else dst.handle,
-	// 	srcX0 = 0, srcY0 = 0,
-	// 	srcX1 = i32(src.width), 
-	// 	srcY1 = i32(src.height),
-	// 	dstX0 = 0, 
-	// 	dstY0 = 0,
-	// 	dstX1 = i32(dst_width), 
-	// 	dstY1 = i32(dst_height),
-	// 	mask = gl.COLOR_BUFFER_BIT,
-	// 	filter = gl.NEAREST,
-	// )
 	ctx := &app.render_ctx
 	if dst == nil {
 		default_framebuffer()

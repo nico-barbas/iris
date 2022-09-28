@@ -385,9 +385,9 @@ load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
-	for t in document.textures {
-		load_texture_from_gltf(t)
-	}
+	// for t in document.textures {
+	// 	load_texture_from_gltf(t)
+	// }
 	for m in document.materials {
 		load_material_from_gltf(m)
 	}

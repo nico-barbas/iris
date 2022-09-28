@@ -54,9 +54,16 @@ Texture_Wrap_Mode :: enum uint {
 	Repeat          = 10497,
 }
 
+Texture_Space :: enum {
+	Invalid,
+	Linear,
+	sRGB,
+}
+
 Texture_Loader :: struct {
 	filter: Texture_Filter_Mode,
 	wrap:   Texture_Wrap_Mode,
+	space:  Texture_Space,
 	width:  int,
 	height: int,
 	info:   union {
@@ -111,6 +118,9 @@ internal_load_texture_from_file :: proc(l: Texture_Loader) -> Texture {
 @(private)
 internal_load_texture_from_bytes :: proc(l: Texture_Loader) -> Texture {
 	assert(int(l.filter) != 0 && int(l.wrap) != 0)
+	if l.space == .Invalid {
+		assert(false, "Invalid Texture color space")
+	}
 
 	texture: Texture
 
@@ -140,10 +150,10 @@ internal_load_texture_from_bytes :: proc(l: Texture_Loader) -> Texture {
 		gl_internal_format = gl.RG8
 	case 3:
 		gl_format = gl.RGB
-		gl_internal_format = gl.RGB8
+		gl_internal_format = gl.RGB8 if l.space == .Linear else gl.SRGB8
 	case 4:
 		gl_format = gl.RGBA
-		gl_internal_format = gl.RGBA8
+		gl_internal_format = gl.RGBA8 if l.space == .Linear else gl.SRGB8_ALPHA8
 	}
 
 	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
@@ -362,9 +372,10 @@ internal_load_cubemap_from_bytes :: proc(loader: Texture_Loader) -> Texture {
 	return cubemap
 }
 
-load_texture_from_gltf :: proc(t: gltf.Texture) -> ^Texture {
+load_texture_from_gltf :: proc(t: gltf.Texture, space: Texture_Space) -> ^Texture {
 	loader := Texture_Loader {
 		info = File_Texture_Info{path = t.source.reference.(string)},
+		space = space,
 	}
 
 	if t.sampler != nil {

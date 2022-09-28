@@ -29,7 +29,7 @@ Material_Map :: enum byte {
 material_map_name := map[Material_Map]string {
 	.Diffuse0 = "mapDiffuse0",
 	.Diffuse1 = "mapDiffuse1",
-	.Normal0 = "mapNormal0",
+	.Normal0  = "mapNormal0",
 }
 
 @(private)
@@ -49,12 +49,14 @@ load_material_from_gltf :: proc(m: gltf.Material) -> ^Material {
 	resource := material_resource(loader)
 	material := resource.data.(^Material)
 	if m.base_color_texture.present {
-		path := m.base_color_texture.texture.source.reference.(string)
-		set_material_map(material, .Diffuse0, texture_from_name(path))
+		// path := m.base_color_texture.texture.source.reference.(string)
+		base_texture := load_texture_from_gltf(m.base_color_texture.texture^, .sRGB)
+		set_material_map(material, .Diffuse0, base_texture)
 	}
 	if m.normal_texture.present {
-		path := m.normal_texture.texture.source.reference.(string)
-		set_material_map(material, .Normal0, texture_from_name(path))
+		// path := m.normal_texture.texture.source.reference.(string)
+		normal_texture := load_texture_from_gltf(m.normal_texture.texture^, .Linear)
+		set_material_map(material, .Normal0, normal_texture)
 	}
 	return material
 }

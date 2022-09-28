@@ -20,20 +20,16 @@ Render_Context :: struct {
 	context_uniform_buffer:      ^Buffer,
 	context_uniform_memory:      Buffer_Memory,
 
-	// Camera state
+	// Camera context
 	view_dirty:                  bool,
 	eye:                         Vector3,
 	centre:                      Vector3,
 	up:                          Vector3,
 
-	// Lighting states
+	// Lighting context
 	lighting_context:            Lighting_Context,
 
-	// Shadow mapping states
-	// depth_framebuffer:           ^Framebuffer,
-	// depth_shader:                ^Shader,
-
-	// View depth framebuffer
+	// Deferred context
 	deferred_framebuffer:        ^Framebuffer,
 	deferred_static_shader:      ^Shader,
 	deferred_composite_shader:   ^Shader,
@@ -41,6 +37,10 @@ Render_Context :: struct {
 	deferred_indices:            Buffer_Memory,
 
 	//
+	hdr_framebuffer:             ^Framebuffer,
+	hdr_shader:                  ^Shader,
+
+	// Pass through blit shader
 	framebuffer_blit_shader:     ^Shader,
 	framebuffer_blit_attributes: ^Attributes,
 
@@ -250,9 +250,31 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	// )
 
 	// Framebuffer blitting states
+	hdr_framebuffer_res := framebuffer_resource(
+		Framebuffer_Loader{
+			attachments = {.Color0, .Depth},
+			precision = {Framebuffer_Attachment.Color0 = 16},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	ctx.hdr_framebuffer = hdr_framebuffer_res.data.(^Framebuffer)
+
+	hdr_shader_res := shader_resource(
+		Raw_Shader_Loader{
+			name = "hdr_tonemapping",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = HDR_FRAGMENT_SHADER},
+			},
+		},
+	)
+	ctx.hdr_shader = hdr_shader_res.data.(^Shader)
+
 	blit_shader_res := shader_resource(
 		Raw_Shader_Loader{
-			name = "blit_framebuffer",
+			name = "hdr_tonemapping",
 			kind = .Byte,
 			stages = {
 				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
@@ -342,16 +364,17 @@ end_render :: proc() {
 		// )
 		ctx.view_dirty = false
 	}
-	update_lighting_context(&ctx.lighting_context)
-
-	// dq := &ctx.queues[Render_Queue_Kind.Deferred_Geometry]
-	// deferred_commands := dq.commands[:dq.count]
 
 	d_static_queue := &ctx.queues[Render_Queue_Kind.Deferred_Geometry_Static]
 	ds_cmds := d_static_queue.commands[:d_static_queue.count]
 
 	d_dynamic_queue := &ctx.queues[Render_Queue_Kind.Deferred_Geometry_Dynamic]
 	dd_cmds := d_dynamic_queue.commands[:d_dynamic_queue.count]
+
+	if d_dynamic_queue.count > 0 {
+		invalidate_shadow_map()
+	}
+	update_lighting_context(&ctx.lighting_context)
 	shadow_map_pass(&ctx.lighting_context, ds_cmds, dd_cmds)
 
 	// Compute the multiple shadow maps
@@ -484,6 +507,8 @@ end_render :: proc() {
 
 	// Composite the deferred geometry
 	bind_shader(ctx.deferred_composite_shader)
+	bind_framebuffer(ctx.hdr_framebuffer)
+	clear_framebuffer(ctx.hdr_framebuffer)
 	{
 	// set_backface_culling(false)
 				//odinfmt: disable
@@ -558,14 +583,74 @@ end_render :: proc() {
 		draw_triangles(len(quad_indices))
 		blit_framebuffer_depth(
 			ctx.deferred_framebuffer,
-			nil,
+			ctx.hdr_framebuffer,
 			framebuffer_bounding_rect(ctx.deferred_framebuffer),
-			{},
+			framebuffer_bounding_rect(ctx.hdr_framebuffer),
 		)
 		// set_backface_culling(true)
 	}
 
 	render_forward_geometry(ctx)
+
+	// Tone mapping pass
+	bind_shader(ctx.hdr_shader)
+	default_framebuffer()
+	{
+			//odinfmt: disable
+		quad_vertices := [?]f32{
+			-1.0,  1.0, 0.0, 1.0,
+			1.0,  1.0, 1.0, 1.0,
+			-1.0, -1.0, 0.0, 0.0,
+			1.0, -1.0, 1.0, 0.0,
+		}
+		quad_indices := [?]u32{
+			2, 1, 0,
+			2, 3, 1,
+		}
+		//odinfmt: enable
+
+
+		hdr_buffer_index: u32 = 0
+		default_exposure: f32 = 0.05
+
+		set_shader_uniform(ctx.hdr_shader, "hdrBuffer", &hdr_buffer_index)
+		bind_texture(framebuffer_texture(ctx.hdr_framebuffer, .Color0), hdr_buffer_index)
+		set_shader_uniform(ctx.hdr_shader, "exposureValue", &default_exposure)
+
+
+		send_buffer_data(
+			&ctx.deferred_vertices,
+			Buffer_Source{
+				data = &quad_vertices[0],
+				byte_size = len(quad_vertices) * size_of(f32),
+				accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+			},
+		)
+		send_buffer_data(
+			&ctx.deferred_indices,
+			Buffer_Source{
+				data = &quad_indices[0],
+				byte_size = len(quad_indices) * size_of(u32),
+				accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+			},
+		)
+
+		// prepare attributes
+		bind_attributes(ctx.framebuffer_blit_attributes)
+		defer {
+			default_attributes()
+			default_shader()
+			unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0))
+		}
+
+		link_interleaved_attributes_vertices(
+			ctx.framebuffer_blit_attributes,
+			ctx.deferred_vertices.buf,
+		)
+		link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
+
+		draw_triangles(len(quad_indices))
+	}
 
 	render_other_geometry(ctx)
 
@@ -1002,5 +1087,29 @@ uniform mat4 matModel;
 
 void main() {
 	gl_Position = projView * matModel * vec4(attribPosition, 1.0);
+}
+`
+
+@(private)
+HDR_FRAGMENT_SHADER :: `
+#version 450 core
+in VS_OUT {
+	vec2 texCoord;
+} frag;
+
+out vec4 finalColor;
+
+uniform sampler2D hdrBuffer;
+uniform float exposureValue;
+
+void main() {
+	const float gamma = 2.2;
+	vec3 hdrClr = texture(hdrBuffer, frag.texCoord).rgb;
+
+	// Tone mapping
+	vec3 ldrClr = vec3(1.0) - exp(-hdrClr * exposureValue);
+	ldrClr = pow(ldrClr, vec3(1.0 / gamma));
+
+	finalColor = vec4(ldrClr, 1.0);
 }
 `

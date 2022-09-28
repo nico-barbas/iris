@@ -70,9 +70,6 @@ Terrain_Option :: enum {
 }
 
 init_terrain :: proc(t: ^Terrain) {
-	// Terrain
-	// terrain_shader, exist := iris.shader_from_name("terrain_lit")
-	// assert(exist)
 	terrain_shader_res := iris.shader_resource(
 		iris.Shader_Builder{
 			info = {
@@ -99,23 +96,10 @@ init_terrain :: proc(t: ^Terrain) {
 				info = iris.File_Texture_Info{path = "textures/terrain_sheet.png"},
 				filter = .Linear,
 				wrap = .Repeat,
+				space = .sRGB,
 			},
 		).data.(^iris.Texture),
 	)
-	// iris.set_material_map(
-	// 	t.material,
-	// 	.Diffuse1,
-	// 	iris.texture_resource(
-	// 		iris.Texture_Loader{
-	// 			info = iris.File_Texture_Info{path = "textures/dirt.png"},
-	// 			filter = .Linear,
-	// 			wrap = .Repeat,
-	// 		},
-	// 	).data.(^iris.Texture),
-	// )
-
-	// samplers := [2]i32{i32(iris.Material_Map.Diffuse0), i32(iris.Material_Map.Normal0)}
-	// iris.set_shader_uniform(terrain_shader, "textures", &samplers[0])
 
 	generate_terrain_vertices(t)
 	t.seed = make([]f32, (t.width + 1) * (t.height + 1))
@@ -151,6 +135,7 @@ init_terrain :: proc(t: ^Terrain) {
 				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},
 				filter = .Linear,
 				wrap = .Repeat,
+				space = .sRGB,
 			},
 		).data.(^iris.Texture),
 	)
@@ -162,6 +147,7 @@ init_terrain :: proc(t: ^Terrain) {
 				info = iris.File_Texture_Info{path = "textures/water_normal0.png"},
 				filter = .Linear,
 				wrap = .Repeat,
+				space = .Linear,
 			},
 		).data.(^iris.Texture),
 	)
@@ -339,7 +325,8 @@ modify_terrain_options :: proc(data: rawptr, btn_id: iris.Widget_ID) {
 	}
 
 	compute_height(terrain)
-	// compute_sea_height(terrain)
+	compute_sea_height(terrain)
+	terrain.model.derived_flags += {.Geomtry_Modified}
 }
 
 format_widget_value :: proc(widget: ^Terrain_Option_Widget, value: f32, float: bool) {

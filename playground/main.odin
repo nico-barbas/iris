@@ -202,7 +202,8 @@ init :: proc(data: iris.App_Data) {
 	})
 	iris.insert_node(g.scene, camera)
 
-	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {1, 1, 1, 1}, true)
+	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {100, 100, 90, 1}, true)
+	// iris.add_light(.Directional, iris.Vector3{2, 3, -2}, {100, 100, 90, 1}, true)
 
 	{
 		rig_document, _err := gltf.parse_from_file(

@@ -7,7 +7,6 @@ MAX_LIGHT_CASTERS :: 4
 SHADOW_MAP_PADDING :: 0
 
 Lighting_Context :: struct {
-	dirty:              bool,
 	count:              u32,
 	projection:         Matrix4,
 	lights:             [RENDER_CTX_MAX_LIGHTS]Light_Info,
@@ -202,6 +201,22 @@ add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color, map_shadows: bool) -
 	return
 }
 
+@(private)
+invalidate_shadow_map_cache :: proc() {
+	ctx := &app.render_ctx.lighting_context
+	for i in 0 ..< ctx.light_caster_count {
+		ctx.light_casters[i].cache_dirty = true
+	}
+}
+
+@(private)
+invalidate_shadow_map :: proc() {
+	ctx := &app.render_ctx.lighting_context
+	for i in 0 ..< ctx.light_caster_count {
+		ctx.light_casters[i].map_dirty = true
+	}
+}
+
 light_position :: proc(id: Light_ID, position: Vector3) {
 	ctx := &app.render_ctx.lighting_context
 	ctx.lights[id].position = {position.x, position.y, position.z, 1.0}
@@ -214,10 +229,14 @@ light_ambient :: proc(strength: f32, color: Vector3) {
 }
 
 shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Command) {
-	render_commands :: proc(shader: ^Shader, cmds: []Render_Command) {
+	render_commands :: proc(shader: ^Shader, cmds: []Render_Command, is_dynamic: bool) {
 		for cmd in cmds {
 			c := cmd.(Render_Mesh_Command)
 			set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
+			if is_dynamic {
+				set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
+				set_shader_uniform(shader, "matJoints", &c.joints[0])
+			}
 
 			bind_attributes(c.mesh.attributes)
 			defer default_attributes()
@@ -241,17 +260,26 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 		light_proj := ctx.lights_projection[lc.id]
 		cache := ctx.shadow_map_slices[i][0]
 		if lc.cache_dirty {
+			// clip_mode_on()
+			// set_clip_rect({cache.x, cache.y, cache.width, cache.height})
+			// clear_framebuffer(ctx.shadow_map_atlas)
+			// clip_mode_off()
+			clear_framebuffer_region(
+				ctx.shadow_map_atlas,
+				Rectangle{cache.x, cache.y, cache.width, cache.height},
+			)
 			set_viewport({cache.x, cache.y, cache.width, cache.height})
-			clear_framebuffer(ctx.shadow_map_atlas)
 
+			b := false
 			set_shader_uniform(ctx.shadow_map_shader, "matLightSpace", &light_proj[0][0])
-			render_commands(ctx.shadow_map_shader, st_geo)
-			// lc.cache_dirty = false
+			set_shader_uniform(ctx.shadow_map_shader, "dynamicGeometry", &b)
+
+			render_commands(ctx.shadow_map_shader, st_geo, false)
+			lc.cache_dirty = false
 			lc.map_dirty = true
 		}
 		if lc.map_dirty {
 			s_map := ctx.shadow_map_slices[i][1]
-			// set_viewport(framebuffer_bounding_rect(ctx.shadow_map_atlas))
 			blit_framebuffer_depth(
 				ctx.shadow_map_atlas,
 				ctx.shadow_map_atlas,
@@ -260,8 +288,12 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 			)
 			set_viewport({s_map.x, s_map.y, s_map.width, s_map.height})
 
+			// log.debug(ctx.shadow_map_shader.uniforms)
+			b := true
 			set_shader_uniform(ctx.shadow_map_shader, "matLightSpace", &light_proj[0][0])
-			render_commands(ctx.shadow_map_shader, dyn_geo)
+			set_shader_uniform(ctx.shadow_map_shader, "dynamicGeometry", &b)
+
+			render_commands(ctx.shadow_map_shader, dyn_geo, true)
 			lc.map_dirty = false
 		}
 	}
@@ -271,11 +303,30 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 SHADOW_MAP_VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec3 attribPosition;
+layout (location = 3) in vec4 attribJoints;
+layout (location = 4) in vec4 attribWeights;
 
 uniform mat4 matLightSpace;
 uniform mat4 matModel;
+uniform mat4 matModelLocal;
+uniform mat4 matJoints[19];
+
+uniform bool dynamicGeometry;
 
 void main() {
-	gl_Position = matLightSpace * matModel * vec4(attribPosition, 1.0);
+	mat4 finalMatModel = mat4(1);
+	if (dynamicGeometry) {
+		mat4 matSkin = 
+		attribWeights.x * matJoints[int(attribJoints.x)] +
+		attribWeights.y * matJoints[int(attribJoints.y)] +
+		attribWeights.z * matJoints[int(attribJoints.z)] +
+		attribWeights.w * matJoints[int(attribJoints.w)];
+
+		finalMatModel = matModelLocal * matSkin;
+	} else {
+		finalMatModel = matModel;
+	}
+
+	gl_Position = matLightSpace * finalMatModel * vec4(attribPosition, 1.0);
 }
 `

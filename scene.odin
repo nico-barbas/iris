@@ -126,6 +126,10 @@ render_scene :: proc(scene: ^Scene) {
 						},
 						.Deferred_Geometry_Static if def else .Forward_Geometry,
 					)
+					if .Geomtry_Modified in n.derived_flags {
+						invalidate_shadow_map_cache()
+						n.derived_flags -= {.Geomtry_Modified}
+					}
 				}
 			case ^Skin_Node:
 				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
@@ -333,9 +337,16 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 Model_Node :: struct {
 	using base:     Node,
 	options:        Rendering_Options,
+	derived_flags:  Model_Node_Flags,
 	mesh_transform: Matrix4,
 	meshes:         [dynamic]^Mesh,
 	materials:      [dynamic]^Material,
+}
+
+Model_Node_Flags :: distinct bit_set[Model_Node_Flag]
+
+Model_Node_Flag :: enum {
+	Geomtry_Modified,
 }
 
 Model_Loader :: struct {
@@ -892,7 +903,7 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 			case User_Interface_Rect_Command:
 				if c.outline {
 					x := c.rect.x + 1
-					y := c.rect.y + 1
+					y := c.rect.y
 					width := c.rect.width - 1
 					height := c.rect.height - 1
 					draw_line(node.canvas, {x, y}, {x, y + height}, c.color)

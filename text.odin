@@ -175,6 +175,7 @@ make_face_from_slice :: proc(font: []byte, pixel_size: int, start, end: rune) ->
 		loader = Texture_Loader{
 			filter = .Nearest,
 			wrap = .Repeat,
+			space = .Linear,
 			width = bitmap_width,
 			height = bitmap_height,
 			info = Byte_Texture_Info{data = rgba_bmp, channels = 4, bitmap = true},

@@ -5,45 +5,45 @@ import "core:math/linalg"
 CANVAS_MAX_CLIP :: 32
 
 Canvas_Node :: struct {
-	using base:        Node,
-	width:             int,
-	height:            int,
-	derived_flags:     Canvas_Flags,
+	using base:            Node,
+	width:                 int,
+	height:                int,
+	derived_flags:         Canvas_Flags,
 
 	// Graphical states
-	projection:        Matrix4,
-	framebuffer:       ^Framebuffer,
-	attributes:        ^Attributes,
-	vertex_buffer:     ^Buffer,
-	index_buffer:      ^Buffer,
-	paint_shader:      ^Shader,
-	default_texture:   ^Resource,
-	vertex_arena:      Arena_Buffer_Allocator,
-	tri_sub_buffer:    Buffer_Memory,
-	line_sub_buffer:   Buffer_Memory,
-	index_arena:       Arena_Buffer_Allocator,
-	it_sub_buffer:     Buffer_Memory,
-	il_sub_buffer:     Buffer_Memory,
+	projection:            Matrix4,
+	framebuffer:           ^Framebuffer,
+	attributes:            ^Attributes,
+	vertex_buffer:         ^Buffer,
+	index_buffer:          ^Buffer,
+	paint_shader:          ^Shader,
+	default_texture:       ^Resource,
+	vertex_arena:          Arena_Buffer_Allocator,
+	tri_sub_buffer:        Buffer_Memory,
+	line_sub_buffer:       Buffer_Memory,
+	index_arena:           Arena_Buffer_Allocator,
+	it_sub_buffer:         Buffer_Memory,
+	il_sub_buffer:         Buffer_Memory,
 
 	// CPU Buffers
-	clips: [CANVAS_MAX_CLIP]Canvas_Clipping_Info,
-	clip_count: int,
-	clip_tri_index_start: u32,
+	clips:                 [CANVAS_MAX_CLIP]Canvas_Clipping_Info,
+	clip_count:            int,
+	clip_tri_index_start:  u32,
 	clip_line_index_start: u32,
-	vertices:          [dynamic]f32,
-	line_vertices:     [dynamic]f32,
-	textures:          [16]^Texture,
-	texture_count:     int,
-	previous_v_count:  int,
-	previous_lv_count: int,
+	vertices:              [dynamic]f32,
+	line_vertices:         [dynamic]f32,
+	textures:              [16]^Texture,
+	texture_count:         int,
+	previous_v_count:      int,
+	previous_lv_count:     int,
 
 	// Indices
-	tri_indices:       []u32,
-	tri_index_offset:  u32,
-	tri_index_count:   u32,
-	line_indices:      []u32,
-	line_index_offset: u32,
-	line_index_count:  u32,
+	tri_indices:           []u32,
+	tri_index_offset:      u32,
+	tri_index_count:       u32,
+	line_indices:          []u32,
+	line_index_offset:     u32,
+	line_index_count:      u32,
 }
 
 Canvas_Flags :: distinct bit_set[Canvas_Flag]
@@ -66,8 +66,8 @@ Canvas_Line_Options :: struct {
 }
 
 Canvas_Clipping_Info :: struct {
-	bounds: Rectangle,
-	tri_count: u32,
+	bounds:     Rectangle,
+	tri_count:  u32,
 	line_count: u32,
 }
 
@@ -141,6 +141,7 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 		loader = Texture_Loader{
 			filter = .Nearest,
 			wrap = .Repeat,
+			space = .Linear,
 			width = 1,
 			height = 1,
 			info = Byte_Texture_Info{data = {0xff, 0xff, 0xff, 0xff}, channels = 4, bitmap = true},
@@ -313,8 +314,8 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 			if canvas.clip_count > 0 {
 				last_clip := &canvas.clips[canvas.clip_count - 1]
 				last_clip.tri_count = canvas.tri_index_count - canvas.clip_tri_index_start
-				
-				tri_byte_offset : uintptr = 0
+
+				tri_byte_offset: uintptr = 0
 				for clip in canvas.clips[:canvas.clip_count] {
 					set_clip_rect(clip.bounds)
 					draw_triangles(int(clip.tri_count), tri_byte_offset)
@@ -345,8 +346,8 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 			if canvas.clip_count > 0 {
 				last_clip := &canvas.clips[canvas.clip_count - 1]
 				last_clip.line_count = canvas.line_index_count - canvas.clip_line_index_start
-				
-				line_byte_offset : uintptr = 0
+
+				line_byte_offset: uintptr = 0
 				for clip in canvas.clips[:canvas.clip_count] {
 					set_clip_rect(clip.bounds)
 					draw_lines(
