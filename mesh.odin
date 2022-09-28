@@ -76,32 +76,6 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int) -> ^Resource {
             i2, i3, i1,
         }
 		//odinfmt: enable
-
-		// First triangle
-		// edge1 := positions[i1] - positions[i2]
-		// edge2 := positions[i0] - positions[i2]
-		// d_uv1 := uvs[i1] - uvs[i2]
-		// d_uv2 := uvs[i0] - uvs[i2]
-
-		// Second triangle
-		// edge3 := positions[i3] - positions[i2]
-		// edge4 := positions[i1] - positions[i2]
-		// d_uv3 := uvs[i3] - uvs[i2]
-		// d_uv4 := uvs[i1] - uvs[i2]
-
-		// f1 := 1 / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y)
-		// tangent1 := Vector3{
-		// 	f1 * (d_uv2.y * edge1.x - d_uv1.y * edge2.x),
-		// 	f1 * (d_uv2.y * edge1.y - d_uv1.y * edge2.y),
-		// 	f1 * (d_uv2.y * edge1.z - d_uv1.y * edge2.z),
-		// }
-
-		// f2 := 1 / (d_uv3.x * d_uv4.y - d_uv4.x * d_uv3.y)
-		// tangent2 := Vector3{
-		// 	f1 * (d_uv2.y * edge1.x - d_uv1.y * edge2.x),
-		// 	f1 * (d_uv2.y * edge1.y - d_uv1.y * edge2.y),
-		// 	f1 * (d_uv2.y * edge1.z - d_uv1.y * edge2.z),
-		// }
 	}
 	triangles := slice.reinterpret([]Triangle, faces)
 	for triangle in triangles {
@@ -316,13 +290,6 @@ cube_mesh :: proc(w, h, l: f32) -> ^Resource {
 
 @(private)
 internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
-	// attribute_count: int
-	// for attribute in loader.attributes {
-	// 	if attribute != nil {
-	// 		attribute_count += 1
-	// 	}
-	// }
-
 	mesh: Mesh
 	offset: int
 	layout: Attribute_Layout
@@ -343,16 +310,6 @@ internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
 		}
 	}
 	send_buffer_data(&mesh.indices, loader.indices)
-	// for attribute, i in loader.attributes {
-	// 	if attribute != nil {
-	// 		a := attribute.?
-	// 		offsets[index] = offset
-	// 		layout.accessors[index] = a.accessor
-	// 		send_buffer_data(&mesh.vertices, a, offset)
-	// 		offset += a.byte_size
-	// 		index += 1
-	// 	}
-	// }
 	layout.enabled = loader.enabled
 	mesh.attributes = attributes_from_layout(layout, loader.format)
 	mesh.attributes_info = Packed_Attributes {

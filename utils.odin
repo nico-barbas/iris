@@ -14,6 +14,22 @@ draw_triangles :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) 
 	)
 }
 
+draw_instanced_triangles :: proc(
+	count: int,
+	instance_count: int,
+	byte_offset: uintptr = 0,
+	index_offset := 0,
+) {
+	gl.DrawElementsInstancedBaseVertex(
+		gl.TRIANGLES,
+		i32(count),
+		gl.UNSIGNED_INT,
+		rawptr(byte_offset),
+		i32(instance_count),
+		i32(index_offset),
+	)
+}
+
 @(private)
 draw_lines :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
 	gl.DrawElementsBaseVertex(

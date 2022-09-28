@@ -136,10 +136,6 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 			{0 = u32(ctx.light_casters[2].id)},
 			{0 = u32(ctx.light_casters[3].id)},
 		}
-		slice0 := ctx.shadow_map_slices[0][1]
-		slice1 := ctx.shadow_map_slices[1][1]
-		slice2 := ctx.shadow_map_slices[2][1]
-		slice3 := ctx.shadow_map_slices[3][1]
 		send_buffer_data(
 			&ctx.uniform_memory,
 			Buffer_Source{

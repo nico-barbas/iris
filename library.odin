@@ -306,6 +306,18 @@ scene_resource :: proc(name: string) -> ^Resource {
 	return resource
 }
 
+clone_mesh_resource :: proc(mesh: ^Mesh) -> ^Resource {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	data := new_clone(mesh^)
+	resource := new_resource(lib, data)
+
+	append(&lib.meshes, resource)
+	return resource
+}
+
 free_resource :: proc(resource: ^Resource, remove := false) {
 	lib := &app.library
 	context.allocator = lib.allocator

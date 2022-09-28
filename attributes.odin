@@ -40,13 +40,14 @@ Attribute_Layout :: struct {
 Enabled_Attributes :: distinct bit_set[Attribute_Kind]
 
 Attribute_Kind :: enum {
-	Position  = 0,
-	Normal    = 1,
-	Tangent   = 2,
-	Joint     = 3,
-	Weight    = 4,
-	Tex_Coord = 5,
-	Color     = 6,
+	Position           = 0,
+	Normal             = 1,
+	Tangent            = 2,
+	Joint              = 3,
+	Weight             = 4,
+	Tex_Coord          = 5,
+	Color              = 6,
+	Instance_Transform = 7,
 }
 
 attribute_layout_size :: proc(layout: Attribute_Layout) -> (size: int) {
@@ -125,59 +126,100 @@ init_attributes :: proc(attributes: ^Attributes) {
 				stride_offset += u32(accesor_size(accessor))
 			}
 		}
-	// for accessor, i in attributes.layout {
-	// 	index := u32(i)
-	// 	// size := i32(format)
-	// 	gl.VertexArrayAttribBinding(attributes.handle, index, 0)
-	// 	gl.VertexArrayAttribFormat(
-	// 		attributes.handle,
-	// 		index,
-	// 		i32(buffer_len_of[accessor.format]),
-	// 		gl.FLOAT,
-	// 		gl.FALSE,
-	// 		stride_offset,
-	// 	)
-	// 	stride_offset += u32(accesor_size(accessor))
-	// }
 
 
 	case .Packed_Blocks:
 		for kind in Attribute_Kind {
 			if kind in attributes.enabled {
-				attribute_location := u32(kind)
-				accessor := attributes.accessors[kind].?
-				gl.EnableVertexArrayAttrib(attributes.handle, attribute_location)
-				gl.VertexArrayAttribBinding(
-					attributes.handle,
-					attribute_location,
-					attribute_location,
-				)
-				gl.VertexArrayAttribFormat(
-					attributes.handle,
-					attribute_location,
-					i32(buffer_len_of[accessor.format]),
-					gl.FLOAT,
-					gl.FALSE,
-					0,
-				)
+				enable_single_attribute(attributes, kind)
 			}
 		}
-	// for accessor, i in attributes.layout {
-	// 	index := u32(i)
-	// 	gl.EnableVertexArrayAttrib(attributes.handle, index)
-	// 	gl.VertexArrayAttribBinding(attributes.handle, index, index)
-	// 	gl.VertexArrayAttribFormat(
-	// 		attributes.handle,
-	// 		index,
-	// 		i32(buffer_len_of[accessor.format]),
-	// 		gl.FLOAT,
-	// 		gl.FALSE,
-	// 		0,
-	// 	)
-	// }
 
 	case .Block_Arrays:
 		unimplemented()
+	}
+}
+
+@(private)
+enable_single_attribute :: proc(attributes: ^Attributes, kind: Attribute_Kind) {
+	attribute_location := u32(kind)
+	accessor := attributes.accessors[kind].?
+	if kind == .Instance_Transform && accessor.format == .Mat4 {
+		column_size := size_of(Vector4)
+		// 1st Column
+		gl.EnableVertexArrayAttrib(attributes.handle, attribute_location)
+		gl.VertexArrayAttribBinding(attributes.handle, attribute_location, attribute_location)
+		gl.VertexArrayBindingDivisor(attributes.handle, attribute_location, 1)
+		gl.VertexArrayAttribFormat(
+			attributes.handle,
+			attribute_location,
+			i32(buffer_len_of[Buffer_Data_Format.Vector4]),
+			gl.FLOAT,
+			gl.FALSE,
+			0,
+		)
+
+		// 2nd Column
+		gl.EnableVertexArrayAttrib(attributes.handle, attribute_location + 1)
+		gl.VertexArrayAttribBinding(
+			attributes.handle,
+			attribute_location + 1,
+			attribute_location + 1,
+		)
+		gl.VertexArrayBindingDivisor(attributes.handle, attribute_location + 1, 1)
+		gl.VertexArrayAttribFormat(
+			attributes.handle,
+			attribute_location + 1,
+			i32(buffer_len_of[Buffer_Data_Format.Vector4]),
+			gl.FLOAT,
+			gl.FALSE,
+			u32(column_size),
+		)
+
+		// 3rd Column
+		gl.EnableVertexArrayAttrib(attributes.handle, attribute_location + 2)
+		gl.VertexArrayAttribBinding(
+			attributes.handle,
+			attribute_location + 2,
+			attribute_location + 2,
+		)
+		gl.VertexArrayBindingDivisor(attributes.handle, attribute_location + 2, 1)
+		gl.VertexArrayAttribFormat(
+			attributes.handle,
+			attribute_location + 2,
+			i32(buffer_len_of[Buffer_Data_Format.Vector4]),
+			gl.FLOAT,
+			gl.FALSE,
+			u32(column_size * 2),
+		)
+
+		// 4th Column
+		gl.EnableVertexArrayAttrib(attributes.handle, attribute_location + 3)
+		gl.VertexArrayAttribBinding(
+			attributes.handle,
+			attribute_location + 3,
+			attribute_location + 3,
+		)
+		gl.VertexArrayBindingDivisor(attributes.handle, attribute_location + 3, 1)
+		gl.VertexArrayAttribFormat(
+			attributes.handle,
+			attribute_location + 3,
+			i32(buffer_len_of[Buffer_Data_Format.Vector4]),
+			gl.FLOAT,
+			gl.FALSE,
+			u32(column_size * 3),
+		)
+	} else {
+		gl.EnableVertexArrayAttrib(attributes.handle, attribute_location)
+		gl.VertexArrayAttribBinding(attributes.handle, attribute_location, attribute_location)
+		gl.VertexArrayAttribFormat(
+			attributes.handle,
+			attribute_location,
+			i32(buffer_len_of[accessor.format]),
+			gl.FLOAT,
+			gl.FALSE,
+			0,
+		)
 	}
 }
 
@@ -214,17 +256,64 @@ link_packed_attributes_vertices :: proc(
 			)
 		}
 	}
-	// for accessor, i in attributes.layout {
-	// 	index := u32(i)
-	// 	offset := info.offsets[i]
-	// 	gl.VertexArrayVertexBuffer(
-	// 		attributes.handle,
-	// 		index,
-	// 		buffer.handle,
-	// 		offset,
-	// 		i32(accesor_size(accessor)),
-	// 	)
-	// }
+}
+
+link_packed_attributes_vertices_list :: proc(
+	attributes: ^Attributes,
+	buffer: ^Buffer,
+	list: Enabled_Attributes,
+	info: Packed_Attributes,
+) {
+	for kind in Attribute_Kind {
+		if kind in list && kind in attributes.enabled {
+			attribute_location := u32(kind)
+			accessor := attributes.accessors[kind].?
+			offset := info.offsets[kind]
+			if kind == .Instance_Transform && accessor.format == .Mat4 {
+				column_accessor := Buffer_Data_Type {
+					kind   = accessor.kind,
+					format = .Vector4,
+				}
+				column_size := accesor_size(column_accessor)
+				gl.VertexArrayVertexBuffer(
+					attributes.handle,
+					attribute_location,
+					buffer.handle,
+					offset,
+					i32(accesor_size(accessor)),
+				)
+				gl.VertexArrayVertexBuffer(
+					attributes.handle,
+					attribute_location + 1,
+					buffer.handle,
+					offset,
+					i32(accesor_size(accessor)),
+				)
+				gl.VertexArrayVertexBuffer(
+					attributes.handle,
+					attribute_location + 2,
+					buffer.handle,
+					offset,
+					i32(accesor_size(accessor)),
+				)
+				gl.VertexArrayVertexBuffer(
+					attributes.handle,
+					attribute_location + 3,
+					buffer.handle,
+					offset,
+					i32(accesor_size(accessor)),
+				)
+			} else {
+				gl.VertexArrayVertexBuffer(
+					attributes.handle,
+					attribute_location,
+					buffer.handle,
+					offset,
+					i32(accesor_size(accessor)),
+				)
+			}
+		}
+	}
 }
 
 

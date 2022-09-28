@@ -36,6 +36,12 @@ Terrain :: struct {
 	lacunarity:         f32,
 	factor:             f32,
 
+	// Grass Instancing
+	grass:              ^iris.Model_Group_Node,
+	grass_material:     ^iris.Material,
+	grass_in_buffer:    iris.Buffer_Memory,
+	grass_compute:      ^iris.Shader,
+
 	// UI
 	ui:                 ^iris.User_Interface_Node,
 	octaves_widget:     Terrain_Option_Widget,
@@ -162,6 +168,45 @@ init_terrain :: proc(t: ^Terrain) {
 	t.water_model.options = {.Transparent}
 	iris.insert_node(t.scene, t.water_model)
 	compute_sea_height(t)
+
+	// Init grass
+	// billboard := iris.plane_mesh(1, 1, 1, 1, 1).data.(^iris.Mesh)
+	// billboard_shader, shader_exist := iris.shader_from_name("forward_geometry")
+	// assert(shader_exist)
+	// grass_material_res := iris.material_resource(
+	// 	iris.Material_Loader{name = "grass", shader = billboard_shader},
+	// )
+	// t.grass_material = grass_material_res.data.(^iris.Material)
+
+	// t.grass = iris.new_node(t.scene, iris.Model_Group_Node)
+	// t.grass.mesh_transform = linalg.matrix4_from_trs_f32(
+	// 	iris.Vector3{},
+	// 	linalg.quaternion_from_pitch_yaw_roll_f32(math.to_radians_f32(90), 0, 0),
+	// 	iris.Vector3{1, 1, 1},
+	// )
+	// iris.insert_node(t.scene, t.grass)
+	// iris.init_group_node(
+	// 	group = t.grass,
+	// 	meshes = {billboard},
+	// 	materials = {t.grass_material},
+	// 	count = 10,
+	// )
+
+	// grass_compute_res := iris.shader_resource(
+	// 	iris.Raw_Shader_Loader{
+	// 		name = "grass_compute",
+	// 		kind = .Byte,
+	// 		stages = {
+	// 			iris.Shader_Stage.Compute = iris.Shader_Stage_Loader{
+	// 				source = GRASS_BILLBOARD_COMPUTE_SHADER,
+	// 			},
+	// 		},
+	// 	},
+	// )
+	// t.grass_compute = grass_compute_res.data.(^iris.Shader)
+
+	// in_buffer_res := iris.raw_buffer_resource(t.grass.transform_buf.size)
+	// t.grass_in_buffer = iris.buffer_memory_from_buffer_resource(in_buffer_res)
 }
 
 init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
@@ -448,6 +493,7 @@ compute_height :: proc(t: ^Terrain) {
 	min_value := math.INF_F32
 	max_value := -math.INF_F32
 
+	// unique_value: f32
 	for y in 0 ..< t.v_height {
 		for x in 0 ..< t.v_width {
 			noise_value: f32
@@ -462,8 +508,11 @@ compute_height :: proc(t: ^Terrain) {
 				sample_x2 := (sample_x1 + frequency) % t.v_width
 				sample_y2 := (sample_y1 + frequency) % t.v_width
 
+				// Smoothstep blending instead of bilinear
 				blendx := f32(x - sample_x1) / f32(frequency)
+				blendx = linalg.smoothstep(f32(0), f32(1), blendx)
 				blendy := f32(y - sample_y1) / f32(frequency)
+				blendy = linalg.smoothstep(f32(0), f32(1), blendy)
 
 				in_value_s1 := t.seed[sample_y1 * t.v_width + sample_x1]
 				in_value_s2 := t.seed[sample_y1 * t.v_width + sample_x2]
@@ -473,7 +522,7 @@ compute_height :: proc(t: ^Terrain) {
 				sample_t := linalg.lerp(in_value_t1, in_value_t2, blendx)
 
 				accumulator += scale
-				noise_value += (blendy * (sample_t - sample_s) + sample_s) * scale
+				noise_value += linalg.lerp(sample_s, sample_t, blendy) * scale
 				scale *= t.persistance
 				frequency = max(int(f32(frequency) / t.lacunarity), 1)
 			}
@@ -487,12 +536,13 @@ compute_height :: proc(t: ^Terrain) {
 	}
 
 	range := max_value - min_value
-	for position, i in &t.positions {
-		position.y = (position.y - min_value) / range
-		position.y = max((position.y * 2) - 1, -rand.float32_range(0.43, 0.435))
-		position.y *= t.factor
 
-		// t.texcoords[i].z = range_from_height(position.y)
+	for position, i in &t.positions {
+		if t.octaves > 1 {
+			position.y = abs(position.y - min_value) / range
+			position.y = max((position.y * 2) - 1, -rand.float32_range(0.43, 0.435))
+		}
+		position.y *= t.factor
 	}
 
 	for triangle in t.triangles {
@@ -559,3 +609,45 @@ compute_sea_height :: proc(terrain: ^Terrain) {
 		iris.transform(t = {0, terrain.factor * SEA_LEVEL, 0}),
 	)
 }
+
+GRASS_BILLBOARD_COMPUTE_SHADER :: `
+#version 450 core
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout (std140, binding = 0) uniform ContextData {
+    mat4 projView;
+    mat4 matProj;
+    mat4 matView;
+    vec3 viewPosition;
+    float time;
+    float dt;
+};
+
+layout (std140, binding = 4) buffer bufferedIn {
+	mat4 instanceMatIn[];
+};
+
+layout (std140, binding = 5) buffer bufferedOut {
+	mat4 instanceMatOut[];
+};
+
+layout (location = 0) uniform mat4 matModel; 
+
+void main() {
+	mat4 matIn = instanceMatIn[gl_LocalInvocationIndex];
+	mat4 matGlobal = matIn * matModel;
+	vec3 position = vec3(matGlobal[3][0], matGlobal[3][2], matGlobal[3][2]);
+
+	vec3 f = normalize(position - viewPosition);
+	vec3 r = normalize(cross(vec3(0, 1, 0), f));
+	vec3 u = normalize(cross(f, r));
+
+	mat4 matOut = mat4(1);
+	matOut[0].xyz = vec3(r.x, u.x, f.x);
+	matOut[1].xyz = vec3(r.y, u.y, f.y);
+	matOut[2].xyz = vec3(r.z, u.z, f.z);
+	matOut[3].xyz = position;
+
+	instanceMatOut[gl_LocalInvocationIndex] = matOut;
+}
+`

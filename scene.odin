@@ -42,6 +42,7 @@ Any_Node :: union {
 	^Empty_Node,
 	^Camera_Node,
 	^Model_Node,
+	^Model_Group_Node,
 	^Skin_Node,
 	^Canvas_Node,
 	^User_Interface_Node,
@@ -84,7 +85,7 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		case ^Camera_Node:
 			update_camera_node(n, false)
 
-		case ^Model_Node:
+		case ^Model_Node, ^Model_Group_Node:
 
 		case ^Skin_Node:
 			update_skin_node(n, dt)
@@ -131,13 +132,33 @@ render_scene :: proc(scene: ^Scene) {
 						n.derived_flags -= {.Geomtry_Modified}
 					}
 				}
+
+			case ^Model_Group_Node:
+				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+				for mesh, i in n.meshes {
+					def := .Transparent not_in n.options
+					push_draw_command(
+						Render_Mesh_Command{
+							mesh = mesh,
+							global_transform = mat_model,
+							material = n.materials[i],
+							options = n.options + {.Instancing},
+							instancing_info = Instancing_Info{
+								memory = n.transform_buf,
+								count = n.count,
+							},
+						},
+						.Deferred_Geometry_Static if def else .Forward_Geometry,
+					)
+					if .Geomtry_Modified in n.derived_flags {
+						invalidate_shadow_map_cache()
+						n.derived_flags -= {.Geomtry_Modified}
+					}
+				}
+
 			case ^Skin_Node:
 				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
 				for mesh, i in n.target.meshes {
-					// model_shader := n.target.materials[i].shader
-					// if _, exist := model_shader.uniforms["matJoints"]; exist {
-					// 	set_shader_uniform(model_shader, "matJoints", &joint_matrices[0])
-					// }
 					joint_matrices := skin_node_joint_matrices(n)
 					def := .Transparent not_in n.target.options
 					push_draw_command(
@@ -220,6 +241,10 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
 		node.name = "Model"
+
+	case ^Model_Group_Node:
+		n.flags += {.Rendered}
+		node.name = "Model_Group"
 
 	case ^Skin_Node:
 		n.flags -= {.Rendered}
@@ -384,33 +409,6 @@ Model_Loading_Error :: enum {
 	Missing_Mesh_Attribute,
 }
 
-// @(private)
-// model_shader :: proc(mode: Model_Rendering_Mode, rigged := false) -> ^Shader {
-// name: string
-// if !rigged {
-// 	switch mode {
-// 	case .Lit:
-// 		name = "lit"
-// 	case .Flat_Lit:
-// 		name = "flat_lit"
-// 	case .Unlit:
-// 		name = "unlit"
-// 	}
-// } else {
-// 	switch mode {
-// 	case .Lit:
-// 		name = "skeletal_lit"
-// 	case .Flat_Lit:
-// 		name = "skeletal_flat_lit"
-// 	case .Unlit:
-// 		name = "skeletal_unlit"
-// 	}
-// }
-// shader, exist := shader_from_name(name)
-// assert(exist)
-// return shader
-// }
-
 model_node_from_gltf :: proc(
 	model: ^Model_Node,
 	loader: Model_Loader,
@@ -466,30 +464,11 @@ load_mesh_from_gltf :: proc(
 	resource: ^Resource,
 	err: Model_Loading_Error,
 ) {
-	// kind_to_float_count :: proc(kind: gltf.Accessor_Kind) -> uint {
-	// 	#partial switch kind {
-	// 	case .Vector2:
-	// 		return 2
-	// 	case .Vector3:
-	// 		return 3
-	// 	case .Vector4:
-	// 		return 4
-	// 	case .Scalar:
-	// 		return 1
-	// 	}
-	// 	unreachable()
-	// }
-	// MIN_ATTRIB_FLAG :: Model_Loader_Flag.Load_Position
-	// MAX_ATTRIB_FLAG :: Model_Loader_Flag.Load_TexCoord0
-
 	if p.indices == nil {
 		log.fatalf("%s: Only support indexed primitive", App_Module.Mesh)
 		err = .Missing_Mesh_Indices
 		return
 	}
-	// vertices := make([dynamic]f32, 0, len(p.attributes) * 2 * 1000, context.temp_allocator)
-	// layout := make([dynamic]Buffer_Data_Type, 0, len(p.attributes), context.temp_allocator)
-	// offsets := make([dynamic]int, 0, len(p.attributes), context.temp_allocator)
 	indices: []u32
 	mesh_loader: Mesh_Loader
 	mesh_loader.format = .Packed_Blocks
@@ -641,6 +620,74 @@ model_node_from_mesh :: proc(
 		transform.scale,
 	)
 	return model
+}
+
+Model_Group_Node :: struct {
+	using model:   Model_Node,
+	count:         int,
+	transform_res: ^Resource,
+	transform_buf: Buffer_Memory,
+}
+
+resize_group_node_transforms :: proc(group: ^Model_Group_Node, count: int) {
+	if group.transform_res != nil {
+		free_resource(group.transform_res)
+		group.transform_res = nil
+	}
+	group.count = count
+	begin_temp_allocation()
+	instance_identity := make([]Matrix4, count, context.temp_allocator)
+	for i in 0 ..< count {
+		instance_identity[i] = linalg.MATRIX4F32_IDENTITY
+	}
+	group.transform_res = raw_buffer_resource(size_of(Matrix4) * count)
+	group.transform_buf = buffer_memory_from_buffer_resource(group.transform_res)
+	send_buffer_data(
+		&group.transform_buf,
+		Buffer_Source{
+			data = &instance_identity[0][0][0],
+			byte_size = count * size_of(Matrix4),
+			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+		},
+	)
+	end_temp_allocation()
+}
+
+init_group_node :: proc(
+	group: ^Model_Group_Node,
+	meshes: []^Mesh,
+	materials: []^Material,
+	count: int,
+) {
+	resize_group_node_transforms(group, count)
+
+	for mesh, i in meshes {
+		new_mesh := clone_mesh_resource(mesh).data.(^Mesh)
+
+		layout := mesh.attributes.layout
+		layout.enabled += {.Instance_Transform}
+		layout.accessors[Attribute_Kind.Instance_Transform] = Buffer_Data_Type {
+			kind   = .Float_32,
+			format = .Mat4,
+		}
+
+		new_mesh.attributes = attributes_from_layout(layout, mesh.attributes.format)
+		append(&group.meshes, new_mesh)
+		append(&group.materials, materials[i])
+	}
+}
+
+group_node_instance_transform :: proc(group: ^Model_Group_Node, index: int, t: Transform) {
+	instance_mat := linalg.matrix4_from_trs_f32(t.translation, t.rotation, t.scale)
+	send_buffer_data(
+		&group.transform_buf,
+		Buffer_Source{
+			data = &instance_mat[0][0],
+			byte_size = size_of(Matrix4),
+			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+		},
+		index * size_of(Matrix4),
+	)
 }
 
 Skin_Node :: struct {

@@ -63,6 +63,9 @@ Game :: struct {
 	skybox_material: ^iris.Material,
 	font:            ^iris.Font,
 	ui_theme:        iris.User_Interface_Theme,
+
+	// temps
+	instanced_cubes: ^iris.Model_Group_Node,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -253,12 +256,38 @@ init :: proc(data: iris.App_Data) {
 			scene       = g.scene,
 			width       = 200,
 			height      = 200,
-			octaves     = 5,
+			octaves     = 3,
 			persistance = 0.5,
 			lacunarity  = 2,
 			factor      = 6,
 		}
 		init_terrain(&g.terrain)
+	}
+
+	{
+		g.instanced_cubes = iris.new_node(g.scene, iris.Model_Group_Node)
+		g.instanced_cubes.mesh_transform = linalg.matrix4_from_trs_f32(
+			iris.Vector3{},
+			iris.Quaternion(1),
+			iris.Vector3{1, 1, 1},
+		)
+		iris.insert_node(g.scene, g.instanced_cubes)
+
+		iris.init_group_node(
+			group = g.instanced_cubes,
+			meshes = {g.mesh},
+			materials = {g.flat_material},
+			count = 9,
+		)
+		for y in 0 ..< 3 {
+			for x in 0 ..< 3 {
+				iris.group_node_instance_transform(
+					g.instanced_cubes,
+					y * 3 + x,
+					iris.transform(t = iris.Vector3{f32(x * 2), 2, f32(y * 2)}),
+				)
+			}
+		}
 	}
 
 	{
