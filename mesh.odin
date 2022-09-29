@@ -28,7 +28,7 @@ draw_mesh :: proc(mesh: ^Mesh, t: Transform, mat: ^Material) {
 	)
 }
 
-plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int) -> ^Resource {
+plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int, normal := VECTOR_UP) -> ^Resource {
 	v_per_row := s_w + 1
 	v_per_col := s_h + 1
 	v_count := v_per_row * v_per_col
@@ -42,7 +42,7 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int) -> ^Resource {
 	tan_size := p_size
 	t_size := (size_of(Vector2) * v_count)
 
-	offset := Vector2{f32(w / 2), f32(h / 2)}
+	offset := Vector2{f32(w) / 2, f32(h) / 2}
 	step_x := f32(w) / f32(s_w)
 	step_y := f32(h) / f32(s_h)
 	for y in 0 ..< v_per_col {
@@ -52,7 +52,7 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int) -> ^Resource {
 				0,
 				step_y * f32(y) - offset.y,
 			}
-			normals[y * v_per_row + x] = VECTOR_UP
+			normals[y * v_per_row + x] = normal
 			tangents[y * v_per_row + x] = VECTOR_RIGHT
 			uvs[y * v_per_row + x] = {(f32(x) / f32(s_w)), (f32(y) / f32(s_h))}
 		}

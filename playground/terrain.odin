@@ -170,43 +170,88 @@ init_terrain :: proc(t: ^Terrain) {
 	compute_sea_height(t)
 
 	// Init grass
-	// billboard := iris.plane_mesh(1, 1, 1, 1, 1).data.(^iris.Mesh)
-	// billboard_shader, shader_exist := iris.shader_from_name("forward_geometry")
-	// assert(shader_exist)
-	// grass_material_res := iris.material_resource(
-	// 	iris.Material_Loader{name = "grass", shader = billboard_shader},
-	// )
-	// t.grass_material = grass_material_res.data.(^iris.Material)
+	billboard := iris.plane_mesh(1, 1, 1, 1, 1, iris.Vector3{0, 0, -1}).data.(^iris.Mesh)
+	billboard_shader, shader_exist := iris.shader_from_name("forward_geometry")
+	assert(shader_exist)
+	grass_material_res := iris.material_resource(
+		iris.Material_Loader{name = "grass", shader = billboard_shader},
+	)
+	t.grass_material = grass_material_res.data.(^iris.Material)
+	iris.set_material_map(
+		t.grass_material,
+		.Diffuse0,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "textures/grass_pack.png"},
+				filter = .Linear,
+				wrap = .Clamp_To_Edge,
+				space = .sRGB,
+			},
+		).data.(^iris.Texture),
+	)
+	// t.grass_material.double_face = true
 
-	// t.grass = iris.new_node(t.scene, iris.Model_Group_Node)
-	// t.grass.mesh_transform = linalg.matrix4_from_trs_f32(
-	// 	iris.Vector3{},
-	// 	linalg.quaternion_from_pitch_yaw_roll_f32(math.to_radians_f32(90), 0, 0),
-	// 	iris.Vector3{1, 1, 1},
-	// )
-	// iris.insert_node(t.scene, t.grass)
-	// iris.init_group_node(
-	// 	group = t.grass,
-	// 	meshes = {billboard},
-	// 	materials = {t.grass_material},
-	// 	count = 10,
-	// )
+	t.grass = iris.new_node(t.scene, iris.Model_Group_Node)
+	t.grass.mesh_transform = linalg.matrix4_from_trs_f32(
+		iris.Vector3{},
+		linalg.quaternion_from_pitch_yaw_roll_f32(math.to_radians_f32(90), 0, 0),
+		// iris.Quaternion(1),
+		iris.Vector3{1, 1, 1},
+	)
+	iris.insert_node(t.scene, t.grass)
+	iris.init_group_node(
+		group = t.grass,
+		meshes = {billboard},
+		materials = {t.grass_material},
+		count = 32,
+	)
+	t.grass.options += {.Transparent}
 
-	// grass_compute_res := iris.shader_resource(
-	// 	iris.Raw_Shader_Loader{
-	// 		name = "grass_compute",
-	// 		kind = .Byte,
-	// 		stages = {
-	// 			iris.Shader_Stage.Compute = iris.Shader_Stage_Loader{
-	// 				source = GRASS_BILLBOARD_COMPUTE_SHADER,
-	// 			},
-	// 		},
-	// 	},
-	// )
-	// t.grass_compute = grass_compute_res.data.(^iris.Shader)
+	grass_compute_res := iris.shader_resource(
+		iris.Raw_Shader_Loader{
+			name = "grass_compute",
+			kind = .Byte,
+			stages = {
+				iris.Shader_Stage.Compute = iris.Shader_Stage_Loader{
+					source = GRASS_BILLBOARD_COMPUTE_SHADER,
+				},
+			},
+		},
+	)
+	t.grass_compute = grass_compute_res.data.(^iris.Shader)
 
-	// in_buffer_res := iris.raw_buffer_resource(t.grass.transform_buf.size)
-	// t.grass_in_buffer = iris.buffer_memory_from_buffer_resource(in_buffer_res)
+	iris.begin_temp_allocation()
+	in_buffer_res := iris.raw_buffer_resource(t.grass.transform_buf.size)
+	t.grass_in_buffer = iris.buffer_memory_from_buffer_resource(in_buffer_res)
+	in_identity := make([]iris.Matrix4, 32, context.temp_allocator)
+	for y in 0 ..< 8 {
+		for x in 0 ..< 4 {
+			in_identity[y * 4 + x] = linalg.matrix4_from_trs_f32(
+				iris.Vector3{f32(x), 0, f32(y)},
+				iris.Quaternion(1),
+				iris.VECTOR_ONE,
+			)
+		}
+	}
+	// for mat in &in_identity {
+	// 	mat = linalg.MATRIX4F32_IDENTITY
+	// }
+	iris.send_buffer_data(
+		&t.grass_in_buffer,
+		iris.Buffer_Source{
+			data = &in_identity[0][0][0],
+			byte_size = len(in_identity) * size_of(iris.Matrix4),
+			accessor = iris.Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+		},
+	)
+	iris.end_temp_allocation()
+}
+
+update_terrain :: proc(t: ^Terrain) {
+	iris.set_storage_buffer_binding(t.grass_in_buffer.buf, 4)
+	iris.set_storage_buffer_binding(t.grass.transform_buf.buf, 5)
+	iris.set_shader_uniform(t.grass_compute, "matModel", &t.grass.global_transform[0][0])
+	iris.dispatch_compute_shader(t.grass_compute, {1, 1, 1})
 }
 
 init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
@@ -635,19 +680,23 @@ layout (location = 0) uniform mat4 matModel;
 
 void main() {
 	mat4 matIn = instanceMatIn[gl_LocalInvocationIndex];
-	mat4 matGlobal = matIn * matModel;
-	vec3 position = vec3(matGlobal[3][0], matGlobal[3][2], matGlobal[3][2]);
+	mat4 matGlobal = matModel * matIn;
+	vec3 position = matGlobal[3].xyz;
 
 	vec3 f = normalize(position - viewPosition);
-	vec3 r = normalize(cross(vec3(0, 1, 0), f));
-	vec3 u = normalize(cross(f, r));
+	vec3 r = normalize(cross(f, vec3(0, 1, 0)));
+	vec3 u = normalize(cross(r, f));
 
-	mat4 matOut = mat4(1);
-	matOut[0].xyz = vec3(r.x, u.x, f.x);
-	matOut[1].xyz = vec3(r.y, u.y, f.y);
-	matOut[2].xyz = vec3(r.z, u.z, f.z);
-	matOut[3].xyz = position;
+	float fe = dot(f, position);
 
+	mat4 lookAt = mat4(
+		vec4(r.x, r.y, r.z, 0.0),
+		vec4(u.x, u.y, u.z, 0.0),
+		vec4(-f.x, -f.y, -f.z, 0.0),
+		vec4(0.0, 0.0, 0.0, 1.0));
+
+	// mat4 lookAt = mat4(mat3(matView));
+	mat4 matOut = matIn * matModel * lookAt;
 	instanceMatOut[gl_LocalInvocationIndex] = matOut;
 }
 `

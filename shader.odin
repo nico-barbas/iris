@@ -459,6 +459,13 @@ bind_shader :: proc(shader: ^Shader) {
 	gl.UseProgram(shader.handle)
 }
 
+dispatch_compute_shader :: proc(shader: ^Shader, dispatch_size: [3]u32) {
+	bind_shader(shader)
+	defer default_shader()
+	gl.DispatchCompute(dispatch_size.x, dispatch_size.y, dispatch_size.z)
+	gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+}
+
 default_shader :: proc() {
 	gl.UseProgram(0)
 }

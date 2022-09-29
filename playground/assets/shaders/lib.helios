@@ -349,7 +349,7 @@ void main() {
         }
     }
 
-    vec3 result = (ambient + ((1.0 - shadowValue) * lightValue)) * albedo;
+    vec3 result = (ambient + ((1.0 - shadowValue) * lightValue)) * albedo; 
     result = applyAtmosphericFog(result, distance, vec3(0), vec3(0));
     finalColor = vec4(result, 1.0);
 }
@@ -362,7 +362,8 @@ vec3 computeDirectionalLighting( Light light, vec3 p, vec3 n ) {
     vec3 viewDir = normalize(viewPosition - p);
     vec3 reflectDir = reflect(-lightDir, n);
     float specContribution = max(dot(viewDir, reflectDir), 0.0);
-    vec3 specular = 0.5 * (specContribution * light.color.rgb);
+    specContribution = pow(specContribution, 32.0);
+    vec3 specular =  (specContribution * light.color.rgb);
 
     return (diffuse + specular);
 }
@@ -467,17 +468,17 @@ void main() {
     vec3 albedo = a.rgb;
     float distance = length(position - viewPosition);
 
-    if (a.a <= 0.05) {
+    if (a.a < 0.25) {
         discard;
     }
 
     vec3 ambient = ambient.xyz * ambient.a;
 
-    float shadowValue = 0.0;
-    for (int i = 0; i < shadowCasterCount; i += 1) {
-        shadowValue += computeShadowValue(i, position, normal);
-    }
-    shadowValue = clamp(shadowValue, 0.0, 1.0);
+    //float shadowValue = 0.0;
+    //for (int i = 0; i < shadowCasterCount; i += 1) {
+    //    shadowValue += computeShadowValue(i, position, normal);
+    //}
+    //shadowValue = clamp(shadowValue, 0.0, 1.0);
 
     vec3 lightValue = vec3(0);
     for (int i = 0; i < lightCount; i += 1) {
@@ -490,9 +491,9 @@ void main() {
         }
     }
 
-    vec3 result = (ambient + ((1.0 - shadowValue) * lightValue)) * albedo;
+    vec3 result = (ambient + (lightValue)) * albedo; //(1.0 - shadowValue) * 
     result = applyAtmosphericFog(result, distance, vec3(0), vec3(0));
-    finalColor = vec4(result, 1.0);
+    finalColor = vec4(result, a.a);
 }
 
 vec3 computeDirectionalLighting( Light light, vec3 p, vec3 n ) {
@@ -503,7 +504,8 @@ vec3 computeDirectionalLighting( Light light, vec3 p, vec3 n ) {
     vec3 viewDir = normalize(viewPosition - p);
     vec3 reflectDir = reflect(-lightDir, n);
     float specContribution = max(dot(viewDir, reflectDir), 0.0);
-    vec3 specular = 0.5 * (specContribution * light.color.rgb);
+    specContribution = pow(specContribution, 32.0);
+    vec3 specular =  (specContribution * light.color.rgb);
 
     return (diffuse + specular);
 }

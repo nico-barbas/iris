@@ -558,6 +558,7 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 render_forward_geometry :: proc(ctx: ^Render_Context) {
 	fq := &ctx.queues[Render_Queue_Kind.Forward_Geometry]
 	forward_commands := fq.commands[:fq.count]
+	blend(true)
 	for command in &forward_commands {
 		#partial switch c in &command {
 		case Render_Mesh_Command:
@@ -606,11 +607,6 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 					unit_index += 1
 				}
 			}
-			// if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
-			// 	bind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth], unit_index)
-			// 	set_shader_uniform(c.material.shader, "mapShadow", &unit_index)
-			// }
-			// unit_index += 1
 
 			if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
 				bind_texture(
@@ -628,16 +624,27 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 				c.mesh.attributes_info,
 			)
 			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
-			draw_triangles(c.mesh.index_count)
+
+			instancing := .Instancing in c.options
+			set_shader_uniform(c.material.shader, "instanced", &instancing)
+			if instancing {
+				info := c.instancing_info.?
+				link_packed_attributes_vertices_list(
+					c.mesh.attributes,
+					info.memory.buf,
+					{.Instance_Transform},
+					Packed_Attributes{offsets = {Attribute_Kind.Instance_Transform = 0}},
+				)
+				draw_instanced_triangles(c.mesh.index_count, info.count)
+			} else {
+				draw_triangles(c.mesh.index_count)
+			}
 
 			for kind in Material_Map {
 				if kind in c.material.maps {
 					unbind_texture(c.material.textures[kind])
 				}
 			}
-			// if _, exist := c.material.shader.uniforms["mapShadow"]; exist {
-			// 	unbind_texture(&ctx.depth_framebuffer.maps[Framebuffer_Attachment.Depth])
-			// }
 
 			if c.material.double_face {
 				set_backface_culling(true)

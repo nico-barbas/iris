@@ -29,7 +29,7 @@ Buffer_Data_Kind :: enum {
 
 buffer_size_of := map[Buffer_Data_Kind]int {
 	.Byte        = size_of(byte),
-	.Boolean        = size_of(bool),
+	.Boolean     = size_of(bool),
 	.Unsigned_16 = size_of(u16),
 	.Signed_16   = size_of(i16),
 	.Unsigned_32 = size_of(u32),
@@ -85,6 +85,10 @@ send_buffer_data :: proc(dst: ^Buffer_Memory, src: Buffer_Source, offset := 0) {
 
 set_uniform_buffer_binding :: proc(buffer: ^Buffer, binding_point: u32) {
 	gl.BindBufferRange(gl.UNIFORM_BUFFER, binding_point, buffer.handle, 0, buffer.size)
+}
+
+set_storage_buffer_binding :: proc(buffer: ^Buffer, binding_point: u32) {
+	gl.BindBufferRange(gl.SHADER_STORAGE_BUFFER, binding_point, buffer.handle, 0, buffer.size)
 }
 
 destroy_buffer :: proc(buffer: ^Buffer) {
