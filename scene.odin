@@ -977,7 +977,7 @@ render_ui_node :: proc(node: ^User_Interface_Node) {
 				draw_sub_texture(node.canvas, c.texture, c.rect, src_rect, c.tint)
 			}
 		}
-		// node.dirty = false
+		node.dirty = false
 	} else {
 		node.canvas.derived_flags += {.Preserve_Last_Frame}
 	}

@@ -278,7 +278,6 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 		set_shader_uniform(canvas.paint_shader, "matProj", &canvas.projection[0][0])
 		for i in 0 ..< canvas.texture_count {
 			bind_texture(canvas.textures[i], u32(i))
-			// bind_texture(canvas.textures[1], u32(1))
 		}
 		bind_attributes(canvas.attributes)
 		defer {

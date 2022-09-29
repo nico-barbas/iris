@@ -1,7 +1,7 @@
 package iris
 
 import "core:time"
-import "core:fmt"
+// import "core:fmt"
 import "core:math/linalg"
 
 
@@ -156,11 +156,11 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	shader_resource(
 		Shader_Builder{
 			info = {
-				build_name = "forward_geometry",
+				build_name = "forward_geometry_default",
 				prototype_name = "forward_geometry",
 				stages = {.Vertex, .Fragment},
 				stages_info = {
-					Shader_Stage.Vertex = {with_extension = false},
+					Shader_Stage.Vertex = {with_extension = true, name = "default"},
 					Shader_Stage.Fragment = {with_extension = false},
 				},
 			},
@@ -296,9 +296,9 @@ end_render :: proc() {
 
 	// Update light values
 	if ctx.view_dirty {
-		compute_projection(ctx)
 		ctx.view_dirty = false
 	}
+	compute_projection(ctx)
 
 	d_static_queue := &ctx.queues[Render_Queue_Kind.Deferred_Geometry_Static]
 	ds_cmds := d_static_queue.commands[:d_static_queue.count]
@@ -589,31 +589,25 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 				set_shader_uniform(c.material.shader, "matNormalLocal", &normal_mat[0][0])
 			}
 
-			unit_index: u32
 			for kind in Material_Map {
 				if kind in c.material.maps {
+					map_uniform_value := u32(kind)
 					texture := c.material.textures[kind]
-					texture_uniform_name: string
-					switch texture.kind {
-					case .Texture:
-						texture_uniform_name = fmt.tprintf("texture%d", u32(kind))
-					case .Cubemap:
-						texture_uniform_name = fmt.tprintf("cubemap%d", u32(kind))
+					map_uniform_name := material_map_name[kind]
+					bind_texture(c.material.textures[kind], map_uniform_value)
+					if _, exist := c.material.shader.uniforms[map_uniform_name]; exist {
+						set_shader_uniform(c.material.shader, map_uniform_name, &map_uniform_value)
 					}
-					bind_texture(c.material.textures[kind], unit_index)
-					if _, exist := c.material.shader.uniforms[texture_uniform_name]; exist {
-						set_shader_uniform(c.material.shader, texture_uniform_name, &unit_index)
-					}
-					unit_index += 1
 				}
 			}
 
+			depth_map_index := u32(max(Material_Map)) + 1
 			if _, exist := c.material.shader.uniforms["mapViewDepth"]; exist {
 				bind_texture(
 					&ctx.deferred_framebuffer.maps[Framebuffer_Attachment.Depth],
-					unit_index,
+					depth_map_index,
 				)
-				set_shader_uniform(c.material.shader, "mapViewDepth", &unit_index)
+				set_shader_uniform(c.material.shader, "mapViewDepth", &depth_map_index)
 			}
 
 			bind_attributes(c.mesh.attributes)
@@ -649,6 +643,12 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 			if c.material.double_face {
 				set_backface_culling(true)
 				depth_mode(.Less)
+			}
+
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					unbind_texture(c.material.textures[kind])
+				}
 			}
 		}
 	}

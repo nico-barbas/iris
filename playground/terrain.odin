@@ -171,10 +171,22 @@ init_terrain :: proc(t: ^Terrain) {
 
 	// Init grass
 	billboard := iris.plane_mesh(1, 1, 1, 1, 1, iris.Vector3{0, 0, -1}).data.(^iris.Mesh)
-	billboard_shader, shader_exist := iris.shader_from_name("forward_geometry")
-	assert(shader_exist)
+	billboard_shader_res := iris.shader_resource(
+		iris.Shader_Builder{
+			info = {
+				build_name = "forward_geometry_grass",
+				prototype_name = "forward_geometry",
+				stages = {.Vertex, .Fragment},
+				stages_info = {
+					iris.Shader_Stage.Vertex = {with_extension = true, name = "grass"},
+					iris.Shader_Stage.Fragment = {with_extension = false},
+				},
+			},
+			document_name = "shaders/lib.helios",
+		},
+	)
 	grass_material_res := iris.material_resource(
-		iris.Material_Loader{name = "grass", shader = billboard_shader},
+		iris.Material_Loader{name = "grass", shader = billboard_shader_res.data.(^iris.Shader)},
 	)
 	t.grass_material = grass_material_res.data.(^iris.Material)
 	iris.set_material_map(
@@ -186,6 +198,18 @@ init_terrain :: proc(t: ^Terrain) {
 				filter = .Linear,
 				wrap = .Clamp_To_Edge,
 				space = .sRGB,
+			},
+		).data.(^iris.Texture),
+	)
+	iris.set_material_map(
+		t.grass_material,
+		.Diffuse1,
+		iris.texture_resource(
+			iris.Texture_Loader{
+				info = iris.File_Texture_Info{path = "textures/noise_map.png"},
+				filter = .Linear,
+				wrap = .Repeat,
+				space = .Linear,
 			},
 		).data.(^iris.Texture),
 	)
