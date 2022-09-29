@@ -192,3 +192,14 @@ Direction :: enum {
 	Down,
 	Left,
 }
+
+Plane :: struct {
+	normal: Vector3,
+	d:      f32,
+}
+
+Frustum :: distinct [6]Plane
+
+frustum_from_view_projection :: proc(viewProj: Matrix4) {
+
+}
