@@ -17,6 +17,26 @@ main :: proc() {
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
+	// frustum := iris.frustum(iris.VECTOR_ZERO, {0, 0, -1}, 1, 100, 90)
+	// for plane in iris.Frustum_Planes {
+	// 	fmt.printf("%s: %v\n", plane, frustum[plane])
+	// }
+
+	// bb := iris.Bounding_Box {
+	// 	points = {
+	// 		{-0.5, 0.5, 50},
+	// 		{-0.5, -0.5, 50},
+	// 		{0.5, -0.5, 50},
+	// 		{0.5, 0.5, 50},
+	// 		{-0.5, 0.5, 51},
+	// 		{-0.5, -0.5, 51},
+	// 		{0.5, -0.5, 51},
+	// 		{0.5, 0.5, 51},
+	// 	},
+	// }
+
+	// fmt.println(iris.bounding_box_in_frustum(frustum, bb))
+
 	iris.init_app(
 		&iris.App_Config{
 			width = 1600,
@@ -75,7 +95,7 @@ init :: proc(data: iris.App_Data) {
 	font_res := iris.font_resource(iris.Font_Loader{path = "Roboto-Regular.ttf", sizes = {20}})
 	g.font = font_res.data.(^iris.Font)
 
-	scene_res := iris.scene_resource("main")
+	scene_res := iris.scene_resource("main", {.Draw_Debug_Collisions})
 	g.scene = scene_res.data.(^iris.Scene)
 
 	lantern_document, err := gltf.parse_from_file(

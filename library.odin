@@ -293,12 +293,13 @@ animation_resource :: proc(loader: Animation_Loader) -> ^Resource {
 	return resource
 }
 
-scene_resource :: proc(name: string) -> ^Resource {
+scene_resource :: proc(name: string, flags: Scene_Flags) -> ^Resource {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
 	data := new(Scene)
+	data.flags = flags
 	init_scene(data)
 	resource := new_resource(lib, data)
 

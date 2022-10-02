@@ -193,13 +193,40 @@ Direction :: enum {
 	Left,
 }
 
-Plane :: struct {
-	normal: Vector3,
-	d:      f32,
+
+DEBUG_VERTEX_SHADER :: `
+#version 450 core
+layout (location = 0) in vec3 attribPosition;
+layout (location = 6) in vec4 attribColor;
+
+out VS_OUT {
+	vec4 color;
+} frag;
+
+layout (std140, binding = 0) uniform ContextData {
+    mat4 projView;
+    mat4 matProj;
+    mat4 matView;
+    vec3 viewPosition;
+    float time;
+    float dt;
+};
+
+void main() {
+	frag.color = attribColor;
+
+	gl_Position = projView * vec4(attribPosition, 1.0);
 }
+`
+DEBUG_FRAGMENT_SHADER :: `
+#version 450 core
+out vec4 finalColor;
 
-Frustum :: distinct [6]Plane
+in VS_OUT {
+	vec4 color;
+} frag;
 
-frustum_from_view_projection :: proc(viewProj: Matrix4) {
-
+void main() {
+	finalColor = frag.color;
 }
+`

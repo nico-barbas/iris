@@ -10,11 +10,32 @@ import "gltf"
 import "allocators"
 
 Scene :: struct {
-	free_list: allocators.Free_List_Allocator,
-	allocator: mem.Allocator,
-	name:      string,
-	nodes:     [dynamic]^Node,
-	roots:     [dynamic]^Node,
+	free_list:          allocators.Free_List_Allocator,
+	allocator:          mem.Allocator,
+	name:               string,
+	nodes:              [dynamic]^Node,
+	roots:              [dynamic]^Node,
+
+	// Specific states
+	flags:              Scene_Flags,
+	main_camera:        ^Camera_Node,
+
+	// Debug states
+	debug_shader:       ^Shader,
+	debug_attributes:   ^Attributes,
+	debug_vertices:     Buffer_Memory,
+	debug_indices:      Buffer_Memory,
+	debug_vertex_slice: []f32,
+	debug_index_slice:  []u32,
+	d_v_count:          int,
+	d_i_count:          int,
+	d_i_offset:         int,
+}
+
+Scene_Flags :: distinct bit_set[Scene_Flag]
+
+Scene_Flag :: enum {
+	Draw_Debug_Collisions,
 }
 
 Node :: struct {
@@ -23,6 +44,9 @@ Node :: struct {
 	flags:            Node_Flags,
 	local_transform:  Matrix4,
 	global_transform: Matrix4,
+	local_bounds:     Bounding_Box,
+	global_bounds:    Bounding_Box,
+	children_bounds:  Bounding_Box,
 	parent:           ^Node,
 	children:         [dynamic]^Node,
 	user_data:        rawptr,
@@ -35,6 +59,7 @@ Node_Flag :: enum {
 	Active,
 	Root_Node,
 	Dirty_Transform,
+	Dirty_Bounds,
 	Rendered,
 }
 
@@ -56,6 +81,9 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 	DEFAULT_SCENE_ALLOCATOR_SIZE :: mem.Megabyte * 50
 	DEFAULT_SCENE_CAPACITY :: 20
 
+	DEBUG_BATCH_CAP :: 1000
+	DEBUG_VERTEX_SIZE :: size_of(Vector3) + size_of(Color)
+
 	buf := make([]byte, DEFAULT_SCENE_ALLOCATOR_SIZE, allocator)
 	allocators.init_free_list_allocator(&scene.free_list, buf, .Find_Best, 8)
 	scene.allocator = allocators.free_list_allocator(&scene.free_list)
@@ -63,6 +91,45 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 	context.allocator = scene.allocator
 	scene.nodes = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
 	scene.roots = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
+
+	if .Draw_Debug_Collisions in scene.flags {
+		scene.debug_vertex_slice = make([]f32, DEBUG_BATCH_CAP * 5)
+		scene.debug_index_slice = make([]u32, DEBUG_BATCH_CAP)
+
+		debug_vertices_res := raw_buffer_resource(DEBUG_BATCH_CAP * DEBUG_VERTEX_SIZE)
+		scene.debug_vertices = buffer_memory_from_buffer_resource(debug_vertices_res)
+
+		debug_indices_res := raw_buffer_resource(DEBUG_BATCH_CAP * size_of(u32))
+		scene.debug_indices = buffer_memory_from_buffer_resource(debug_indices_res)
+
+		scene.debug_attributes = attributes_from_layout(
+			Attribute_Layout{
+				enabled = {.Position, .Color},
+				accessors = {
+					Attribute_Kind.Position = Buffer_Data_Type{
+						kind = .Float_32,
+						format = .Vector3,
+					},
+					Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+				},
+			},
+			.Interleaved,
+		)
+
+
+		// FIXME: Check if shader has already been loaded
+		debug_shader_res := shader_resource(
+			Raw_Shader_Loader{
+				name = "debug_scene",
+				kind = .Byte,
+				stages = {
+					Shader_Stage.Vertex = Shader_Stage_Loader{source = DEBUG_VERTEX_SHADER},
+					Shader_Stage.Fragment = Shader_Stage_Loader{source = DEBUG_FRAGMENT_SHADER},
+				},
+			},
+		)
+		scene.debug_shader = debug_shader_res.data.(^Shader)
+	}
 }
 
 destroy_scene :: proc(scene: ^Scene) {
@@ -77,6 +144,7 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		if .Dirty_Transform in node.flags {
 			node.global_transform = linalg.matrix_mul(node.local_transform, parent_transform)
 			node.flags -= {.Dirty_Transform}
+			node.flags += {.Dirty_Bounds}
 			children_dirty_transform = true
 		}
 		switch n in node.derived {
@@ -103,13 +171,71 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 			traverse_node(child, node.global_transform, dt)
 		}
 	}
+
+	compute_node_bounds :: proc(node: ^Node) -> (bounds: Bounding_Box) {
+		if len(node.children) > 0 {
+			children_bounds := make([]Bounding_Box, len(node.children), context.temp_allocator)
+			for child, i in node.children {
+				children_bounds[i] = compute_node_bounds(child)
+			}
+
+			node.global_bounds = bounding_box_from_bounds_slice(children_bounds)
+		} else {
+			for point, i in node.local_bounds.points {
+				p: Vector4
+				p.xyz = point.xyz
+				p.w = 1
+				result := node.global_transform * p
+				node.global_bounds.points[i] = result.xyz
+			}
+		}
+		node.flags -= {.Dirty_Bounds}
+		bounds = node.global_bounds
+		return
+	}
+
 	for root in scene.roots {
 		traverse_node(root, linalg.MATRIX4F32_IDENTITY, dt)
+		compute_node_bounds(root)
 	}
 }
 
 render_scene :: proc(scene: ^Scene) {
-	traverse_node :: proc(node: ^Node) {
+	render_debug_node_info :: proc(data: rawptr) {
+		scene := cast(^Scene)data
+		bind_shader(scene.debug_shader)
+		bind_attributes(scene.debug_attributes)
+		defer {
+			default_shader()
+			default_attributes()
+		}
+
+		link_interleaved_attributes_vertices(scene.debug_attributes, scene.debug_vertices.buf)
+		link_attributes_indices(scene.debug_attributes, scene.debug_indices.buf)
+
+		if scene.d_i_count > 0 {
+			send_buffer_data(
+				&scene.debug_vertices,
+				Buffer_Source{
+					data = &scene.debug_vertex_slice[0],
+					byte_size = scene.d_v_count * size_of(f32),
+				},
+			)
+			send_buffer_data(
+				&scene.debug_indices,
+				Buffer_Source{
+					data = &scene.debug_index_slice[0],
+					byte_size = scene.d_i_count * size_of(u32),
+				},
+			)
+			draw_lines(scene.d_i_count)
+		}
+		scene.d_v_count = 0
+		scene.d_i_count = 0
+		scene.d_i_offset = 0
+	}
+
+	traverse_node :: proc(scene: ^Scene, node: ^Node) {
 		if .Rendered in node.flags {
 			switch n in node.derived {
 			case ^Empty_Node, ^Camera_Node:
@@ -186,12 +312,64 @@ render_scene :: proc(scene: ^Scene) {
 			case ^User_Interface_Node:
 			}
 		}
+
+		if .Draw_Debug_Collisions in scene.flags {
+
+			debug_line :: proc(scene: ^Scene, p1, p2: Bounding_Point) {
+				i_off := scene.d_i_offset
+				start := scene.d_i_count
+
+				scene.debug_index_slice[start] = u32(i_off) + u32(p1)
+				scene.debug_index_slice[start + 1] = u32(i_off) + u32(p2)
+				scene.d_i_count += 2
+			}
+			for point, i in node.global_bounds.points {
+				index := scene.d_v_count
+				scene.debug_vertex_slice[index] = point.x
+				scene.debug_vertex_slice[index + 1] = point.y
+				scene.debug_vertex_slice[index + 2] = point.z
+				scene.debug_vertex_slice[index + 3] = 100.0
+				scene.debug_vertex_slice[index + 4] = 100.0
+				scene.debug_vertex_slice[index + 5] = 100.0
+				scene.debug_vertex_slice[index + 6] = 100.0
+
+				scene.d_v_count += 7
+			}
+
+			debug_line(scene, Bounding_Point.Near_Bottom_Left, Bounding_Point.Near_Bottom_Right)
+			debug_line(scene, Bounding_Point.Near_Bottom_Right, Bounding_Point.Near_Up_Right)
+			debug_line(scene, Bounding_Point.Near_Up_Right, Bounding_Point.Near_Up_Left)
+			debug_line(scene, Bounding_Point.Near_Up_Left, Bounding_Point.Near_Bottom_Left)
+
+
+			debug_line(scene, Bounding_Point.Far_Bottom_Left, Bounding_Point.Far_Bottom_Right)
+			debug_line(scene, Bounding_Point.Far_Bottom_Right, Bounding_Point.Far_Up_Right)
+			debug_line(scene, Bounding_Point.Far_Up_Right, Bounding_Point.Far_Up_Left)
+			debug_line(scene, Bounding_Point.Far_Up_Left, Bounding_Point.Far_Bottom_Left)
+
+			debug_line(scene, Bounding_Point.Near_Bottom_Left, Bounding_Point.Far_Bottom_Left)
+			debug_line(scene, Bounding_Point.Near_Bottom_Right, Bounding_Point.Far_Bottom_Right)
+			debug_line(scene, Bounding_Point.Near_Up_Right, Bounding_Point.Far_Up_Right)
+			debug_line(scene, Bounding_Point.Near_Up_Left, Bounding_Point.Far_Up_Left)
+			scene.d_i_offset += BONDING_BOX_POINT_LEN
+		}
+
 		for child in node.children {
-			traverse_node(child)
+			traverse_node(scene, child)
 		}
 	}
 	for root in scene.roots {
-		traverse_node(root)
+		traverse_node(scene, root)
+	}
+	if .Draw_Debug_Collisions in scene.flags {
+		push_draw_command(
+			Render_Custom_Command{
+				data = scene,
+				render_proc = render_debug_node_info,
+				options = {},
+			},
+			.Forward_Geometry,
+		)
 	}
 }
 
@@ -222,8 +400,10 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	switch n in node.derived {
 	case ^Empty_Node:
 		node.name = "Node"
+		node.local_bounds = BOUNDING_BOX_ZERO
 	case ^Camera_Node:
 		node.name = "Camera"
+		node.local_bounds = BOUNDING_BOX_ZERO
 		n.max_pitch = 190 if n.max_pitch == 0 else n.max_pitch
 		if n.rotation_proc == nil {
 			n.rotation_proc = proc() -> (bool, Vector2) {return false, 0}
@@ -237,33 +417,37 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		update_camera_node(n, true)
 
 	case ^Model_Node:
+		node.name = "Model"
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
-		node.name = "Model"
 
 	case ^Model_Group_Node:
-		n.flags += {.Rendered}
 		node.name = "Model_Group"
+		node.local_bounds = BOUNDING_BOX_ZERO
+		n.flags += {.Rendered}
 
 	case ^Skin_Node:
+		node.name = "Skin"
+		node.local_bounds = BOUNDING_BOX_ZERO
 		n.flags -= {.Rendered}
 		n.joint_roots.allocator = scene.allocator
 		n.joint_lookup.allocator = scene.allocator
 		n.animations.allocator = scene.allocator
-		node.name = "Skin"
 
 	case ^Canvas_Node:
+		node.name = "Canvas"
+		node.local_bounds = BOUNDING_BOX_ZERO
 		n.flags += {.Rendered}
 		init_canvas_node(n)
-		node.name = "Canvas"
 
 	case ^User_Interface_Node:
+		node.name = "User Interface"
+		node.local_bounds = BOUNDING_BOX_ZERO
 		n.flags += {.Rendered}
 		n.commands.allocator = scene.allocator
 		n.roots.allocator = scene.allocator
 		init_ui_node(n, scene.allocator)
-		node.name = "User Interface"
 	}
 }
 
@@ -434,10 +618,15 @@ model_node_from_gltf :: proc(
 		case ^Shader:
 			shader = ref
 		}
+
+		meshes_bounds := make([]Bounding_Box, len(data.primitives), context.temp_allocator)
 		for _, i in data.primitives {
 			begin_temp_allocation()
 
-			mesh_res, err := load_mesh_from_gltf(loader = loader, p = &data.primitives[i])
+			mesh_res, mesh_bounds, err := load_mesh_from_gltf(
+				loader = loader,
+				p = &data.primitives[i],
+			)
 			assert(err == nil)
 			mesh := mesh_res.data.(^Mesh)
 
@@ -450,7 +639,10 @@ model_node_from_gltf :: proc(
 			end_temp_allocation()
 			append(&model.meshes, mesh)
 			append(&model.materials, material)
+			meshes_bounds[i] = mesh_bounds
 		}
+
+		model.local_bounds = bounding_box_from_bounds_slice(meshes_bounds)
 	} else {
 		err = .Invalid_Node
 	}
@@ -462,6 +654,7 @@ load_mesh_from_gltf :: proc(
 	p: ^gltf.Primitive,
 ) -> (
 	resource: ^Resource,
+	bounds: Bounding_Box,
 	err: Model_Loading_Error,
 ) {
 	if p.indices == nil {
@@ -503,6 +696,8 @@ load_mesh_from_gltf :: proc(
 				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 			}
 			mesh_loader.byte_size += size
+
+			bounds = bounding_box_from_vertex_slice(data)
 		} else {
 			err = .Missing_Mesh_Attribute
 			return

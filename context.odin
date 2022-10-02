@@ -80,7 +80,6 @@ Render_Queue_Kind :: enum {
 
 Render_Command :: union {
 	Render_Mesh_Command,
-	// Render_Framebuffer_Command,
 	Render_Custom_Command,
 }
 
@@ -649,6 +648,15 @@ render_forward_geometry :: proc(ctx: ^Render_Context) {
 				if kind in c.material.maps {
 					unbind_texture(c.material.textures[kind])
 				}
+			}
+
+		case Render_Custom_Command:
+			if .Disable_Culling in c.options {
+				set_backface_culling(false)
+				c.render_proc(c.data)
+				set_backface_culling(true)
+			} else {
+				c.render_proc(c.data)
 			}
 		}
 	}
