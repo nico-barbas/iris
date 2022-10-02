@@ -47,6 +47,7 @@ Node :: struct {
 	local_bounds:     Bounding_Box,
 	global_bounds:    Bounding_Box,
 	children_bounds:  Bounding_Box,
+	visibility:       Collision_Result,
 	parent:           ^Node,
 	children:         [dynamic]^Node,
 	user_data:        rawptr,
@@ -61,6 +62,7 @@ Node_Flag :: enum {
 	Dirty_Transform,
 	Dirty_Bounds,
 	Rendered,
+	Ignore_Culling,
 }
 
 Any_Node :: union {
@@ -138,11 +140,19 @@ destroy_scene :: proc(scene: ^Scene) {
 	delete(scene.name)
 }
 
+set_scene_main_camera :: proc(scene: ^Scene, camera: ^Camera_Node) {
+	if scene.main_camera != nil {
+		scene.main_camera.derived_flags -= {.Main_Camera}
+	}
+	scene.main_camera = camera
+	camera.derived_flags += {.Main_Camera}
+}
+
 update_scene :: proc(scene: ^Scene, dt: f32) {
 	traverse_node :: proc(node: ^Node, parent_transform: Matrix4, dt: f32) {
 		children_dirty_transform := false
 		if .Dirty_Transform in node.flags {
-			node.global_transform = linalg.matrix_mul(node.local_transform, parent_transform)
+			node.global_transform = parent_transform * node.local_transform
 			node.flags -= {.Dirty_Transform}
 			node.flags += {.Dirty_Bounds}
 			children_dirty_transform = true
@@ -197,6 +207,9 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 	for root in scene.roots {
 		traverse_node(root, linalg.MATRIX4F32_IDENTITY, dt)
 		compute_node_bounds(root)
+		if scene.main_camera != nil {
+			camera_cull_nodes(scene.main_camera, scene.roots[:])
+		}
 	}
 }
 
@@ -237,17 +250,21 @@ render_scene :: proc(scene: ^Scene) {
 
 	traverse_node :: proc(scene: ^Scene, node: ^Node) {
 		if .Rendered in node.flags {
+			if .Ignore_Culling not_in node.flags && node.visibility == .Outside {
+				return
+			}
+
 			switch n in node.derived {
 			case ^Empty_Node, ^Camera_Node:
 
 			case ^Model_Node:
-				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+				// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 				for mesh, i in n.meshes {
 					def := .Transparent not_in n.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
-							global_transform = mat_model,
+							global_transform = n.global_transform,
 							material = n.materials[i],
 							options = n.options,
 						},
@@ -260,13 +277,13 @@ render_scene :: proc(scene: ^Scene) {
 				}
 
 			case ^Model_Group_Node:
-				mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+				// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 				for mesh, i in n.meshes {
 					def := .Transparent not_in n.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
-							global_transform = mat_model,
+							global_transform = n.global_transform,
 							material = n.materials[i],
 							options = n.options + {.Instancing},
 							instancing_info = Instancing_Info{
@@ -283,14 +300,14 @@ render_scene :: proc(scene: ^Scene) {
 				}
 
 			case ^Skin_Node:
-				mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
+				// mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
 				for mesh, i in n.target.meshes {
 					joint_matrices := skin_node_joint_matrices(n)
 					def := .Transparent not_in n.target.options
 					push_draw_command(
 						Render_Mesh_Command{
 							mesh = mesh,
-							global_transform = mat_model,
+							global_transform = n.target.global_transform,
 							local_transform = n.target.local_transform,
 							joints = joint_matrices,
 							material = n.target.materials[i],
@@ -404,6 +421,7 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	case ^Camera_Node:
 		node.name = "Camera"
 		node.local_bounds = BOUNDING_BOX_ZERO
+		node.flags += {.Ignore_Culling}
 		n.max_pitch = 190 if n.max_pitch == 0 else n.max_pitch
 		if n.rotation_proc == nil {
 			n.rotation_proc = proc() -> (bool, Vector2) {return false, 0}
@@ -413,6 +431,10 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		}
 		if n.position_proc == nil {
 			n.position_proc = proc() -> (bool, f32, f32) {return false, 0, 0}
+		}
+
+		if .Main_Camera in n.derived_flags {
+			set_scene_main_camera(scene, n)
 		}
 		update_camera_node(n, true)
 
@@ -438,13 +460,13 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	case ^Canvas_Node:
 		node.name = "Canvas"
 		node.local_bounds = BOUNDING_BOX_ZERO
-		n.flags += {.Rendered}
+		n.flags += {.Rendered, .Ignore_Culling}
 		init_canvas_node(n)
 
 	case ^User_Interface_Node:
 		node.name = "User Interface"
 		node.local_bounds = BOUNDING_BOX_ZERO
-		n.flags += {.Rendered}
+		n.flags += {.Rendered, .Ignore_Culling}
 		n.commands.allocator = scene.allocator
 		n.roots.allocator = scene.allocator
 		init_ui_node(n, scene.allocator)
@@ -478,6 +500,7 @@ node_local_transform :: proc(node: ^Node, t: Transform) {
 
 Camera_Node :: struct {
 	using base:      Node,
+	derived_flags:   Camera_Flags,
 	pitch:           f32,
 	yaw:             f32,
 	position:        Vector3,
@@ -494,6 +517,13 @@ Camera_Node :: struct {
 	rotation_proc:   proc() -> (trigger: bool, delta: Vector2),
 	distance_proc:   proc() -> (trigger: bool, displacement: f32),
 	position_proc:   proc() -> (trigger: bool, fb: f32, lr: f32),
+}
+
+Camera_Flags :: distinct bit_set[Camera_Flag]
+
+Camera_Flag :: enum {
+	Main_Camera,
+	Frustum_Cull,
 }
 
 update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
@@ -538,18 +568,66 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 			camera.target.y + (v_dist),
 			camera.target.z - (h_dist * math.sin(target_rot_in_rad)),
 		}
-		view_position(camera.position)
-		view_target(camera.target)
+
+		if .Main_Camera in camera.derived_flags {
+			view_position(camera.position)
+			view_target(camera.target)
+		}
+	}
+}
+
+camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
+	cull_node :: proc(frustum: Frustum, node: ^Node) {
+		cull_children := true
+		if .Ignore_Culling not_in node.flags {
+			node.visibility = bounding_box_in_frustum(frustum, node.global_bounds)
+
+			switch node.visibility {
+			case .Outside:
+				cull_children = false
+				for child in node.children {
+					child.visibility = node.visibility
+				}
+			case .Partial_In:
+			case .Full_In:
+				cull_children = false
+				for child in node.children {
+					child.visibility = node.visibility
+				}
+			}
+		}
+
+		if cull_children {
+			for child in node.children {
+				cull_node(frustum, child)
+			}
+		}
+	}
+
+	FRUSTUM_FLAGS :: Camera_Flags{.Main_Camera, .Frustum_Cull}
+	if FRUSTUM_FLAGS <= camera.derived_flags {
+		camera_frustum := frustum(
+			camera.position,
+			camera.target,
+			RENDER_CTX_DEFAULT_NEAR,
+			RENDER_CTX_DEFAULT_FAR,
+			RENDER_CTX_DEFAULT_FOVY,
+			app.render_ctx.aspect_ratio,
+		)
+
+		for root in roots {
+			cull_node(camera_frustum, root)
+		}
 	}
 }
 
 Model_Node :: struct {
-	using base:     Node,
-	options:        Rendering_Options,
-	derived_flags:  Model_Node_Flags,
-	mesh_transform: Matrix4,
-	meshes:         [dynamic]^Mesh,
-	materials:      [dynamic]^Material,
+	using base:    Node,
+	options:       Rendering_Options,
+	derived_flags: Model_Node_Flags,
+	// mesh_transform: Matrix4,
+	meshes:        [dynamic]^Mesh,
+	materials:     [dynamic]^Material,
 }
 
 Model_Node_Flags :: distinct bit_set[Model_Node_Flag]
@@ -572,9 +650,6 @@ Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
 
 Model_Loader_Flag :: enum {
 	Flip_Normals,
-	Use_Global_Transform,
-	Use_Local_Transform,
-	Use_Identity,
 	Load_Position,
 	Load_Normal,
 	Load_Tangent,
@@ -602,13 +677,7 @@ model_node_from_gltf :: proc(
 ) {
 	if node.mesh != nil {
 		data := node.mesh.?
-		if .Use_Global_Transform in loader.flags {
-			model.mesh_transform = node.global_transform
-		} else if .Use_Local_Transform in loader.flags {
-			model.mesh_transform = node.local_transform
-		} else {
-			model.mesh_transform = linalg.MATRIX4F32_IDENTITY
-		}
+		model.local_transform = node.local_transform
 
 		shader: ^Shader
 		switch ref in loader.shader_ref {
@@ -809,11 +878,11 @@ model_node_from_mesh :: proc(
 	model := new_node(scene, Model_Node)
 	append(&model.meshes, mesh)
 	append(&model.materials, material)
-	model.mesh_transform = linalg.matrix4_from_trs_f32(
-		transform.translation,
-		transform.rotation,
-		transform.scale,
-	)
+	// model.mesh_transform = linalg.matrix4_from_trs_f32(
+	// 	transform.translation,
+	// 	transform.rotation,
+	// 	transform.scale,
+	// )
 	return model
 }
 

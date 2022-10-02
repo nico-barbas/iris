@@ -108,7 +108,7 @@ init :: proc(data: iris.App_Data) {
 	iris.load_resources_from_gltf(&lantern_document)
 	root := lantern_document.root.nodes[0]
 
-	lt := iris.transform(t = {1, 0, 1}, s = {0.1, 0.1, 0.1})
+	lt := iris.transform(s = {0.1, 0.1, 0.1})
 	lantern_transform := linalg.matrix_mul(
 		linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
 		root.local_transform,
@@ -120,13 +120,7 @@ init :: proc(data: iris.App_Data) {
 		iris.model_node_from_gltf(
 			lantern_node,
 			iris.Model_Loader{
-				flags = {
-					.Use_Local_Transform,
-					.Load_Position,
-					.Load_Normal,
-					.Load_Tangent,
-					.Load_TexCoord0,
-				},
+				flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
 				rigged = false,
 			},
 			node,
@@ -171,6 +165,7 @@ init :: proc(data: iris.App_Data) {
 
 
 	camera := iris.new_node_from(g.scene, iris.Camera_Node {
+		derived_flags = {.Main_Camera},
 		pitch = 45,
 		target = {0, 0.5, 0},
 		target_distance = 10,
@@ -225,6 +220,7 @@ init :: proc(data: iris.App_Data) {
 	})
 	iris.insert_node(g.scene, camera)
 
+
 	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {100, 100, 90, 1}, true)
 	// iris.add_light(.Directional, iris.Vector3{2, 3, -2}, {100, 100, 90, 1}, true)
 
@@ -247,7 +243,6 @@ init :: proc(data: iris.App_Data) {
 			mesh_node,
 			iris.Model_Loader{
 				flags = {
-					.Use_Identity,
 					.Load_Position,
 					.Load_Normal,
 					.Load_TexCoord0,

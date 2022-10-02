@@ -8,12 +8,14 @@ import "core:math/linalg"
 RENDER_CTX_MAX_LIGHTS :: 128
 RENDER_CTX_DEFAULT_FAR :: 100
 RENDER_CTX_DEFAULT_NEAR :: 0.1
+RENDER_CTX_DEFAULT_FOVY :: 45
 RENDER_CTX_DEFAULT_AMBIENT :: Color{0.45, 0.45, 0.75, 0.4}
 RENDER_QUEUE_DEFAULT_CAP :: 500
 
 Render_Context :: struct {
 	render_width:                int,
 	render_height:               int,
+	aspect_ratio:                f32,
 	projection:                  Matrix4,
 	view:                        Matrix4,
 	projection_view:             Matrix4,
@@ -118,7 +120,6 @@ Rendering_Option :: enum {
 }
 
 init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
-	DEFAULT_FOVY :: 45
 
 	// load_shaders_from_dir("shaders/build")
 	load_shader_document("shaders/lib.helios")
@@ -126,8 +127,9 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	set_backface_culling(true)
 	ctx.render_width = w
 	ctx.render_height = h
+	ctx.aspect_ratio = f32(w) / f32(h)
 	ctx.projection = linalg.matrix4_perspective_f32(
-		f32(DEFAULT_FOVY),
+		f32(RENDER_CTX_DEFAULT_FOVY),
 		f32(w) / f32(h),
 		f32(RENDER_CTX_DEFAULT_NEAR),
 		f32(RENDER_CTX_DEFAULT_FAR),

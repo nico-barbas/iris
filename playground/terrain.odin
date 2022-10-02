@@ -216,7 +216,7 @@ init_terrain :: proc(t: ^Terrain) {
 	// t.grass_material.double_face = true
 
 	t.grass = iris.new_node(t.scene, iris.Model_Group_Node)
-	t.grass.mesh_transform = linalg.matrix4_from_trs_f32(
+	t.grass.local_transform = linalg.matrix4_from_trs_f32(
 		iris.Vector3{},
 		linalg.quaternion_from_pitch_yaw_roll_f32(math.to_radians_f32(90), 0, 0),
 		// iris.Quaternion(1),
@@ -274,7 +274,7 @@ init_terrain :: proc(t: ^Terrain) {
 update_terrain :: proc(t: ^Terrain) {
 	iris.set_storage_buffer_binding(t.grass_in_buffer.buf, 4)
 	iris.set_storage_buffer_binding(t.grass.transform_buf.buf, 5)
-	iris.set_shader_uniform(t.grass_compute, "matModel", &t.grass.global_transform[0][0])
+	iris.set_shader_uniform(t.grass_compute, "matModel", &t.grass.local_transform[0][0])
 	iris.dispatch_compute_shader(t.grass_compute, {1, 1, 1})
 }
 
@@ -548,6 +548,10 @@ generate_terrain_vertices :: proc(t: ^Terrain) {
 		t.material,
 		iris.transform(),
 	)
+	t.model.local_bounds = iris.bounding_box_from_min_max(
+		iris.Vector3{-offset.x, -10, -offset.y},
+		iris.Vector3{offset.x, 10, offset.y},
+	)
 	iris.insert_node(t.scene, t.model)
 	iris.end_temp_allocation()
 
@@ -720,7 +724,7 @@ void main() {
 		vec4(0.0, 0.0, 0.0, 1.0));
 
 	// mat4 lookAt = mat4(mat3(matView));
-	mat4 matOut = matIn * matModel * lookAt;
+	mat4 matOut = matIn * lookAt;
 	instanceMatOut[gl_LocalInvocationIndex] = matOut;
 }
 `

@@ -42,6 +42,23 @@ BOUNDING_BOX_ZERO :: Bounding_Box {
 	},
 }
 
+bounding_box_from_min_max :: proc(p_min, p_max: Vector3) -> (result: Bounding_Box) {
+	b := Bounding_Box {
+		points = {
+			{p_min.x, p_min.y, p_min.z},
+			{p_max.x, p_min.y, p_min.z},
+			{p_max.x, p_max.y, p_min.z},
+			{p_min.x, p_max.y, p_min.z},
+			{p_min.x, p_min.y, p_max.z},
+			{p_max.x, p_min.y, p_max.z},
+			{p_max.x, p_max.y, p_max.z},
+			{p_min.x, p_max.y, p_max.z},
+		},
+	}
+
+	return b
+}
+
 bounding_box_from_bounds_slice :: proc(slice: []Bounding_Box) -> (result: Bounding_Box) {
 	min_x := math.INF_F32
 	max_x := -math.INF_F32
