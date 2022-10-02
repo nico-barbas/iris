@@ -3,9 +3,9 @@ package main
 import "core:mem"
 import "core:fmt"
 // import "core:os"
-// import "core:math/linalg"
+import "core:math/linalg"
 import iris "../"
-// import gltf "../gltf"
+import gltf "../gltf"
 
 UNIT_PER_METER :: 2
 
@@ -86,6 +86,7 @@ Game :: struct {
 
 	// temps
 	instanced_cubes: ^iris.Model_Group_Node,
+	// test_cube:       ^iris.Node,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -98,35 +99,35 @@ init :: proc(data: iris.App_Data) {
 	scene_res := iris.scene_resource("main", {.Draw_Debug_Collisions})
 	g.scene = scene_res.data.(^iris.Scene)
 
-	// lantern_document, err := gltf.parse_from_file(
-	// 	"lantern/Lantern.gltf",
-	// 	.Gltf_External,
-	// 	context.temp_allocator,
-	// 	context.temp_allocator,
-	// )
-	// fmt.assertf(err == nil, "%s\n", err)
-	// iris.load_resources_from_gltf(&lantern_document)
-	// root := lantern_document.root.nodes[0]
+	lantern_document, err := gltf.parse_from_file(
+		"lantern/Lantern.gltf",
+		.Gltf_External,
+		context.temp_allocator,
+		context.temp_allocator,
+	)
+	fmt.assertf(err == nil, "%s\n", err)
+	iris.load_resources_from_gltf(&lantern_document)
+	root := lantern_document.root.nodes[0]
 
-	// lt := iris.transform(t = {0, 0, -10}, s = {0.1, 0.1, 0.1})
-	// lantern_transform := linalg.matrix_mul(
-	// 	linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
-	// 	root.local_transform,
-	// )
-	// g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
-	// iris.insert_node(g.scene, g.lantern)
-	// for node in root.children {
-	// 	lantern_node := iris.new_node(g.scene, iris.Model_Node)
-	// 	iris.model_node_from_gltf(
-	// 		lantern_node,
-	// 		iris.Model_Loader{
-	// 			flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
-	// 			rigged = false,
-	// 		},
-	// 		node,
-	// 	)
-	// 	iris.insert_node(g.scene, lantern_node, g.lantern)
-	// }
+	lt := iris.transform(t = {0, 0, 1}, s = {0.1, 0.1, 0.1})
+	lantern_transform := linalg.matrix_mul(
+		linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
+		root.local_transform,
+	)
+	g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
+	iris.insert_node(g.scene, g.lantern)
+	for node in root.children {
+		lantern_node := iris.new_node(g.scene, iris.Model_Node)
+		iris.model_node_from_gltf(
+			lantern_node,
+			iris.Model_Loader{
+				flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
+				rigged = false,
+			},
+			node,
+		)
+		iris.insert_node(g.scene, lantern_node, g.lantern)
+	}
 
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
@@ -137,13 +138,13 @@ init :: proc(data: iris.App_Data) {
 	flat_material_res := iris.material_resource(iris.Material_Loader{name = "flat"})
 	g.flat_material = flat_material_res.data.(^iris.Material)
 
-	test_cube := iris.model_node_from_mesh(g.scene, g.mesh, g.flat_material, iris.transform())
-	iris.insert_node(g.scene, test_cube)
-	test_cube.local_bounds = iris.bounding_box_from_min_max(
-		iris.Vector3{-0.5, -0.5, -0.5},
-		iris.Vector3{0.5, 0.5, 0.5},
-	)
-	iris.node_local_transform(test_cube, iris.transform(t = {0, 0, -10}))
+	// g.test_cube = iris.model_node_from_mesh(g.scene, g.mesh, g.flat_material, iris.transform())
+	// iris.insert_node(g.scene, g.test_cube)
+	// g.test_cube.local_bounds = iris.bounding_box_from_min_max(
+	// 	iris.Vector3{-0.5, -0.5, -0.5},
+	// 	iris.Vector3{0.5, 0.5, 0.5},
+	// )
+	// iris.node_local_transform(g.test_cube, iris.transform(t = {0, 0, 1}))
 
 	// skybox_shader, s_exist := iris.shader_from_name("skybox")
 	// assert(s_exist)
@@ -458,7 +459,6 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.render_scene(g.scene)
-		// fmt.println(g.lantern.visibility)
 
 		iris.draw_mesh(
 			g.mesh,

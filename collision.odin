@@ -1,6 +1,6 @@
 package iris
 
-import "core:fmt"
+// import "core:fmt"
 import "core:math"
 import "core:intrinsics"
 import "core:math/linalg"
@@ -169,11 +169,7 @@ frustum :: proc(
 	r := linalg.vector_normalize(linalg.vector_cross(f, VECTOR_UP))
 	u := linalg.vector_cross(r, f)
 
-	fmt.println(f)
-	fmt.println(r)
-	fmt.println(u)
-
-	half_v_size := far * math.tan(fovy)
+	half_v_size := far * math.tan(fovy * 0.5)
 	half_h_size := half_v_size * aspect
 
 	// fn := eye + f * near
@@ -184,19 +180,19 @@ frustum :: proc(
 	frustum[Frustum_Planes.Near] = plane(normal = f, from_to = eye + f * near)
 	frustum[Frustum_Planes.Far] = plane(normal = -f, from_to = f_vec)
 	frustum[Frustum_Planes.Left] = plane(
-		normal = linalg.vector_cross(f_vec - r * half_v_size, u),
+		normal = linalg.vector_cross(f_vec - r * half_h_size, u),
 		from_to = eye,
 	)
 	frustum[Frustum_Planes.Right] = plane(
-		normal = linalg.vector_cross(u, f_vec + r * half_v_size),
+		normal = linalg.vector_cross(u, f_vec + r * half_h_size),
 		from_to = eye,
 	)
 	frustum[Frustum_Planes.Up] = plane(
-		normal = linalg.vector_cross(f_vec + u * half_h_size, r),
+		normal = linalg.vector_cross(f_vec + u * half_v_size, r),
 		from_to = eye,
 	)
 	frustum[Frustum_Planes.Down] = plane(
-		normal = linalg.vector_cross(r, f_vec - u * half_h_size),
+		normal = linalg.vector_cross(r, f_vec - u * half_v_size),
 		from_to = eye,
 	)
 

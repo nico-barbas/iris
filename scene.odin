@@ -249,9 +249,8 @@ render_scene :: proc(scene: ^Scene) {
 	}
 
 	traverse_node :: proc(scene: ^Scene, node: ^Node) {
-		if .Rendered in node.flags {
-			if .Ignore_Culling in node.flags || node.visibility != .Outside {
-
+		if .Ignore_Culling in node.flags || node.visibility != .Outside {
+			if .Rendered in node.flags {
 				switch n in node.derived {
 				case ^Empty_Node, ^Camera_Node:
 
@@ -327,10 +326,14 @@ render_scene :: proc(scene: ^Scene) {
 				case ^User_Interface_Node:
 				}
 			}
+
+			for child in node.children {
+				traverse_node(scene, child)
+			}
 		}
 
-		if .Draw_Debug_Collisions in scene.flags {
 
+		if .Draw_Debug_Collisions in scene.flags {
 			debug_line :: proc(scene: ^Scene, p1, p2: Bounding_Point) {
 				i_off := scene.d_i_offset
 				start := scene.d_i_count
@@ -339,17 +342,29 @@ render_scene :: proc(scene: ^Scene) {
 				scene.debug_index_slice[start + 1] = u32(i_off) + u32(p2)
 				scene.d_i_count += 2
 			}
-			for point, i in node.global_bounds.points {
+			for point in node.global_bounds.points {
+				OUT_COLOR :: Color{100, 0, 0, 100}
+				PARTIAL_COLOR :: Color{100, 0, 100, 100}
+				IN_COLOR :: Color{100, 100, 100, 100}
+
+				clr: Color
+				switch node.visibility {
+				case .Outside:
+					clr = OUT_COLOR
+				case .Partial_In:
+					clr = PARTIAL_COLOR
+				case .Full_In:
+					clr = IN_COLOR
+				}
+
 				index := scene.d_v_count
 				scene.debug_vertex_slice[index] = point.x
 				scene.debug_vertex_slice[index + 1] = point.y
 				scene.debug_vertex_slice[index + 2] = point.z
-				scene.debug_vertex_slice[index + 3] = 100.0
-				scene.debug_vertex_slice[index + 4] =
-					0.0 if node.visibility == .Outside else 100.00
-				scene.debug_vertex_slice[index + 5] =
-					0.0 if node.visibility == .Outside else 100.00
-				scene.debug_vertex_slice[index + 6] = 100.0
+				scene.debug_vertex_slice[index + 3] = clr.r
+				scene.debug_vertex_slice[index + 4] = clr.g
+				scene.debug_vertex_slice[index + 5] = clr.b
+				scene.debug_vertex_slice[index + 6] = clr.a
 
 				scene.d_v_count += 7
 			}
@@ -372,10 +387,8 @@ render_scene :: proc(scene: ^Scene) {
 			scene.d_i_offset += BONDING_BOX_POINT_LEN
 		}
 
-		for child in node.children {
-			traverse_node(scene, child)
-		}
 	}
+
 	for root in scene.roots {
 		traverse_node(scene, root)
 	}
