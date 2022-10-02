@@ -250,83 +250,82 @@ render_scene :: proc(scene: ^Scene) {
 
 	traverse_node :: proc(scene: ^Scene, node: ^Node) {
 		if .Rendered in node.flags {
-			if .Ignore_Culling not_in node.flags && node.visibility == .Outside {
-				return
-			}
+			if .Ignore_Culling in node.flags || node.visibility != .Outside {
 
-			switch n in node.derived {
-			case ^Empty_Node, ^Camera_Node:
+				switch n in node.derived {
+				case ^Empty_Node, ^Camera_Node:
 
-			case ^Model_Node:
-				// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
-				for mesh, i in n.meshes {
-					def := .Transparent not_in n.options
-					push_draw_command(
-						Render_Mesh_Command{
-							mesh = mesh,
-							global_transform = n.global_transform,
-							material = n.materials[i],
-							options = n.options,
-						},
-						.Deferred_Geometry_Static if def else .Forward_Geometry,
-					)
-					if .Geomtry_Modified in n.derived_flags {
-						invalidate_shadow_map_cache()
-						n.derived_flags -= {.Geomtry_Modified}
-					}
-				}
-
-			case ^Model_Group_Node:
-				// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
-				for mesh, i in n.meshes {
-					def := .Transparent not_in n.options
-					push_draw_command(
-						Render_Mesh_Command{
-							mesh = mesh,
-							global_transform = n.global_transform,
-							material = n.materials[i],
-							options = n.options + {.Instancing},
-							instancing_info = Instancing_Info{
-								memory = n.transform_buf,
-								count = n.count,
+				case ^Model_Node:
+					// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+					for mesh, i in n.meshes {
+						def := .Transparent not_in n.options
+						push_draw_command(
+							Render_Mesh_Command{
+								mesh = mesh,
+								global_transform = n.global_transform,
+								material = n.materials[i],
+								options = n.options,
 							},
-						},
-						.Deferred_Geometry_Static if def else .Forward_Geometry,
-					)
-					if .Geomtry_Modified in n.derived_flags {
-						invalidate_shadow_map_cache()
-						n.derived_flags -= {.Geomtry_Modified}
+							.Deferred_Geometry_Static if def else .Forward_Geometry,
+						)
+						if .Geomtry_Modified in n.derived_flags {
+							invalidate_shadow_map_cache()
+							n.derived_flags -= {.Geomtry_Modified}
+						}
 					}
-				}
 
-			case ^Skin_Node:
-				// mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
-				for mesh, i in n.target.meshes {
-					joint_matrices := skin_node_joint_matrices(n)
-					def := .Transparent not_in n.target.options
+				case ^Model_Group_Node:
+					// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
+					for mesh, i in n.meshes {
+						def := .Transparent not_in n.options
+						push_draw_command(
+							Render_Mesh_Command{
+								mesh = mesh,
+								global_transform = n.global_transform,
+								material = n.materials[i],
+								options = n.options + {.Instancing},
+								instancing_info = Instancing_Info{
+									memory = n.transform_buf,
+									count = n.count,
+								},
+							},
+							.Deferred_Geometry_Static if def else .Forward_Geometry,
+						)
+						if .Geomtry_Modified in n.derived_flags {
+							invalidate_shadow_map_cache()
+							n.derived_flags -= {.Geomtry_Modified}
+						}
+					}
+
+				case ^Skin_Node:
+					// mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
+					for mesh, i in n.target.meshes {
+						joint_matrices := skin_node_joint_matrices(n)
+						def := .Transparent not_in n.target.options
+						push_draw_command(
+							Render_Mesh_Command{
+								mesh = mesh,
+								global_transform = n.target.global_transform,
+								local_transform = n.target.local_transform,
+								joints = joint_matrices,
+								material = n.target.materials[i],
+								options = n.target.options + {.Use_Joints},
+							},
+							.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
+						)
+					}
+				case ^Canvas_Node:
 					push_draw_command(
-						Render_Mesh_Command{
-							mesh = mesh,
-							global_transform = n.target.global_transform,
-							local_transform = n.target.local_transform,
-							joints = joint_matrices,
-							material = n.target.materials[i],
-							options = n.target.options + {.Use_Joints},
+						Render_Custom_Command{
+							data = n,
+							render_proc = flush_canvas_node_buffers,
+							options = {},
 						},
-						.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
+						.Other,
 					)
-				}
-			case ^Canvas_Node:
-				push_draw_command(
-					Render_Custom_Command{
-						data = n,
-						render_proc = flush_canvas_node_buffers,
-						options = {},
-					},
-					.Other,
-				)
 
-			case ^User_Interface_Node:
+				case ^User_Interface_Node:
+				}
 			}
 		}
 
@@ -346,8 +345,10 @@ render_scene :: proc(scene: ^Scene) {
 				scene.debug_vertex_slice[index + 1] = point.y
 				scene.debug_vertex_slice[index + 2] = point.z
 				scene.debug_vertex_slice[index + 3] = 100.0
-				scene.debug_vertex_slice[index + 4] = 100.0
-				scene.debug_vertex_slice[index + 5] = 100.0
+				scene.debug_vertex_slice[index + 4] =
+					0.0 if node.visibility == .Outside else 100.00
+				scene.debug_vertex_slice[index + 5] =
+					0.0 if node.visibility == .Outside else 100.00
 				scene.debug_vertex_slice[index + 6] = 100.0
 
 				scene.d_v_count += 7
@@ -583,17 +584,12 @@ camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
 			node.visibility = bounding_box_in_frustum(frustum, node.global_bounds)
 
 			switch node.visibility {
-			case .Outside:
+			case .Outside, .Full_In:
 				cull_children = false
 				for child in node.children {
 					child.visibility = node.visibility
 				}
 			case .Partial_In:
-			case .Full_In:
-				cull_children = false
-				for child in node.children {
-					child.visibility = node.visibility
-				}
 			}
 		}
 
