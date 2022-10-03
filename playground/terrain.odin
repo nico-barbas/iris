@@ -227,7 +227,7 @@ init_terrain :: proc(t: ^Terrain) {
 		group = t.grass,
 		meshes = {billboard},
 		materials = {t.grass_material},
-		count = 32,
+		count = 256,
 	)
 	t.grass.options += {.Transparent}
 
@@ -247,19 +247,16 @@ init_terrain :: proc(t: ^Terrain) {
 	iris.begin_temp_allocation()
 	in_buffer_res := iris.raw_buffer_resource(t.grass.transform_buf.size)
 	t.grass_in_buffer = iris.buffer_memory_from_buffer_resource(in_buffer_res)
-	in_identity := make([]iris.Matrix4, 32, context.temp_allocator)
-	for y in 0 ..< 8 {
-		for x in 0 ..< 4 {
-			in_identity[y * 4 + x] = linalg.matrix4_from_trs_f32(
+	in_identity := make([]iris.Matrix4, 256, context.temp_allocator)
+	for y in 0 ..< 16 {
+		for x in 0 ..< 16 {
+			in_identity[y * 16 + x] = linalg.matrix4_from_trs_f32(
 				iris.Vector3{f32(x), 0, f32(y)},
 				iris.Quaternion(1),
 				iris.VECTOR_ONE,
 			)
 		}
 	}
-	// for mat in &in_identity {
-	// 	mat = linalg.MATRIX4F32_IDENTITY
-	// }
 	iris.send_buffer_data(
 		&t.grass_in_buffer,
 		iris.Buffer_Source{
@@ -275,7 +272,7 @@ update_terrain :: proc(t: ^Terrain) {
 	iris.set_storage_buffer_binding(t.grass_in_buffer.buf, 4)
 	iris.set_storage_buffer_binding(t.grass.transform_buf.buf, 5)
 	iris.set_shader_uniform(t.grass_compute, "matModel", &t.grass.local_transform[0][0])
-	iris.dispatch_compute_shader(t.grass_compute, {1, 1, 1})
+	iris.dispatch_compute_shader(t.grass_compute, {4, 4, 1})
 }
 
 init_terrain_ui :: proc(t: ^Terrain, ui: ^iris.User_Interface_Node) {
@@ -707,7 +704,11 @@ layout (std140, binding = 5) buffer bufferedOut {
 layout (location = 0) uniform mat4 matModel; 
 
 void main() {
-	mat4 matIn = instanceMatIn[gl_LocalInvocationIndex];
+	uint globalIndex = 
+		gl_GlobalInvocationID.z * gl_WorkGroupSize.x * gl_WorkGroupSize.y +
+		gl_GlobalInvocationID.y * gl_WorkGroupSize.x + 
+		gl_GlobalInvocationID.x;
+	mat4 matIn = instanceMatIn[globalIndex];
 	mat4 matGlobal = matModel * matIn;
 	vec3 position = matGlobal[3].xyz;
 
@@ -723,8 +724,7 @@ void main() {
 		vec4(-f.x, -f.y, -f.z, 0.0),
 		vec4(0.0, 0.0, 0.0, 1.0));
 
-	// mat4 lookAt = mat4(mat3(matView));
 	mat4 matOut = matIn * lookAt;
-	instanceMatOut[gl_LocalInvocationIndex] = matOut;
+	instanceMatOut[globalIndex] = matOut;
 }
 `

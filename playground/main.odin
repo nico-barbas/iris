@@ -8,33 +8,10 @@ import gltf "../gltf"
 
 UNIT_PER_METER :: 2
 
-// TOML_TEST :: `
-// `
-
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
-
-	// frustum := iris.frustum(iris.VECTOR_ZERO, {0, 0, -1}, 1, 100, 90)
-	// for plane in iris.Frustum_Planes {
-	// 	fmt.printf("%s: %v\n", plane, frustum[plane])
-	// }
-
-	// bb := iris.Bounding_Box {
-	// 	points = {
-	// 		{-0.5, 0.5, 50},
-	// 		{-0.5, -0.5, 50},
-	// 		{0.5, -0.5, 50},
-	// 		{0.5, 0.5, 50},
-	// 		{-0.5, 0.5, 51},
-	// 		{-0.5, -0.5, 51},
-	// 		{0.5, -0.5, 51},
-	// 		{0.5, 0.5, 51},
-	// 	},
-	// }
-
-	// fmt.println(iris.bounding_box_in_frustum(frustum, bb))
 
 	iris.init_app(
 		&iris.App_Config{
@@ -263,18 +240,18 @@ init :: proc(data: iris.App_Data) {
 		iris.skin_node_play_animation(skin_node, "animation0")
 	}
 
-	// {
-	// 	g.terrain = Terrain {
-	// 		scene       = g.scene,
-	// 		width       = 200,
-	// 		height      = 200,
-	// 		octaves     = 3,
-	// 		persistance = 0.5,
-	// 		lacunarity  = 2,
-	// 		factor      = 6,
-	// 	}
-	// 	init_terrain(&g.terrain)
-	// }
+	{
+		g.terrain = Terrain {
+			scene       = g.scene,
+			width       = 192,
+			height      = 192,
+			octaves     = 3,
+			persistance = 0.5,
+			lacunarity  = 2,
+			factor      = 6,
+		}
+		init_terrain(&g.terrain)
+	}
 
 	{
 		g.ui_theme = iris.User_Interface_Theme {
@@ -397,7 +374,7 @@ init :: proc(data: iris.App_Data) {
 		)
 		iris.layout_add_widget(g_buffer_layout, albedo_buffer_view, 150)
 
-		// init_terrain_ui(&g.terrain, ui_node)
+		init_terrain_ui(&g.terrain, ui_node)
 	}
 }
 
@@ -411,7 +388,7 @@ update :: proc(data: iris.App_Data) {
 	}
 	iris.light_position(g.light, iris.Vector3{2, 3, 2})
 
-	// update_terrain(&g.terrain)
+	update_terrain(&g.terrain)
 	iris.update_scene(g.scene, dt)
 }
 
@@ -420,7 +397,6 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.render_scene(g.scene)
-		fmt.println(g.rig.visibility)
 
 		iris.draw_mesh(
 			g.mesh,
