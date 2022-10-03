@@ -184,12 +184,21 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 
 	compute_node_bounds :: proc(node: ^Node) -> (bounds: Bounding_Box) {
 		if len(node.children) > 0 {
-			children_bounds := make([]Bounding_Box, len(node.children), context.temp_allocator)
+			bounds := make([]Bounding_Box, len(node.children) + 1, context.temp_allocator)
 			for child, i in node.children {
-				children_bounds[i] = compute_node_bounds(child)
+				bounds[i] = compute_node_bounds(child)
 			}
+			node_bounds: Bounding_Box
+			for point, j in node.local_bounds.points {
+				p: Vector4
+				p.xyz = point.xyz
+				p.w = 1
+				result := node.global_transform * p
+				node_bounds.points[j] = result.xyz
+			}
+			bounds[len(bounds) - 1] = node_bounds
 
-			node.global_bounds = bounding_box_from_bounds_slice(children_bounds)
+			node.global_bounds = bounding_box_from_bounds_slice(bounds)
 		} else {
 			for point, i in node.local_bounds.points {
 				p: Vector4
@@ -255,7 +264,6 @@ render_scene :: proc(scene: ^Scene) {
 				case ^Empty_Node, ^Camera_Node:
 
 				case ^Model_Node:
-					// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 					for mesh, i in n.meshes {
 						def := .Transparent not_in n.options
 						push_draw_command(
@@ -274,7 +282,6 @@ render_scene :: proc(scene: ^Scene) {
 					}
 
 				case ^Model_Group_Node:
-					// mat_model := linalg.matrix_mul(n.global_transform, n.mesh_transform)
 					for mesh, i in n.meshes {
 						def := .Transparent not_in n.options
 						push_draw_command(
@@ -297,22 +304,24 @@ render_scene :: proc(scene: ^Scene) {
 					}
 
 				case ^Skin_Node:
-					// mat_model := linalg.matrix_mul(n.target.global_transform, n.target.mesh_transform)
-					for mesh, i in n.target.meshes {
-						joint_matrices := skin_node_joint_matrices(n)
-						def := .Transparent not_in n.target.options
-						push_draw_command(
-							Render_Mesh_Command{
-								mesh = mesh,
-								global_transform = n.target.global_transform,
-								local_transform = n.target.local_transform,
-								joints = joint_matrices,
-								material = n.target.materials[i],
-								options = n.target.options + {.Use_Joints},
-							},
-							.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
-						)
+					if n.target.visibility != .Outside {
+						for mesh, i in n.target.meshes {
+							joint_matrices := skin_node_joint_matrices(n)
+							def := .Transparent not_in n.target.options
+							push_draw_command(
+								Render_Mesh_Command{
+									mesh = mesh,
+									global_transform = n.target.global_transform,
+									local_transform = n.target.local_transform,
+									joints = joint_matrices,
+									material = n.target.materials[i],
+									options = n.target.options + {.Use_Joints},
+								},
+								.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
+							)
+						}
 					}
+
 				case ^Canvas_Node:
 					push_draw_command(
 						Render_Custom_Command{
@@ -467,6 +476,7 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		node.name = "Skin"
 		node.local_bounds = BOUNDING_BOX_ZERO
 		n.flags -= {.Rendered}
+		n.flags += {.Ignore_Culling}
 		n.joint_roots.allocator = scene.allocator
 		n.joint_lookup.allocator = scene.allocator
 		n.animations.allocator = scene.allocator

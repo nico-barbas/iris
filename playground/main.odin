@@ -2,8 +2,7 @@ package main
 
 import "core:mem"
 import "core:fmt"
-// import "core:os"
-import "core:math/linalg"
+// import "core:math/linalg"
 import iris "../"
 import gltf "../gltf"
 
@@ -86,7 +85,6 @@ Game :: struct {
 
 	// temps
 	instanced_cubes: ^iris.Model_Group_Node,
-	// test_cube:       ^iris.Node,
 }
 
 init :: proc(data: iris.App_Data) {
@@ -99,52 +97,41 @@ init :: proc(data: iris.App_Data) {
 	scene_res := iris.scene_resource("main", {.Draw_Debug_Collisions})
 	g.scene = scene_res.data.(^iris.Scene)
 
-	lantern_document, err := gltf.parse_from_file(
-		"lantern/Lantern.gltf",
-		.Gltf_External,
-		context.temp_allocator,
-		context.temp_allocator,
-	)
-	fmt.assertf(err == nil, "%s\n", err)
-	iris.load_resources_from_gltf(&lantern_document)
-	root := lantern_document.root.nodes[0]
+	// lantern_document, err := gltf.parse_from_file(
+	// 	"lantern/Lantern.gltf",
+	// 	.Gltf_External,
+	// 	context.temp_allocator,
+	// 	context.temp_allocator,
+	// )
+	// fmt.assertf(err == nil, "%s\n", err)
+	// iris.load_resources_from_gltf(&lantern_document)
+	// root := lantern_document.root.nodes[0]
 
-	lt := iris.transform(t = {0, 0, 1}, s = {0.1, 0.1, 0.1})
-	lantern_transform := linalg.matrix_mul(
-		linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
-		root.local_transform,
-	)
-	g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
-	iris.insert_node(g.scene, g.lantern)
-	for node in root.children {
-		lantern_node := iris.new_node(g.scene, iris.Model_Node)
-		iris.model_node_from_gltf(
-			lantern_node,
-			iris.Model_Loader{
-				flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
-				rigged = false,
-			},
-			node,
-		)
-		iris.insert_node(g.scene, lantern_node, g.lantern)
-	}
+	// lt := iris.transform(t = {0, 0, 1}, s = {0.1, 0.1, 0.1})
+	// lantern_transform := linalg.matrix_mul(
+	// 	linalg.matrix4_from_trs_f32(lt.translation, lt.rotation, lt.scale),
+	// 	root.local_transform,
+	// )
+	// g.lantern = iris.new_node(g.scene, iris.Empty_Node, lantern_transform)
+	// iris.insert_node(g.scene, g.lantern)
+	// for node in root.children {
+	// 	lantern_node := iris.new_node(g.scene, iris.Model_Node)
+	// 	iris.model_node_from_gltf(
+	// 		lantern_node,
+	// 		iris.Model_Loader{
+	// 			flags = {.Load_Position, .Load_Normal, .Load_Tangent, .Load_TexCoord0},
+	// 			rigged = false,
+	// 		},
+	// 		node,
+	// 	)
+	// 	iris.insert_node(g.scene, lantern_node, g.lantern)
+	// }
 
 	mesh_res := iris.cube_mesh(1, 1, 1)
 	g.mesh = mesh_res.data.(^iris.Mesh)
 
-
-	// flat_shader, f_exist := iris.shader_from_name("unlit")
-	// assert(f_exist)
 	flat_material_res := iris.material_resource(iris.Material_Loader{name = "flat"})
 	g.flat_material = flat_material_res.data.(^iris.Material)
-
-	// g.test_cube = iris.model_node_from_mesh(g.scene, g.mesh, g.flat_material, iris.transform())
-	// iris.insert_node(g.scene, g.test_cube)
-	// g.test_cube.local_bounds = iris.bounding_box_from_min_max(
-	// 	iris.Vector3{-0.5, -0.5, -0.5},
-	// 	iris.Vector3{0.5, 0.5, 0.5},
-	// )
-	// iris.node_local_transform(g.test_cube, iris.transform(t = {0, 0, 1}))
 
 	// skybox_shader, s_exist := iris.shader_from_name("skybox")
 	// assert(s_exist)
@@ -234,47 +221,47 @@ init :: proc(data: iris.App_Data) {
 	iris.add_light(.Directional, iris.Vector3{2, 3, 2}, {100, 100, 90, 1}, true)
 	// iris.add_light(.Directional, iris.Vector3{2, 3, -2}, {100, 100, 90, 1}, true)
 
-	// {
-	// 	rig_document, _err := gltf.parse_from_file(
-	// 		"human_rig/CesiumMan.gltf",
-	// 		.Gltf_External,
-	// 		context.temp_allocator,
-	// 		context.temp_allocator,
-	// 	)
-	// 	assert(_err == nil)
-	// 	iris.load_resources_from_gltf(&rig_document)
+	{
+		rig_document, _err := gltf.parse_from_file(
+			"human_rig/CesiumMan.gltf",
+			.Gltf_External,
+			context.temp_allocator,
+			context.temp_allocator,
+		)
+		assert(_err == nil)
+		iris.load_resources_from_gltf(&rig_document)
 
-	// 	node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
-	// 	g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
-	// 	iris.insert_node(g.scene, g.rig)
+		node, _ := gltf.find_node_with_name(&rig_document, "Cesium_Man")
+		g.rig = iris.new_node(g.scene, iris.Empty_Node, node.global_transform)
+		iris.insert_node(g.scene, g.rig)
 
-	// 	mesh_node := iris.new_node(g.scene, iris.Model_Node)
-	// 	iris.model_node_from_gltf(
-	// 		mesh_node,
-	// 		iris.Model_Loader{
-	// 			flags = {
-	// 				.Load_Position,
-	// 				.Load_Normal,
-	// 				.Load_TexCoord0,
-	// 				.Load_Joints0,
-	// 				.Load_Weights0,
-	// 				.Load_Bones,
-	// 			},
-	// 			rigged = true,
-	// 		},
-	// 		node,
-	// 	)
-	// 	iris.insert_node(g.scene, mesh_node, g.rig)
+		mesh_node := iris.new_node(g.scene, iris.Model_Node)
+		iris.model_node_from_gltf(
+			mesh_node,
+			iris.Model_Loader{
+				flags = {
+					.Load_Position,
+					.Load_Normal,
+					.Load_TexCoord0,
+					.Load_Joints0,
+					.Load_Weights0,
+					.Load_Bones,
+				},
+				rigged = true,
+			},
+			node,
+		)
+		iris.insert_node(g.scene, mesh_node, g.rig)
 
-	// 	skin_node := iris.new_node(g.scene, iris.Skin_Node)
-	// 	iris.skin_node_from_gltf(skin_node, node)
-	// 	iris.skin_node_target(skin_node, mesh_node)
-	// 	iris.insert_node(g.scene, skin_node, g.rig)
+		skin_node := iris.new_node(g.scene, iris.Skin_Node)
+		iris.skin_node_from_gltf(skin_node, node)
+		iris.skin_node_target(skin_node, mesh_node)
+		iris.insert_node(g.scene, skin_node, g.rig)
 
-	// 	animation, _ := iris.animation_from_name("animation0")
-	// 	iris.skin_node_add_animation(skin_node, animation)
-	// 	iris.skin_node_play_animation(skin_node, "animation0")
-	// }
+		animation, _ := iris.animation_from_name("animation0")
+		iris.skin_node_add_animation(skin_node, animation)
+		iris.skin_node_play_animation(skin_node, "animation0")
+	}
 
 	// {
 	// 	g.terrain = Terrain {
@@ -287,32 +274,6 @@ init :: proc(data: iris.App_Data) {
 	// 		factor      = 6,
 	// 	}
 	// 	init_terrain(&g.terrain)
-	// }
-
-	// {
-	// 	g.instanced_cubes = iris.new_node(g.scene, iris.Model_Group_Node)
-	// 	g.instanced_cubes.mesh_transform = linalg.matrix4_from_trs_f32(
-	// 		iris.Vector3{},
-	// 		iris.Quaternion(1),
-	// 		iris.Vector3{1, 1, 1},
-	// 	)
-	// 	iris.insert_node(g.scene, g.instanced_cubes)
-
-	// 	iris.init_group_node(
-	// 		group = g.instanced_cubes,
-	// 		meshes = {g.mesh},
-	// 		materials = {g.flat_material},
-	// 		count = 9,
-	// 	)
-	// 	for y in 0 ..< 3 {
-	// 		for x in 0 ..< 3 {
-	// 			iris.group_node_instance_transform(
-	// 				g.instanced_cubes,
-	// 				y * 3 + x,
-	// 				iris.transform(t = iris.Vector3{f32(x * 2), 2, f32(y * 2)}),
-	// 			)
-	// 		}
-	// 	}
 	// }
 
 	{
@@ -459,6 +420,7 @@ draw :: proc(data: iris.App_Data) {
 	iris.start_render()
 	{
 		iris.render_scene(g.scene)
+		fmt.println(g.rig.visibility)
 
 		iris.draw_mesh(
 			g.mesh,
