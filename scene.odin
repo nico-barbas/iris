@@ -2300,27 +2300,39 @@ text_input_add :: proc(input: ^Text_Input_Widget, c: byte) {
 	} else {
 		append(&input.char_buf, c)
 	}
-	input.caret_rect.x += input.text.font.faces[input.text.size].advance
+	glyph := input.text.font.faces[input.text.size].glyphs[c]
+	if c == ' ' {
+		input.caret_rect.x += f32(glyph.advance)
+	} else {
+		input.caret_rect.x += f32(glyph.width)
+	}
 }
 
 text_input_remove :: proc(input: ^Text_Input_Widget) {
+	c: byte
 	if input.cursor.offset < len(input.char_buf) {
+		c := input.char_buf[input.cursor.offset]
 		ordered_remove(&input.char_buf, input.cursor.offset)
 	} else {
-		pop(&input.char_buf)
+		c = pop(&input.char_buf)
 	}
-	input.caret_rect.x -= input.text.font.faces[input.text.size].advance
+	glyph := input.text.font.faces[input.text.size].glyphs[c]
+	if c == ' ' {
+		input.caret_rect.x -= f32(glyph.advance)
+	} else {
+		input.caret_rect.x -= f32(glyph.width)
+	}
 }
 
 init_text_input :: proc(input: ^Text_Input_Widget) {
 	text_position(&input.text, input.rect)
-	char_width := input.text.font.faces[input.text.size].advance
+	char_width := input.text.font.faces[input.text.size].glyphs[' '].advance
 	char_height := input.text.size
 	input.caret_rect = Rectangle {
 		x      = input.text.origin.x,
 		y      = input.text.origin.y,
-		width  = char_width,
-		height = char_height,
+		width  = f32(char_width),
+		height = f32(char_height),
 	}
 }
 
