@@ -1385,6 +1385,7 @@ Any_Widget :: union {
 	^Button_Widget,
 	^Label_Widget,
 	^Image_Widget,
+	^Text_Input_Widget,
 }
 
 new_widget_from :: proc(node: ^User_Interface_Node, from: $T) -> ^T {
@@ -1421,6 +1422,8 @@ init_widget :: proc(widget: ^Widget) {
 		text_position(&w.text, w.rect)
 	case ^Image_Widget:
 		init_image(w)
+	case ^Text_Input_Widget:
+		w.char_buf.allocator = widget.ui.allocator
 	}
 	widget.flags += {.Initialized}
 }
@@ -1438,13 +1441,16 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 			contrast = theme.contrast_values[Contrast_Level.Level_0]
 		}
 		w.background.borders = theme.borders
+
 	case ^List_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
 		w.line_color.rgb =
 			theme.base_color.rgb * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.line_color.a = 1
+
 	case ^Tab_Viewer_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
+
 	case ^Button_Widget:
 		w.color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.hover_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
@@ -1457,13 +1463,18 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 			t.color = theme.text_color
 			w.text = t
 		}
+
 	case ^Label_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_0]
 		w.text.font = theme.font
 		w.text.size = theme.text_size
 		w.text.color = theme.text_color
+
 	case ^Image_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_0]
+
+	case ^Text_Input_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
 	}
 	widget.background.color.rbg = theme.base_color.rgb * contrast
 	widget.background.border_color = theme.border_color
@@ -1673,6 +1684,15 @@ draw_widget_background :: proc(
 	if bg.borders {
 		append(buf, User_Interface_Rect_Command{true, rect, bg.border_color})
 	}
+}
+
+widget_active :: proc(widget: ^Widget, active: bool) {
+	if active {
+		widget.flags += {.Active}
+	} else {
+		widget.flags -= {.Active}
+	}
+	ui_node_dirty(widget.ui)
 }
 
 Layout_Widget :: struct {
@@ -2221,6 +2241,62 @@ update_button :: proc(btn: ^Button_Widget) {
 			btn.background.color = btn.hover_color
 		case .Pressed:
 			btn.background.color = btn.press_color
+		}
+	}
+}
+
+Text_Input_Widget :: struct {
+	using base:    Widget,
+	text:          Text,
+	derived_flags: Text_Input_Flags,
+	blink_timer:   Timer,
+
+	// Input states
+	char_buf:      [dynamic]byte,
+	cursor:        Text_Cursor,
+}
+
+Text_Input_Flags :: distinct bit_set[Text_Input_Flag]
+
+Text_Input_Flag :: enum {
+	In_Focus,
+	Render_Caret,
+}
+
+text_input_add :: proc(input: ^Text_Input_Widget, c: byte) {
+	if input.cursor.offset < len(input.char_buf) {
+		inject_at(&input.char_buf, input.cursor.offset, c)
+	} else {
+		append(&input.char_buf, c)
+	}
+}
+
+text_input_remove :: proc(input: ^Text_Input_Widget) {
+	if input.cursor.offset < len(input.char_buf) {
+		ordered_remove(&input.char_buf, input.cursor.offset)
+	} else {
+		pop(&input.char_buf)
+	}
+}
+
+update_text_input :: proc(input: ^Text_Input_Widget, dt: f32) {
+	if advance_timer(&input.blink_timer, dt) {
+		input.derived_flags ~= {.Render_Caret}
+	}
+
+	if .In_Focus in input.derived_flags {
+		chars := pressed_char()
+
+		for c in chars {
+			text_input_add(input, byte(c))
+			input.cursor.offset += 1
+		}
+
+		if len(chars) > 0 {
+			input.text.data = string(input.char_buf[:])
+			update_text_position(&input.text)
+
+			ui_node_dirty(input.ui)
 		}
 	}
 }

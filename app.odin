@@ -4,6 +4,7 @@ import "core:os"
 import "core:mem"
 import "core:log"
 import "core:time"
+import "core:slice"
 import "core:runtime"
 import "core:math/rand"
 import "core:path/filepath"
@@ -155,7 +156,11 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 		app.close = default_callback
 	}
 	app.input.registered_key_proc.allocator = app.ctx.allocator
+
+	char_buf := make([]rune, 50, app.ctx.allocator)
+	app.input.char_buf = slice.to_dynamic(char_buf)
 	glfw.SetKeyCallback(app.win_handle, key_callback)
+	glfw.SetCharCallback(app.win_handle, char_callback)
 	glfw.SetMouseButtonCallback(app.win_handle, mouse_button_callback)
 	glfw.SetScrollCallback(app.win_handle, mouse_scroll_callback)
 }

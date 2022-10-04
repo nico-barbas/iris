@@ -7,6 +7,7 @@ Input_Buffer :: struct {
 	keys:                          Keyboard_State,
 	previous_keys:                 Keyboard_State,
 	registered_key_proc:           map[Key]Input_Proc,
+	char_buf:                      [dynamic]rune,
 
 	// mouse buttons
 	mouse_buttons:                 Mouse_State,
@@ -37,6 +38,8 @@ update_input_buffer :: proc(i: ^Input_Buffer) {
 	i.previous_mouse_buttons = i.mouse_buttons
 	i.previous_mouse_scroll = i.mouse_scroll
 	i.mouse_scroll = 0
+
+	clear(&i.char_buf)
 }
 
 @(private)
@@ -130,6 +133,10 @@ key_state :: proc(key: Key) -> (state: Input_State) {
 	return
 }
 
+pressed_char :: proc() -> []rune {
+	return app.input.char_buf[:]
+}
+
 key_callback :: proc "c" (window: glfw.WindowHandle, k, scancode, action, mods: i32) {
 	context = app.ctx
 	key := Key(k)
@@ -138,6 +145,11 @@ key_callback :: proc "c" (window: glfw.WindowHandle, k, scancode, action, mods: 
 	if p, exist := app.input.registered_key_proc[key]; exist {
 		p(app.data, key_state(key))
 	}
+}
+
+char_callback :: proc "c" (window: glfw.WindowHandle, r: rune) {
+	context = app.ctx
+	append(&app.input.char_buf, r)
 }
 
 

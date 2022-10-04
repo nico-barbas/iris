@@ -193,6 +193,23 @@ Direction :: enum {
 	Left,
 }
 
+Timer :: struct {
+	reset:       bool,
+	rate:        f32,
+	accumulator: f32,
+}
+
+advance_timer :: proc(t: ^Timer, dt: f32) -> (finished: bool) {
+	t.accumulator += dt
+	if t.accumulator >= t.rate {
+		finished = true
+		if t.reset {
+			t.accumulator = 0
+		}
+	}
+	return
+}
+
 
 DEBUG_VERTEX_SHADER :: `
 #version 450 core

@@ -273,3 +273,8 @@ update_text_position :: proc(t: ^Text) {
 		t.origin.y = math.round(t.origin.y)
 	}
 }
+
+Text_Cursor :: struct {
+	offset: int,
+	line:   int,
+}
