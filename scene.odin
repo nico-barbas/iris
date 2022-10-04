@@ -1424,6 +1424,7 @@ init_widget :: proc(widget: ^Widget) {
 		init_image(w)
 	case ^Text_Input_Widget:
 		w.char_buf.allocator = widget.ui.allocator
+		init_text_input(w)
 	}
 	widget.flags += {.Initialized}
 }
@@ -1505,6 +1506,8 @@ update_widget :: proc(widget: ^Widget) {
 			ui_node_dirty(w.ui)
 		}
 	case ^Label_Widget:
+	case ^Text_Input_Widget:
+		update_text_input(w)
 	}
 }
 
@@ -1546,6 +1549,9 @@ offset_widget :: proc(widget: ^Widget, offset: Vector2) {
 	case ^Image_Widget:
 		w.content_rect.x += offset.x
 		w.content_rect.y += offset.y
+
+	case ^Text_Input_Widget:
+		text_position(&w.text, w.rect)
 	}
 }
 
@@ -1645,12 +1651,35 @@ draw_widget :: proc(widget: ^Widget) {
 			flip_y  = w.flip_y,
 		}
 		append(buf, img_cmd)
+
+	case ^Text_Input_Widget:
+		draw_widget_background(buf, w.background, w.rect)
+		t := w.text
+		text_cmd := User_Interface_Text_Command {
+			text     = t.data,
+			font     = t.font,
+			position = t.origin,
+			size     = t.size,
+			color    = t.color,
+		}
+		append(buf, text_cmd)
+
+		if .Show_Caret in w.derived_flags {
+			append(
+				buf,
+				User_Interface_Rect_Command{
+					outline = false,
+					rect = w.caret_rect,
+					color = w.caret_color,
+				},
+			)
+		}
 	}
 }
 
 widget_height :: proc(widget: ^Widget) -> (result: f32) {
 	switch w in widget.derived {
-	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget:
+	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget, ^Text_Input_Widget:
 		result = widget.rect.height
 	case ^Tab_Viewer_Widget:
 		result = widget.rect.height
@@ -2249,7 +2278,9 @@ Text_Input_Widget :: struct {
 	using base:    Widget,
 	text:          Text,
 	derived_flags: Text_Input_Flags,
-	blink_timer:   Timer,
+	caret_timer:   Timer,
+	caret_rect:    Rectangle,
+	caret_color:   Color,
 
 	// Input states
 	char_buf:      [dynamic]byte,
@@ -2260,7 +2291,7 @@ Text_Input_Flags :: distinct bit_set[Text_Input_Flag]
 
 Text_Input_Flag :: enum {
 	In_Focus,
-	Render_Caret,
+	Show_Caret,
 }
 
 text_input_add :: proc(input: ^Text_Input_Widget, c: byte) {
@@ -2269,6 +2300,7 @@ text_input_add :: proc(input: ^Text_Input_Widget, c: byte) {
 	} else {
 		append(&input.char_buf, c)
 	}
+	input.caret_rect.x += input.text.font.faces[input.text.size].advance
 }
 
 text_input_remove :: proc(input: ^Text_Input_Widget) {
@@ -2277,11 +2309,25 @@ text_input_remove :: proc(input: ^Text_Input_Widget) {
 	} else {
 		pop(&input.char_buf)
 	}
+	input.caret_rect.x -= input.text.font.faces[input.text.size].advance
 }
 
-update_text_input :: proc(input: ^Text_Input_Widget, dt: f32) {
-	if advance_timer(&input.blink_timer, dt) {
-		input.derived_flags ~= {.Render_Caret}
+init_text_input :: proc(input: ^Text_Input_Widget) {
+	text_position(&input.text, input.rect)
+	char_width := input.text.font.faces[input.text.size].advance
+	char_height := input.text.size
+	input.caret_rect = Rectangle {
+		x      = input.text.origin.x,
+		y      = input.text.origin.y,
+		width  = char_width,
+		height = char_height,
+	}
+}
+
+update_text_input :: proc(input: ^Text_Input_Widget) {
+	dt := f32(elapsed_time())
+	if advance_timer(&input.caret_timer, dt) {
+		input.derived_flags ~= {.Show_Caret}
 	}
 
 	if .In_Focus in input.derived_flags {
