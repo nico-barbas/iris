@@ -1475,7 +1475,11 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 		contrast = theme.contrast_values[Contrast_Level.Level_0]
 
 	case ^Text_Input_Widget:
-		contrast = theme.contrast_values[Contrast_Level.Level_Minus_1]
+		contrast = theme.contrast_values[Contrast_Level.Level_Minus_2]
+		w.caret_color = theme.contrast_values[Contrast_Level.Level_Plus_1]
+		w.text.font = theme.font
+		w.text.size = theme.text_size
+		w.text.color = theme.text_color
 	}
 	widget.background.color.rbg = theme.base_color.rgb * contrast
 	widget.background.border_color = theme.border_color
@@ -1552,6 +1556,8 @@ offset_widget :: proc(widget: ^Widget, offset: Vector2) {
 
 	case ^Text_Input_Widget:
 		text_position(&w.text, w.rect)
+		w.caret_rect.x += offset.x
+		w.caret_rect.y += offset.y
 	}
 }
 
@@ -1664,7 +1670,7 @@ draw_widget :: proc(widget: ^Widget) {
 		}
 		append(buf, text_cmd)
 
-		if .Show_Caret in w.derived_flags {
+		if .In_Focus in w.derived_flags && .Show_Caret in w.derived_flags {
 			append(
 				buf,
 				User_Interface_Rect_Command{
@@ -2281,6 +2287,7 @@ Text_Input_Widget :: struct {
 	caret_timer:   Timer,
 	caret_rect:    Rectangle,
 	caret_color:   Color,
+	delete_timer:  Timer,
 
 	// Input states
 	char_buf:      [dynamic]byte,
@@ -2292,6 +2299,7 @@ Text_Input_Flags :: distinct bit_set[Text_Input_Flag]
 Text_Input_Flag :: enum {
 	In_Focus,
 	Show_Caret,
+	Delete_Available,
 }
 
 text_input_add :: proc(input: ^Text_Input_Widget, c: byte) {
@@ -2324,25 +2332,48 @@ text_input_remove :: proc(input: ^Text_Input_Widget) {
 	}
 }
 
+text_input_clear :: proc(input: ^Text_Input_Widget) {
+	clear(&input.char_buf)
+	init_text_input(input)
+}
+
 init_text_input :: proc(input: ^Text_Input_Widget) {
 	text_position(&input.text, input.rect)
 	char_width := input.text.font.faces[input.text.size].glyphs[' '].advance
 	char_height := input.text.size
 	input.caret_rect = Rectangle {
 		x      = input.text.origin.x,
-		y      = input.text.origin.y,
+		y      = input.text.origin.y - f32(char_height) / 2,
 		width  = f32(char_width),
 		height = f32(char_height),
+	}
+	input.delete_timer = Timer {
+		reset = true,
+		rate  = 0.25,
 	}
 }
 
 update_text_input :: proc(input: ^Text_Input_Widget) {
-	dt := f32(elapsed_time())
-	if advance_timer(&input.caret_timer, dt) {
-		input.derived_flags ~= {.Show_Caret}
+	m_left := mouse_button_state(.Left)
+	if .Just_Pressed in m_left {
+		previous := .In_Focus in input.derived_flags
+		if in_rect_bounds(input.rect, mouse_position()) {
+			input.derived_flags += {.In_Focus}
+		} else {
+			input.derived_flags -= {.In_Focus}
+		}
+
+		if .In_Focus in input.derived_flags != previous {
+			ui_node_dirty(input.ui)
+		}
 	}
 
 	if .In_Focus in input.derived_flags {
+		dt := f32(elapsed_time())
+		if advance_timer(&input.caret_timer, dt) {
+			input.derived_flags ~= {.Show_Caret}
+			ui_node_dirty(input.ui)
+		}
 		chars := pressed_char()
 
 		for c in chars {
@@ -2355,6 +2386,24 @@ update_text_input :: proc(input: ^Text_Input_Widget) {
 			update_text_position(&input.text)
 
 			ui_node_dirty(input.ui)
+		}
+
+		del_key := key_state(.Backspace)
+		if .Pressed in del_key {
+			if .Delete_Available in input.derived_flags && len(input.char_buf) > 0 {
+				text_input_remove(input)
+				input.derived_flags -= {.Delete_Available}
+				input.cursor.offset -= 1
+				input.text.data = string(input.char_buf[:])
+				update_text_position(&input.text)
+				ui_node_dirty(input.ui)
+			}
+		}
+
+		if .Delete_Available not_in input.derived_flags {
+			if advance_timer(&input.delete_timer, dt) {
+				input.derived_flags += {.Delete_Available}
+			}
 		}
 	}
 }

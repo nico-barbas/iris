@@ -119,7 +119,7 @@ set_key_proc :: proc(key: Key, p: Input_Proc) {
 
 key_state :: proc(key: Key) -> (state: Input_State) {
 	current := app.input.keys[key]
-	previous := app.input.keys[key]
+	previous := app.input.previous_keys[key]
 	switch {
 	case current && !previous:
 		state = {.Just_Pressed, .Pressed}
@@ -141,6 +141,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, k, scancode, action, mods: 
 	context = app.ctx
 	key := Key(k)
 	app.input.keys[key] = action == glfw.PRESS || action == glfw.REPEAT
+
 
 	if p, exist := app.input.registered_key_proc[key]; exist {
 		p(app.data, key_state(key))
