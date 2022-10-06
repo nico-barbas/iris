@@ -1,5 +1,6 @@
 package iris
 
+import "core:math"
 import "core:math/linalg"
 import gl "vendor:OpenGL"
 
@@ -208,6 +209,50 @@ advance_timer :: proc(t: ^Timer, dt: f32) -> (finished: bool) {
 		}
 	}
 	return
+}
+
+Sample_Interface :: struct($Data, $Elem: typeid) {
+	data:       Data,
+	size:       [2]int,
+	wrap:       Texture_Wrap_Mode,
+	blend_proc: proc(v1, v2: Elem, t: f32) -> Elem,
+}
+
+sample :: proc(it: $T/Sample_Interface($Data, $Elem), coord: [2]int) -> Elem {
+	s := Vector2{f32(it.size.x), f32(it.size.y)}
+	c := Vector2 {
+		0 = f32(coord.x) / s.x,
+		1 = f32(coord.y) / s.y,
+	}
+
+	switch it.wrap {
+	case .Clamp_To_Edge:
+		c.x = clamp(c.x, 0, 1)
+		c.y = clamp(c.x, 0, 1)
+	case .Mirrored_Repeat, .Repeat:
+		assert(false)
+	}
+
+	c *= s
+
+	sample_x1 := int(math.floor(c.x))
+	sample_x2 := int(math.ceil(c.x))
+	sample_y1 := int(math.floor(c.y))
+	sample_y2 := int(math.ceil(c.y))
+
+	blend_x := math.floor(c.x) - c.x
+	blend_y := math.floor(c.y) - c.y
+
+	in_value_s1 := it.data[sample_y1 * it.size.x + sample_x1]
+	in_value_s2 := it.data[sample_y1 * it.size.x + sample_x2]
+	in_value_t1 := it.data[sample_y2 * it.size.x + sample_x1]
+	in_value_t2 := it.data[sample_y2 * it.size.x + sample_x2]
+
+	sample_s := it.blend_proc(in_value_s1, in_value_s2, blend_x)
+	sample_t := it.blend_proc(in_value_t1, in_value_t2, blend_x)
+
+	result := it.blend_proc(sample_s, sample_t, blend_y)
+	return result
 }
 
 

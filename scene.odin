@@ -507,6 +507,65 @@ insert_node :: proc(scene: ^Scene, node: ^Node, parent: ^Node = nil) {
 	node.flags += {.Dirty_Transform}
 }
 
+destroy_node :: proc(scene: ^Scene, node: ^Node) {
+	for child in node.children {
+		destroy_node(scene, child)
+	}
+	if len(node.children) > 0 {
+		delete(node.children)
+	}
+	delete(node.name)
+
+	for scene_node, i in scene.nodes {
+		if node == scene_node {
+			ordered_remove(&scene.nodes, i)
+		}
+	}
+
+	if .Root_Node in node.flags {
+		for root, i in scene.roots {
+			if node == root {
+				ordered_remove(&scene.roots, i)
+			}
+		}
+	}
+
+	switch n in node.derived {
+	case ^Empty_Node:
+		free(n)
+
+	case ^Camera_Node:
+		free(n)
+
+	case ^Model_Node:
+		free(n)
+
+	case ^Model_Group_Node:
+		free_resource(n.transform_res, true)
+		free(n)
+
+	case ^Skin_Node:
+		delete(n.joints)
+		delete(n.joint_roots)
+		delete(n.joint_lookup)
+		delete(n.joint_matrices)
+		for key in n.animations {
+			destroy_animation_player(&n.animations[key])
+		}
+		delete(n.animations)
+		free(n)
+
+	case ^Canvas_Node:
+		unimplemented()
+	// free(n)
+
+	case ^User_Interface_Node:
+		unimplemented()
+	// free(n)
+
+	}
+}
+
 node_offset_transform :: proc(node: ^Node, t: Transform) {
 	transform := linalg.matrix4_from_trs_f32(t = t.translation, r = t.rotation, s = t.scale)
 	node.local_transform = linalg.matrix_mul(transform, node.local_transform)
@@ -644,7 +703,6 @@ Model_Node :: struct {
 	using base:    Node,
 	options:       Rendering_Options,
 	derived_flags: Model_Node_Flags,
-	// mesh_transform: Matrix4,
 	meshes:        [dynamic]^Mesh,
 	materials:     [dynamic]^Material,
 }
@@ -1386,6 +1444,7 @@ Any_Widget :: union {
 	^Label_Widget,
 	^Image_Widget,
 	^Text_Input_Widget,
+	^Slider_Widget,
 }
 
 new_widget_from :: proc(node: ^User_Interface_Node, from: $T) -> ^T {
@@ -1425,6 +1484,8 @@ init_widget :: proc(widget: ^Widget) {
 	case ^Text_Input_Widget:
 		w.char_buf.allocator = widget.ui.allocator
 		init_text_input(w)
+	case ^Slider_Widget:
+		init_slider(w)
 	}
 	widget.flags += {.Initialized}
 }
@@ -1476,10 +1537,16 @@ fit_theme :: proc(theme: User_Interface_Theme, widget: ^Widget) {
 
 	case ^Text_Input_Widget:
 		contrast = theme.contrast_values[Contrast_Level.Level_Minus_2]
-		w.caret_color = theme.contrast_values[Contrast_Level.Level_Plus_1]
+		w.caret_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_1]
 		w.text.font = theme.font
 		w.text.size = theme.text_size
 		w.text.color = theme.text_color
+	case ^Slider_Widget:
+		contrast = theme.contrast_values[Contrast_Level.Level_Minus_2]
+		w.progress_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_Plus_2]
+		if .With_Handle in w.derived_flags {
+			w.handle_color = theme.base_color * theme.contrast_values[Contrast_Level.Level_0]
+		}
 	}
 	widget.background.color.rbg = theme.base_color.rgb * contrast
 	widget.background.border_color = theme.border_color
@@ -1512,6 +1579,8 @@ update_widget :: proc(widget: ^Widget) {
 	case ^Label_Widget:
 	case ^Text_Input_Widget:
 		update_text_input(w)
+	case ^Slider_Widget:
+		update_slider(w)
 	}
 }
 
@@ -1558,6 +1627,13 @@ offset_widget :: proc(widget: ^Widget, offset: Vector2) {
 		text_position(&w.text, w.rect)
 		w.caret_rect.x += offset.x
 		w.caret_rect.y += offset.y
+	case ^Slider_Widget:
+		if .With_Handle in w.derived_flags {
+			w.handle_rect.x += offset.x
+			w.handle_rect.y += offset.y
+		}
+		w.progress_rect.x += offset.x
+		w.progress_rect.y += offset.y
 	}
 }
 
@@ -1680,15 +1756,38 @@ draw_widget :: proc(widget: ^Widget) {
 				},
 			)
 		}
+
+	case ^Slider_Widget:
+		draw_widget_background(buf, w.background, w.rect)
+		append(
+			buf,
+			User_Interface_Rect_Command{
+				outline = false,
+				rect = w.progress_rect,
+				color = w.progress_color,
+			},
+		)
+		if .With_Handle in w.derived_flags {
+			append(
+				buf,
+				User_Interface_Rect_Command{
+					outline = false,
+					rect = w.handle_rect,
+					color = w.handle_color,
+				},
+			)
+		}
 	}
 }
 
 widget_height :: proc(widget: ^Widget) -> (result: f32) {
 	switch w in widget.derived {
-	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget, ^Text_Input_Widget:
+	case ^Layout_Widget, ^Button_Widget, ^Label_Widget, ^Image_Widget:
 		result = widget.rect.height
-	case ^Tab_Viewer_Widget:
+
+	case ^Tab_Viewer_Widget, ^Text_Input_Widget, ^Slider_Widget:
 		result = widget.rect.height
+
 	case ^List_Widget:
 		if .Folded not_in w.states {
 			result = w.margin
@@ -2403,6 +2502,136 @@ update_text_input :: proc(input: ^Text_Input_Widget) {
 		if .Delete_Available not_in input.derived_flags {
 			if advance_timer(&input.delete_timer, dt) {
 				input.derived_flags += {.Delete_Available}
+			}
+		}
+	}
+}
+
+
+Slider_Widget :: struct {
+	using base:      Widget,
+	derived_flags:   Slider_Flags,
+	handle_rect:     Rectangle,
+	handle_color:    Color,
+	progress_origin: Direction,
+	progress_rect:   Rectangle,
+	progress_color:  Color,
+	progress:        f32,
+	data:            rawptr,
+	callback:        proc(data: rawptr, id: Widget_ID, t: f32),
+}
+
+Slider_Flags :: distinct bit_set[Slider_Flag]
+
+Slider_Flag :: enum {
+	Interactive,
+	Moving,
+	With_Handle,
+}
+
+SLIDER_HANDLE_SIZE :: 15
+
+init_slider :: proc(slider: ^Slider_Widget) {
+	if .With_Handle in slider.derived_flags {
+		switch slider.progress_origin {
+		case .Up, .Down:
+			slider.handle_rect.x = slider.rect.x
+			slider.handle_rect.width = slider.rect.width
+			slider.handle_rect.height = SLIDER_HANDLE_SIZE
+		case .Left, .Right:
+			slider.handle_rect.y = slider.rect.y
+			slider.handle_rect.width = SLIDER_HANDLE_SIZE
+			slider.handle_rect.height = slider.rect.height
+		}
+	}
+	slider_progress_value(slider, slider.progress)
+}
+
+slider_progress_value :: proc(slider: ^Slider_Widget, t: f32) {
+	slider.progress = clamp(t, 0, 1)
+	switch slider.progress_origin {
+	case .Up:
+		slider.progress_rect = Rectangle {
+			x      = slider.rect.x,
+			y      = slider.rect.y,
+			width  = slider.rect.width,
+			height = slider.rect.height * slider.progress,
+		}
+		if .With_Handle in slider.derived_flags {
+			slider.handle_rect.y = slider.rect.y + slider.progress_rect.height
+			slider.handle_rect.y -= slider.handle_rect.height / 2
+		}
+
+	case .Left:
+		slider.progress_rect = Rectangle {
+			x      = slider.rect.x,
+			y      = slider.rect.y,
+			width  = slider.rect.width * slider.progress,
+			height = slider.rect.height,
+		}
+		if .With_Handle in slider.derived_flags {
+			slider.handle_rect.x = slider.rect.x + slider.progress_rect.width
+			slider.handle_rect.x -= slider.handle_rect.width / 2
+		}
+
+	case .Down:
+		slider.progress_rect = Rectangle {
+			x      = slider.rect.x,
+			y      = slider.rect.y + slider.rect.height * (1 - slider.progress),
+			width  = slider.rect.width,
+			height = slider.rect.height * slider.progress,
+		}
+		if .With_Handle in slider.derived_flags {
+			slider.handle_rect.y = slider.progress_rect.y
+			slider.handle_rect.y -= slider.handle_rect.height / 2
+		}
+
+	case .Right:
+		slider.progress_rect = Rectangle {
+			x      = slider.rect.x + slider.rect.width * (1 - slider.progress),
+			y      = slider.rect.y,
+			width  = slider.rect.width * slider.progress,
+			height = slider.rect.height,
+		}
+		if .With_Handle in slider.derived_flags {
+			slider.handle_rect.x = slider.progress_rect.x
+			slider.handle_rect.x -= slider.handle_rect.width / 2
+		}
+	}
+}
+
+update_slider :: proc(slider: ^Slider_Widget) {
+	if .Interactive in slider.derived_flags {
+		m_left := mouse_button_state(.Left)
+		m_pos := mouse_position()
+		if .Moving in slider.derived_flags {
+			p_vec := m_pos - Vector2{slider.rect.x, slider.rect.y}
+			p_vec /= Vector2{slider.rect.width, slider.rect.height}
+			t: f32
+			switch slider.progress_origin {
+			case .Up:
+				t = p_vec.y
+			case .Left:
+				t = p_vec.x
+			case .Down:
+				t = 1 - p_vec.x
+			case .Right:
+				t = 1 - p_vec.x
+			}
+
+			if t != slider.progress {
+				slider_progress_value(slider, t)
+				ui_node_dirty(slider.ui)
+			}
+			if .Just_Released in m_left {
+				slider.derived_flags -= {.Moving}
+				if slider.callback != nil {
+					slider.callback(slider.data, slider.id, slider.progress)
+				}
+			}
+		} else if .Just_Pressed in m_left {
+			if in_rect_bounds(slider.handle_rect, m_pos) {
+				slider.derived_flags += {.Moving}
 			}
 		}
 	}

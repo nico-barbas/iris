@@ -226,6 +226,26 @@ load_animation_from_gltf :: proc(name: string, a: gltf.Animation) {
 	}
 }
 
+make_animation_player :: proc(
+	animation: ^Animation,
+	allocator := context.allocator,
+) -> Animation_Player {
+	context.allocator = allocator
+	player := Animation_Player {
+		ptr                 = animation,
+		channels_info       = make([]Animation_Channel_Info, len(animation.channels)),
+		targets             = make([]Animation_Target, len(animation.channels)),
+		targets_start_value = make([]Animation_Value, len(animation.channels)),
+	}
+	return player
+}
+
+destroy_animation_player :: proc(player: ^Animation_Player) {
+	delete(player.channels_info)
+	delete(player.targets)
+	delete(player.targets_start_value)
+}
+
 destroy_animation :: proc(animation: ^Animation) {
 	delete(animation.name)
 	for channel in animation.channels {

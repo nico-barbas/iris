@@ -6,12 +6,9 @@ import "core:fmt"
 import "core:mem"
 import "core:time"
 import "core:intrinsics"
-// import "core:strings"
-// import "core:path/filepath"
 import "allocators"
 import "gltf"
 import "helios"
-// import "aether"
 
 Resource_Library :: struct {
 	free_list:        allocators.Free_List_Allocator,
@@ -328,43 +325,43 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 	case ^Buffer:
 		destroy_buffer(r)
 		if remove {
-			unordered_remove(&lib.buffers, resource.id)
+			ordered_remove(&lib.buffers, resource.id)
 		}
 		free(r)
 	case ^Attributes:
 		destroy_attributes(r)
 		if remove {
-			unordered_remove(&lib.attributes, resource.id)
+			ordered_remove(&lib.attributes, resource.id)
 		}
 		free(r)
 	case ^Texture:
 		destroy_texture(r)
 		if remove {
-			unordered_remove(&lib.textures, resource.id)
+			ordered_remove(&lib.textures, resource.id)
 		}
 		free(r)
 	case ^Shader:
 		destroy_shader(r)
 		if remove {
-			unordered_remove(&lib.shaders, resource.id)
+			ordered_remove(&lib.shaders, resource.id)
 		}
 		free(r)
 	case ^Font:
 		destroy_font(r)
 		if remove {
-			unordered_remove(&lib.fonts, resource.id)
+			ordered_remove(&lib.fonts, resource.id)
 		}
 		free(r)
 	case ^Framebuffer:
 		destroy_framebuffer(r)
 		if remove {
-			unordered_remove(&lib.framebuffers, resource.id)
+			ordered_remove(&lib.framebuffers, resource.id)
 		}
 		free(r)
 	case ^Mesh:
 		destroy_mesh(r)
 		if remove {
-			unordered_remove(&lib.meshes, resource.id)
+			ordered_remove(&lib.meshes, resource.id)
 		}
 		free(r)
 

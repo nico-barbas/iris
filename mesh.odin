@@ -6,6 +6,8 @@ import "core:math/linalg"
 Mesh :: struct {
 	attributes:      ^Attributes,
 	attributes_info: Packed_Attributes,
+	vertex_buffer:   ^Resource,
+	index_buffer:    ^Resource,
 	vertices:        Buffer_Memory,
 	indices:         Buffer_Memory,
 	index_count:     int,
@@ -294,11 +296,11 @@ internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
 	offset: int
 	layout: Attribute_Layout
 	offsets: [len(Attribute_Kind)]int
-	vertex_buffer := raw_buffer_resource(loader.byte_size)
-	index_buffer := raw_buffer_resource(loader.indices.byte_size)
+	mesh.vertex_buffer = raw_buffer_resource(loader.byte_size)
+	mesh.index_buffer = raw_buffer_resource(loader.indices.byte_size)
 
-	mesh.vertices = buffer_memory_from_buffer_resource(vertex_buffer)
-	mesh.indices = buffer_memory_from_buffer_resource(index_buffer)
+	mesh.vertices = buffer_memory_from_buffer_resource(mesh.vertex_buffer)
+	mesh.indices = buffer_memory_from_buffer_resource(mesh.index_buffer)
 	mesh.index_count = loader.index_count
 	for kind in Attribute_Kind {
 		if kind in loader.enabled {
@@ -318,4 +320,5 @@ internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
 	return mesh
 }
 
-destroy_mesh :: proc(mesh: ^Mesh) {}
+destroy_mesh :: proc(mesh: ^Mesh) {
+}
