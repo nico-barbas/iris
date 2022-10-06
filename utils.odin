@@ -216,32 +216,30 @@ Sample_Interface :: struct($Data, $Elem: typeid) {
 	size:       [2]int,
 	wrap:       Texture_Wrap_Mode,
 	blend_proc: proc(v1, v2: Elem, t: f32) -> Elem,
+	shape_proc: proc(t: f32) -> f32,
 }
 
-sample :: proc(it: $T/Sample_Interface($Data, $Elem), coord: [2]int) -> Elem {
+sample :: proc(it: $T/Sample_Interface($Data, $Elem), coord: Vector2) -> Elem {
 	s := Vector2{f32(it.size.x), f32(it.size.y)}
-	c := Vector2 {
-		0 = f32(coord.x) / s.x,
-		1 = f32(coord.y) / s.y,
-	}
+	c := coord
 
 	switch it.wrap {
 	case .Clamp_To_Edge:
 		c.x = clamp(c.x, 0, 1)
-		c.y = clamp(c.x, 0, 1)
+		c.y = clamp(c.y, 0, 1)
 	case .Mirrored_Repeat, .Repeat:
 		assert(false)
 	}
 
 	c *= s
 
-	sample_x1 := int(math.floor(c.x))
-	sample_x2 := int(math.ceil(c.x))
-	sample_y1 := int(math.floor(c.y))
-	sample_y2 := int(math.ceil(c.y))
+	sample_x1 := min(int(math.floor(c.x)), it.size.x - 1)
+	sample_x2 := min(int(math.ceil(c.x)), it.size.x - 1)
+	sample_y1 := min(int(math.floor(c.y)), it.size.x - 1)
+	sample_y2 := min(int(math.ceil(c.y)), it.size.x - 1)
 
-	blend_x := math.floor(c.x) - c.x
-	blend_y := math.floor(c.y) - c.y
+	blend_x := it.shape_proc(c.x - math.floor(c.x))
+	blend_y := it.shape_proc(c.y - math.floor(c.y))
 
 	in_value_s1 := it.data[sample_y1 * it.size.x + sample_x1]
 	in_value_s2 := it.data[sample_y1 * it.size.x + sample_x2]
