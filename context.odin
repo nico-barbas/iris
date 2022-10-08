@@ -33,7 +33,7 @@ Render_Context :: struct {
 
 	// Deferred context
 	deferred_framebuffer:        ^Framebuffer,
-	deferred_static_shader:      ^Shader,
+	deferred_geometry_shader:    ^Shader,
 	deferred_composite_shader:   ^Shader,
 	deferred_vertices:           Buffer_Memory,
 	deferred_indices:            Buffer_Memory,
@@ -122,7 +122,7 @@ Rendering_Option :: enum {
 init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 
 	// load_shaders_from_dir("shaders/build")
-	load_shader_document("shaders/lib.helios")
+	// load_shader_document("shaders/lib.helios")
 
 	set_backface_culling(true)
 	ctx.render_width = w
@@ -154,49 +154,103 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	)
 	ctx.deferred_framebuffer = deferred_framebuffer_res.data.(^Framebuffer)
 
+	// shader_resource(
+	// 	Shader_Builder{
+	// 		info = {
+	// 			build_name = "forward_geometry_default",
+	// 			prototype_name = "forward_geometry",
+	// 			stages = {.Vertex, .Fragment},
+	// 			stages_info = {
+	// 				Shader_Stage.Vertex = {with_extension = true, name = "default"},
+	// 				Shader_Stage.Fragment = {with_extension = false},
+	// 			},
+	// 		},
+	// 		document_name = "shaders/lib.helios",
+	// 	},
+	// )
 	shader_resource(
-		Shader_Builder{
-			info = {
-				build_name = "forward_geometry_default",
-				prototype_name = "forward_geometry",
-				stages = {.Vertex, .Fragment},
-				stages_info = {
-					Shader_Stage.Vertex = {with_extension = true, name = "default"},
-					Shader_Stage.Fragment = {with_extension = false},
+		Raw_Shader_Loader{
+			name = "forward_geometry",
+			kind = .File,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{
+					file_path = "shaders/forward_geometry.vs",
+				},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					file_path = "shaders/forward_geometry.fs",
 				},
 			},
-			document_name = "shaders/lib.helios",
 		},
 	)
 
+	// deferred_geo_res := shader_resource(
+	// 	Shader_Builder{
+	// 		info = {
+	// 			build_name = "deferred_geometry_default",
+	// 			prototype_name = "deferred_geometry",
+	// 			stages = {.Vertex, .Fragment},
+	// 			stages_info = {
+	// 				Shader_Stage.Vertex = {with_extension = false},
+	// 				Shader_Stage.Fragment = {with_extension = true, name = "default"},
+	// 			},
+	// 		},
+	// 		document_name = "shaders/lib.helios",
+	// 	},
+	// )
 	deferred_geo_res := shader_resource(
-		Shader_Builder{
-			info = {
-				build_name = "deferred_geometry_default",
-				prototype_name = "deferred_geometry",
-				stages = {.Vertex, .Fragment},
-				stages_info = {
-					Shader_Stage.Vertex = {with_extension = false},
-					Shader_Stage.Fragment = {with_extension = true, name = "default"},
+		Raw_Shader_Loader{
+			name = "deferred_geometry",
+			kind = .File,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{
+					file_path = "shaders/deferred_geometry.vs",
+				},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					file_path = "shaders/deferred_geometry.fs",
 				},
 			},
-			document_name = "shaders/lib.helios",
 		},
 	)
-	ctx.deferred_static_shader = deferred_geo_res.data.(^Shader)
+	ctx.deferred_geometry_shader = deferred_geo_res.data.(^Shader)
+	// set_shader_default_subroutine(
+	// 	ctx.deferred_geometry_shader,
+	// 	.Vertex,
+	// 	"computeModelMat",
+	// 	"computeStaticModelMat",
+	// )
+	// set_shader_default_subroutine(
+	// 	ctx.deferred_geometry_shader,
+	// 	.Fragment,
+	// 	"sampleAlbedo",
+	// 	"sampleDefaultAlbedo",
+	// )
 
+	// deferred_shading_res := shader_resource(
+	// 	Shader_Builder{
+	// 		info = {
+	// 			build_name = "deferred_shading",
+	// 			prototype_name = "deferred_shading",
+	// 			stages = {.Vertex, .Fragment},
+	// 			stages_info = {
+	// 				Shader_Stage.Vertex = {with_extension = false},
+	// 				Shader_Stage.Fragment = {with_extension = false},
+	// 			},
+	// 		},
+	// 		document_name = "shaders/lib.helios",
+	// 	},
+	// )
 	deferred_shading_res := shader_resource(
-		Shader_Builder{
-			info = {
-				build_name = "deferred_shading",
-				prototype_name = "deferred_shading",
-				stages = {.Vertex, .Fragment},
-				stages_info = {
-					Shader_Stage.Vertex = {with_extension = false},
-					Shader_Stage.Fragment = {with_extension = false},
+		Raw_Shader_Loader{
+			name = "deferred_shading",
+			kind = .File,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{
+					file_path = "shaders/deferred_shading.vs",
+				},
+				Shader_Stage.Fragment = Shader_Stage_Loader{
+					file_path = "shaders/deferred_shading.fs",
 				},
 			},
-			document_name = "shaders/lib.helios",
 		},
 	)
 	ctx.deferred_composite_shader = deferred_shading_res.data.(^Shader)
@@ -473,17 +527,14 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 	for command in cmds {
 		#partial switch c in command {
 		case Render_Mesh_Command:
-			shader: ^Shader
-			if c.material.shader == nil {
-				shader = ctx.deferred_static_shader
-			} else {
-				shader = c.material.shader
-			}
+			shader := ctx.deferred_geometry_shader
+			spec := c.material.specialization
+
 			if .Transparent in c.options {
 				assert(false, "No transparent geometry allowed in the deferred pass")
 			}
-			mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
-			set_shader_uniform(shader, "mvp", &mvp[0][0])
+			// mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
+			// set_shader_uniform(shader, "mvp", &mvp[0][0])
 
 			local := c.local_transform
 			global := c.global_transform
@@ -502,9 +553,9 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			calculate_tangent_space := .Normal0 in c.material.maps
 			set_shader_uniform(shader, "useTangentSpace", &calculate_tangent_space)
 
-			calculate_joint_deform := .Use_Joints in c.options
-			set_shader_uniform(shader, "useJointSpace", &calculate_joint_deform)
-			if calculate_joint_deform {
+			dyn_geometry := .Use_Joints in c.options
+			// set_shader_uniform(shader, "useJointSpace", &calculate_joint_deform)
+			if dyn_geometry {
 				set_shader_uniform(shader, "matJoints", &c.joints[0])
 			}
 
@@ -529,8 +580,24 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			)
 			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
 
+			// TODO: Only need to be done once?
 			instancing := .Instancing in c.options
-			set_shader_uniform(shader, "instanced", &instancing)
+			model_mat_subroutine: Subroutine_Location
+			stage_subroutines := shader.stages_info[Shader_Stage.Vertex].subroutines
+			switch {
+			case !dyn_geometry && !instancing:
+				model_mat_subroutine = stage_subroutines["computeStaticModelMat"]
+			case dyn_geometry && !instancing:
+				model_mat_subroutine = stage_subroutines["computeDynamicModelMat"]
+			case !dyn_geometry && instancing:
+				model_mat_subroutine = stage_subroutines["computeInstancedStaticModelMat"]
+			case dyn_geometry && instancing:
+				model_mat_subroutine = stage_subroutines["computeInstancedDynamicModelMat"]
+			}
+			spec[Shader_Stage.Vertex]["computeModelMat"] = model_mat_subroutine
+
+			set_shader_subroutines(shader, spec^)
+			// set_shader_uniform(shader, "instanced", &instancing)
 			if instancing {
 				info := c.instancing_info.?
 				link_packed_attributes_vertices_list(

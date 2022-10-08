@@ -68,7 +68,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	DEFAULT_ALLOCATOR_SIZE :: mem.Megabyte * 500
 	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 1000
 	DEFAULT_GL_MAJOR_VERSION :: 4
-	DEFAULT_GL_MINOR_VERSION :: 5
+	DEFAULT_GL_MINOR_VERSION :: 6
 
 	app = new(App, allocator)
 	app.config = config^

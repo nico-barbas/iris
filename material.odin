@@ -4,17 +4,19 @@ import "core:strings"
 import "gltf"
 
 Material :: struct {
-	name:        string,
-	shader:      ^Shader,
-	maps:        Material_Maps,
-	textures:    [len(Material_Map)]^Texture,
-	double_face: bool,
+	name:           string,
+	shader:         ^Shader,
+	specialization: ^Shader_Specialization,
+	maps:           Material_Maps,
+	textures:       [len(Material_Map)]^Texture,
+	double_face:    bool,
 }
 
 Material_Loader :: struct {
-	name:        string,
-	shader:      ^Shader,
-	double_face: bool,
+	name:           string,
+	shader:         ^Shader,
+	specialization: ^Shader_Specialization,
+	double_face:    bool,
 }
 
 Material_Maps :: distinct bit_set[Material_Map]
@@ -35,9 +37,10 @@ material_map_name := map[Material_Map]string {
 @(private)
 internal_load_empty_material :: proc(loader: Material_Loader) -> Material {
 	material := Material {
-		name        = strings.clone(loader.name),
-		shader      = loader.shader,
-		double_face = loader.double_face,
+		name           = strings.clone(loader.name),
+		shader         = loader.shader,
+		specialization = loader.specialization,
+		double_face    = loader.double_face,
 	}
 	return material
 }

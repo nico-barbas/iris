@@ -1,30 +1,31 @@
 package iris
 
-import "core:log"
-import "core:os"
+// import "core:log"
+// import "core:os"
 import "core:fmt"
 import "core:mem"
 import "core:time"
+import "core:strings"
 import "core:intrinsics"
 import "allocators"
 import "gltf"
-import "helios"
 
 Resource_Library :: struct {
-	free_list:        allocators.Free_List_Allocator,
-	allocator:        mem.Allocator,
-	temp_allocator:   mem.Allocator,
-	shader_documents: map[string]helios.Document,
-	buffers:          [dynamic]^Resource,
-	attributes:       [dynamic]^Resource,
-	textures:         [dynamic]^Resource,
-	shaders:          [dynamic]^Resource,
-	fonts:            [dynamic]^Resource,
-	framebuffers:     [dynamic]^Resource,
-	meshes:           [dynamic]^Resource,
-	materials:        map[string]^Resource,
-	animations:       map[string]^Resource,
-	scenes:           map[string]^Resource,
+	free_list:      allocators.Free_List_Allocator,
+	allocator:      mem.Allocator,
+	temp_allocator: mem.Allocator,
+	// shader_documents: map[string]helios.Document,
+	buffers:        [dynamic]^Resource,
+	attributes:     [dynamic]^Resource,
+	textures:       [dynamic]^Resource,
+	shaders:        [dynamic]^Resource,
+	shader_specs:   map[string]^Resource,
+	fonts:          [dynamic]^Resource,
+	framebuffers:   [dynamic]^Resource,
+	meshes:         [dynamic]^Resource,
+	materials:      map[string]^Resource,
+	animations:     map[string]^Resource,
+	scenes:         map[string]^Resource,
 }
 
 Resource :: struct {
@@ -38,6 +39,7 @@ Resource_Data :: union {
 	^Attributes,
 	^Texture,
 	^Shader,
+	^Shader_Specialization,
 	^Font,
 	^Framebuffer,
 	^Mesh,
@@ -57,11 +59,12 @@ init_library :: proc(lib: ^Resource_Library) {
 	lib.allocator = allocators.free_list_allocator(&lib.free_list)
 	lib.temp_allocator = context.temp_allocator
 
-	lib.shader_documents.allocator = lib.allocator
+	// lib.shader_documents.allocator = lib.allocator
 	lib.buffers.allocator = lib.allocator
 	lib.attributes.allocator = lib.allocator
 	lib.textures.allocator = lib.allocator
 	lib.shaders.allocator = lib.allocator
+	lib.shader_specs.allocator = lib.allocator
 	lib.fonts.allocator = lib.allocator
 	lib.framebuffers.allocator = lib.allocator
 	lib.meshes.allocator = lib.allocator
@@ -94,6 +97,12 @@ close_library :: proc(lib: ^Resource_Library) {
 	}
 	delete(lib.shaders)
 
+	for name, r in lib.shader_specs {
+		delete(name)
+		free_resource(r)
+	}
+	delete(lib.shader_specs)
+
 	for r in lib.fonts {
 		free_resource(r)
 	}
@@ -124,10 +133,10 @@ close_library :: proc(lib: ^Resource_Library) {
 	}
 	delete(lib.scenes)
 
-	for _, document in lib.shader_documents {
-		helios.destroy(document)
-	}
-	delete(lib.shader_documents)
+	// for _, document in lib.shader_documents {
+	// 	helios.destroy(document)
+	// }
+	// delete(lib.shader_documents)
 	free_all(lib.allocator)
 }
 
@@ -197,24 +206,26 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
+	begin_temp_allocation()
+	defer end_temp_allocation()
 	data: Resource_Data
 	switch l in loader {
-	case Shader_Builder:
-		if l.document == nil && l.document_name != "" {
-			if l.document_name in lib.shader_documents {
-				builder := l
-				builder.document = &lib.shader_documents[l.document_name]
-				data = new_clone(internal_build_shader(builder))
-			} else {
-				log.errorf("[%s]: Invalid document name: %s", App_Module.IO, l.document_name)
-			}
-		} else {
-			log.errorf(
-				"[%s]: Invalid Shader Builder settings:\n\tDetails: Both the document and the document name are nil",
-				App_Module.IO,
-			)
-			unreachable()
-		}
+	// case Shader_Builder:
+	// 	if l.document == nil && l.document_name != "" {
+	// 		if l.document_name in lib.shader_documents {
+	// 			builder := l
+	// 			builder.document = &lib.shader_documents[l.document_name]
+	// 			data = new_clone(internal_build_shader(builder))
+	// 		} else {
+	// 			log.errorf("[%s]: Invalid document name: %s", App_Module.IO, l.document_name)
+	// 		}
+	// 	} else {
+	// 		log.errorf(
+	// 			"[%s]: Invalid Shader Builder settings:\n\tDetails: Both the document and the document name are nil",
+	// 			App_Module.IO,
+	// 		)
+	// 		unreachable()
+	// 	}
 	case Raw_Shader_Loader:
 		switch l.kind {
 		case .Byte:
@@ -227,6 +238,19 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	resource := new_resource(lib, data)
 
 	append(&lib.shaders, resource)
+	return resource
+}
+
+shader_specialization_resource :: proc(name: string, shader: ^Shader) -> ^Resource {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	data := new_clone(make_shader_specialization(shader))
+	resource := new_resource(lib, data)
+
+	n := strings.clone(name)
+	lib.shader_specs[n] = resource
 	return resource
 }
 
@@ -346,6 +370,14 @@ free_resource :: proc(resource: ^Resource, remove := false) {
 			ordered_remove(&lib.shaders, resource.id)
 		}
 		free(r)
+	case ^Shader_Specialization:
+		for stage in Shader_Stage {
+			if r[stage] != nil {
+				delete(r[stage])
+			}
+		}
+		free(r)
+
 	case ^Font:
 		destroy_font(r)
 		if remove {
@@ -412,34 +444,34 @@ load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	}
 }
 
-load_shader_document :: proc(file_path: string) {
-	lib := &app.library
-	begin_temp_allocation()
+// load_shader_document :: proc(file_path: string) {
+// 	lib := &app.library
+// 	begin_temp_allocation()
 
-	lib_source, read_ok := os.read_entire_file(file_path, context.temp_allocator)
-	if !read_ok {
-		log.fatalf(
-			"[%s]: Failed to read shader library from filepath: %s",
-			App_Module.IO,
-			file_path,
-		)
-		intrinsics.trap()
-	}
+// 	lib_source, read_ok := os.read_entire_file(file_path, context.temp_allocator)
+// 	if !read_ok {
+// 		log.fatalf(
+// 			"[%s]: Failed to read shader library from filepath: %s",
+// 			App_Module.IO,
+// 			file_path,
+// 		)
+// 		intrinsics.trap()
+// 	}
 
-	shader_document, parse_err := helios.parse(file_path, lib_source, lib.allocator)
-	if parse_err != nil {
-		log.fatalf(
-			"[%s]: Failed to parse shader library: %s\n\tDetails: %#v",
-			App_Module.IO,
-			file_path,
-			parse_err,
-		)
-		intrinsics.trap()
-	}
-	lib.shader_documents[file_path] = shader_document
+// 	shader_document, parse_err := helios.parse(file_path, lib_source, lib.allocator)
+// 	if parse_err != nil {
+// 		log.fatalf(
+// 			"[%s]: Failed to parse shader library: %s\n\tDetails: %#v",
+// 			App_Module.IO,
+// 			file_path,
+// 			parse_err,
+// 		)
+// 		intrinsics.trap()
+// 	}
+// 	lib.shader_documents[file_path] = shader_document
 
-	end_temp_allocation()
-}
+// 	end_temp_allocation()
+// }
 
 // load_shaders_from_dir :: proc(dir: string) {
 // 	lib := &app.library

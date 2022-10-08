@@ -6,7 +6,6 @@ import "core:fmt"
 import "core:runtime"
 import "core:strings"
 import gl "vendor:OpenGL"
-import "helios"
 
 Shader :: struct {
 	name:             string,
@@ -14,11 +13,24 @@ Shader :: struct {
 	stages:           Shader_Stages,
 	uniforms:         map[string]Shader_Uniform_Info,
 	uniform_warnings: map[string]bool,
+	stages_info:      [len(Shader_Stage)]struct {
+		subroutines:         map[string]Subroutine_Location,
+		subroutine_uniforms: map[string]Shader_Subroutine_Uniform_Info,
+	},
 }
 
-Shader_Stages :: helios.Stages
 
-Shader_Stage :: helios.Stage
+Shader_Stages :: distinct bit_set[Shader_Stage]
+
+Shader_Stage :: enum i32 {
+	Invalid,
+	Fragment,
+	Vertex,
+	Geometry,
+	Compute,
+	Tessalation_Eval,
+	Tessalation_Control,
+}
 
 @(private)
 gl_shader_type :: proc(s: Shader_Stage) -> gl.Shader_Type {
@@ -49,16 +61,27 @@ Shader_Uniform_Info :: struct {
 	count: int,
 }
 
+Subroutine_Location :: distinct i32
+
+Shader_Subroutine_Uniform_Info :: struct {
+	loc:                Subroutine_Location,
+	default_subroutine: Subroutine_Location,
+}
+
+Shader_Specialization :: [len(Shader_Stage)]Shader_Stage_Specialization
+
+Shader_Stage_Specialization :: distinct map[string]Subroutine_Location
+
 Shader_Loader :: union {
-	Shader_Builder,
+	// Shader_Builder,
 	Raw_Shader_Loader,
 }
 
-Shader_Builder :: struct {
-	using info:    helios.Builder,
-	document_name: string,
-	document:      ^helios.Document,
-}
+// Shader_Builder :: struct {
+// 	using info:    helios.Builder,
+// 	document_name: string,
+// 	document:      ^helios.Document,
+// }
 
 Raw_Shader_Loader :: struct {
 	name:   string,
@@ -74,34 +97,34 @@ Shader_Stage_Loader :: struct {
 	source:    string,
 }
 
-@(private)
-internal_build_shader :: proc(builder: Shader_Builder, allocator := context.allocator) -> Shader {
-	output, build_err := helios.build_shader(builder.document, builder, allocator)
+// @(private)
+// internal_build_shader :: proc(builder: Shader_Builder, allocator := context.allocator) -> Shader {
+// 	output, build_err := helios.build_shader(builder.document, builder, allocator)
 
-	if build_err != nil {
-		log.errorf(
-			"[%s]: Failed to build shader from document\n\tBuild Options: %#v\n\tError: %#v",
-			App_Module.Shader,
-			builder.info,
-			build_err,
-		)
-		assert(false)
-	}
+// 	if build_err != nil {
+// 		log.errorf(
+// 			"[%s]: Failed to build shader from document\n\tBuild Options: %#v\n\tError: %#v",
+// 			App_Module.Shader,
+// 			builder.info,
+// 			build_err,
+// 		)
+// 		assert(false)
+// 	}
 
-	loader := Raw_Shader_Loader {
-		name = output.name,
-		kind = .Byte,
-	}
-	for stage in helios.Stage {
-		if stage in output.active_stages {
-			loader.stages[stage] = Shader_Stage_Loader {
-				source = output.stages[stage],
-			}
-		}
-	}
+// 	loader := Raw_Shader_Loader {
+// 		name = output.name,
+// 		kind = .Byte,
+// 	}
+// 	for stage in helios.Stage {
+// 		if stage in output.active_stages {
+// 			loader.stages[stage] = Shader_Stage_Loader {
+// 				source = output.stages[stage],
+// 			}
+// 		}
+// 	}
 
-	return internal_load_shader_from_bytes(loader, allocator)
-}
+// 	return internal_load_shader_from_bytes(loader, allocator)
+// }
 
 @(private)
 internal_load_shader_from_file :: proc(
@@ -131,7 +154,7 @@ internal_load_shader_from_file :: proc(
 	if stage_count == 0 {
 		assert(false)
 	}
-	return internal_load_shader_from_bytes(loader)
+	return internal_load_shader_from_bytes(l)
 }
 
 @(private)
@@ -160,23 +183,10 @@ internal_load_shader_from_bytes :: proc(
 				log.debug("Failed to compile fragment shader")
 			}
 			gl.AttachShader(shader.handle, stage_handle)
+			shader.stages += {Shader_Stage(i)}
 		}
 	}
 
-	// vertex_handle := compile_shader_source(l.vertex_source, .VERTEX_SHADER, l.name)
-	// defer gl.DeleteShader(vertex_handle)
-	// fragment_handle := compile_shader_source(l.fragment_source, .FRAGMENT_SHADER, l.name)
-	// defer gl.DeleteShader(vertex_handle)
-
-	// switch {
-	// case vertex_handle == 0:
-	// 	log.debug("Failed to compile fragment shader")
-	// case fragment_handle == 0:
-	// 	log.debug("Failed to compile fragment shader")
-	// }
-
-	// gl.AttachShader(shader.handle, vertex_handle)
-	// gl.AttachShader(shader.handle, fragment_handle)
 	gl.LinkProgram(shader.handle)
 	compile_ok: i32
 	gl.GetProgramiv(shader.handle, gl.LINK_STATUS, &compile_ok)
@@ -194,40 +204,109 @@ internal_load_shader_from_bytes :: proc(
 		)
 	}
 
-	// populate uniform cache
+	// Populate uniform cache
 	u_count: i32
 	gl.GetProgramiv(shader.handle, gl.ACTIVE_UNIFORMS, &u_count)
-	if u_count == 0 {
-		return shader
-	}
-	shader.uniforms = make(
-		map[string]Shader_Uniform_Info,
-		runtime.DEFAULT_RESERVE_CAPACITY,
-		allocator,
-	)
-	shader.uniform_warnings.allocator = allocator
-
-	max_name_len: i32
-	cur_name_len: i32
-	size: i32
-	type: u32
-	gl.GetProgramiv(shader.handle, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name_len)
-	for i in 0 ..< u_count {
-		buf := make([]u8, max_name_len, context.temp_allocator)
-		gl.GetActiveUniform(
-			shader.handle,
-			u32(i),
-			max_name_len,
-			&cur_name_len,
-			&size,
-			&type,
-			&buf[0],
+	if u_count != 0 {
+		shader.uniforms = make(
+			map[string]Shader_Uniform_Info,
+			runtime.DEFAULT_RESERVE_CAPACITY,
+			allocator,
 		)
-		u_name := format_uniform_name(buf, cur_name_len, type)
-		shader.uniforms[u_name] = Shader_Uniform_Info {
-			loc   = Uniform_Location(gl.GetUniformLocation(shader.handle, cstring(raw_data(buf)))),
-			type  = uniform_type(type),
-			count = int(size),
+		shader.uniform_warnings.allocator = allocator
+
+		max_name_len: i32
+		cur_name_len: i32
+		size: i32
+		type: u32
+		gl.GetProgramiv(shader.handle, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name_len)
+		for i in 0 ..< u_count {
+			buf := make([]u8, max_name_len, context.temp_allocator)
+			gl.GetActiveUniform(
+				shader.handle,
+				u32(i),
+				max_name_len,
+				&cur_name_len,
+				&size,
+				&type,
+				&buf[0],
+			)
+			u_name := format_uniform_name(buf, cur_name_len, type)
+			shader.uniforms[u_name] = Shader_Uniform_Info {
+				loc   = Uniform_Location(
+					gl.GetUniformLocation(shader.handle, cstring(raw_data(buf))),
+				),
+				type  = uniform_type(type),
+				count = int(size),
+			}
+		}
+	}
+
+	// Populate subroutine cache
+	for stage in Shader_Stage {
+		if stage in shader.stages {
+			gl_stage := u32(gl_shader_type(stage))
+
+			s_count: i32
+			gl.GetProgramStageiv(shader.handle, gl_stage, gl.ACTIVE_SUBROUTINES, &s_count)
+			if s_count != 0 {
+				subroutines := make(
+					map[string]Subroutine_Location,
+					runtime.DEFAULT_RESERVE_CAPACITY,
+					allocator,
+				)
+
+				for i in 0 ..< s_count {
+					buf := [512]byte{}
+					name_len: i32
+					gl.GetActiveSubroutineName(
+						shader.handle,
+						u32(gl_shader_type(stage)),
+						u32(i),
+						512,
+						&name_len,
+						&buf[0],
+					)
+
+					s_name := strings.clone(string(buf[:name_len]), allocator)
+					subroutines[s_name] = Subroutine_Location(i)
+				}
+
+				shader.stages_info[stage].subroutines = subroutines
+			}
+
+			su_count: i32
+			gl.GetProgramStageiv(shader.handle, gl_stage, gl.ACTIVE_SUBROUTINE_UNIFORMS, &su_count)
+			if su_count != 0 {
+				subroutine_uniforms := make(
+					map[string]Shader_Subroutine_Uniform_Info,
+					runtime.DEFAULT_RESERVE_CAPACITY,
+					allocator,
+				)
+
+				for i in 0 ..< su_count {
+					buf := [512]byte{}
+					name_len: i32
+					gl.GetActiveSubroutineUniformName(
+						shader.handle,
+						u32(gl_shader_type(stage)),
+						u32(i),
+						512,
+						&name_len,
+						&buf[0],
+					)
+
+					su_name := strings.clone(string(buf[:name_len]), allocator)
+					su_loc := gl.GetSubroutineUniformLocation(
+						shader.handle,
+						u32(gl_shader_type(stage)),
+						cstring(raw_data(su_name)),
+					)
+					subroutine_uniforms[su_name] = Shader_Subroutine_Uniform_Info {
+						loc = Subroutine_Location(su_loc),
+					}
+				}
+			}
 		}
 	}
 	return shader
@@ -242,7 +321,7 @@ compile_shader_source :: proc(
 	shader_handle: u32,
 ) {
 	shader_handle = gl.CreateShader(cast(u32)shader_type)
-	shader_data_copy := cstring(raw_data(shader_data))
+	shader_data_copy := strings.clone_to_cstring(shader_data, context.temp_allocator)
 	gl.ShaderSource(shader_handle, 1, &shader_data_copy, nil)
 	gl.CompileShader(shader_handle)
 
@@ -446,6 +525,40 @@ set_shader_uniform :: proc(
 	}
 }
 
+set_shader_default_subroutine :: proc(
+	shader: ^Shader,
+	stage: Shader_Stage,
+	sub_uniform: string,
+	sub: string,
+) {
+	s_uniform_info := &shader.stages_info[stage].subroutine_uniforms[sub_uniform]
+	s_uniform_info.default_subroutine = shader.stages_info[stage].subroutines[sub]
+}
+
+@(private)
+set_shader_stage_subroutines :: proc(
+	shader: ^Shader,
+	stage: Shader_Stage,
+	spec: Shader_Stage_Specialization,
+) {
+	bind_shader(shader)
+	buf := [256]u32{}
+	count: i32 = 0
+	for _, loc in spec {
+		buf[count] = u32(loc)
+		count += 1
+	}
+	gl.UniformSubroutinesuiv(u32(gl_shader_type(stage)), count, &buf[0])
+}
+
+set_shader_subroutines :: proc(shader: ^Shader, spec: Shader_Specialization) {
+	for stage in Shader_Stage {
+		if stage in shader.stages {
+			set_shader_stage_subroutines(shader, stage, spec[stage])
+		}
+	}
+}
+
 destroy_shader :: proc(shader: ^Shader) {
 	delete(shader.name)
 	for k, _ in shader.uniforms {
@@ -468,4 +581,36 @@ dispatch_compute_shader :: proc(shader: ^Shader, dispatch_size: [3]u32) {
 
 default_shader :: proc() {
 	gl.UseProgram(0)
+}
+
+make_shader_specialization :: proc(
+	shader: ^Shader,
+	allocator := context.allocator,
+) -> (
+	spec: Shader_Specialization,
+) {
+	for stage in Shader_Stage {
+		if stage in shader.stages {
+			subroutine_uniforms := &shader.stages_info[stage].subroutine_uniforms
+			for subroutine in subroutine_uniforms {
+				spec[stage] = make(
+					Shader_Stage_Specialization,
+					len(subroutine_uniforms),
+					allocator,
+				)
+				spec[stage][subroutine] = 0
+			}
+		}
+	}
+	return spec
+}
+
+set_specialization_subroutine :: proc(
+	shader: ^Shader,
+	spec: ^Shader_Specialization,
+	stage: Shader_Stage,
+	u_name: string,
+	subroutine: string,
+) {
+	spec[stage][u_name] = shader.stages_info[stage].subroutines[subroutine]
 }
