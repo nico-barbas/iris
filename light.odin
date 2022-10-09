@@ -94,7 +94,7 @@ init_lighting_ctx :: proc(ctx: ^Lighting_Context, render_w, render_h: int) {
 	}
 
 	shader_res := shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "shadow_map",
 			kind = .Byte,
 			stages = {

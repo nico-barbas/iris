@@ -121,7 +121,7 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 
 		// FIXME: Check if shader has already been loaded
 		debug_shader_res := shader_resource(
-			Raw_Shader_Loader{
+			Shader_Loader{
 				name = "debug_scene",
 				kind = .Byte,
 				stages = {

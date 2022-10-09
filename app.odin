@@ -180,6 +180,8 @@ run_app :: proc() {
 		app.frame_arena.offset = 0
 		app.elapsed_time = time.duration_seconds(time.since(app.last_time))
 		app.last_time = time.now()
+
+		refresh_library(&app.library)
 		app.update(app.data)
 
 		gl.ClearColor(0.6, 0.6, 0.6, 1.0)

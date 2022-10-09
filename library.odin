@@ -1,7 +1,7 @@
 package iris
 
-// import "core:log"
-// import "core:os"
+import "core:log"
+import "core:os"
 import "core:fmt"
 import "core:mem"
 import "core:time"
@@ -14,7 +14,8 @@ Resource_Library :: struct {
 	free_list:      allocators.Free_List_Allocator,
 	allocator:      mem.Allocator,
 	temp_allocator: mem.Allocator,
-	// shader_documents: map[string]helios.Document,
+	last_refresh:   time.Time,
+	flags:          Resource_Library_Flags,
 	buffers:        [dynamic]^Resource,
 	attributes:     [dynamic]^Resource,
 	textures:       [dynamic]^Resource,
@@ -28,10 +29,17 @@ Resource_Library :: struct {
 	scenes:         map[string]^Resource,
 }
 
+Resource_Library_Flags :: distinct bit_set[Resource_Library_Flag]
+
+Resource_Library_Flag :: enum {
+	Hot_Reload_Shaders,
+}
+
 Resource :: struct {
 	id:        int,
 	load_time: time.Time,
 	data:      Resource_Data,
+	loader:    Resource_Loader,
 }
 
 Resource_Data :: union {
@@ -49,7 +57,7 @@ Resource_Data :: union {
 }
 
 Resource_Loader :: union {
-	Texture_Loader,
+	Shader_Loader,
 }
 
 init_library :: proc(lib: ^Resource_Library) {
@@ -58,6 +66,7 @@ init_library :: proc(lib: ^Resource_Library) {
 	allocators.init_free_list_allocator(&lib.free_list, buf, .Find_Best, 8)
 	lib.allocator = allocators.free_list_allocator(&lib.free_list)
 	lib.temp_allocator = context.temp_allocator
+	lib.flags = {.Hot_Reload_Shaders}
 
 	// lib.shader_documents.allocator = lib.allocator
 	lib.buffers.allocator = lib.allocator
@@ -71,6 +80,47 @@ init_library :: proc(lib: ^Resource_Library) {
 	lib.materials.allocator = lib.allocator
 	lib.animations.allocator = lib.allocator
 	lib.scenes.allocator = lib.allocator
+}
+
+refresh_library :: proc(lib: ^Resource_Library) {
+	RESOURCE_REFRESH_RATE :: 3
+	if time.duration_seconds(time.since(lib.last_refresh)) >= RESOURCE_REFRESH_RATE {
+		lib.last_refresh = time.now()
+
+		if .Hot_Reload_Shaders in lib.flags {
+			reload_shader: for shader_res in lib.shaders {
+				loader := shader_res.loader.(Shader_Loader)
+				shader := shader_res.data.(^Shader)
+				if loader.kind == .File {
+					check_stages: for stage in Shader_Stage {
+						if stage in shader.stages {
+							stage_loader := loader.stages[stage].?
+							stat, err := os.stat(stage_loader.file_path, context.temp_allocator)
+							if err != os.ERROR_NONE {
+								log.errorf(
+									"[%s]: Failed to reload shader: %s",
+									App_Module.IO,
+									stage_loader.file_path,
+								)
+								continue
+							}
+
+							load_time_diff := time.diff(
+								shader_res.load_time,
+								stat.modification_time,
+							)
+							if time.duration_seconds(load_time_diff) > 0 {
+								recompile_shader_from_file(shader, loader)
+								shader_res.data = shader
+								shader_res.load_time = stat.modification_time
+								continue reload_shader
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 close_library :: proc(lib: ^Resource_Library) {
@@ -209,33 +259,15 @@ shader_resource :: proc(loader: Shader_Loader) -> ^Resource {
 	begin_temp_allocation()
 	defer end_temp_allocation()
 	data: Resource_Data
-	switch l in loader {
-	// case Shader_Builder:
-	// 	if l.document == nil && l.document_name != "" {
-	// 		if l.document_name in lib.shader_documents {
-	// 			builder := l
-	// 			builder.document = &lib.shader_documents[l.document_name]
-	// 			data = new_clone(internal_build_shader(builder))
-	// 		} else {
-	// 			log.errorf("[%s]: Invalid document name: %s", App_Module.IO, l.document_name)
-	// 		}
-	// 	} else {
-	// 		log.errorf(
-	// 			"[%s]: Invalid Shader Builder settings:\n\tDetails: Both the document and the document name are nil",
-	// 			App_Module.IO,
-	// 		)
-	// 		unreachable()
-	// 	}
-	case Raw_Shader_Loader:
-		switch l.kind {
-		case .Byte:
-			data = new_clone(internal_load_shader_from_bytes(l))
-		case .File:
-			data = new_clone(internal_load_shader_from_file(l))
-		}
+	switch loader.kind {
+	case .Byte:
+		data = new_clone(internal_load_shader_from_bytes(loader))
+	case .File:
+		data = new_clone(internal_load_shader_from_file(loader))
 	}
 
 	resource := new_resource(lib, data)
+	resource.loader = loader
 
 	append(&lib.shaders, resource)
 	return resource

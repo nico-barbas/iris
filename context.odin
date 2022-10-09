@@ -169,7 +169,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	// 	},
 	// )
 	shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "forward_geometry",
 			kind = .File,
 			stages = {
@@ -198,7 +198,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	// 	},
 	// )
 	deferred_geo_res := shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "deferred_geometry",
 			kind = .File,
 			stages = {
@@ -240,7 +240,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	// 	},
 	// )
 	deferred_shading_res := shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "deferred_shading",
 			kind = .File,
 			stages = {
@@ -283,7 +283,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	ctx.hdr_framebuffer = hdr_framebuffer_res.data.(^Framebuffer)
 
 	hdr_shader_res := shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "hdr_tonemapping",
 			kind = .Byte,
 			stages = {
@@ -295,7 +295,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	ctx.hdr_shader = hdr_shader_res.data.(^Shader)
 
 	blit_shader_res := shader_resource(
-		Raw_Shader_Loader{
+		Shader_Loader{
 			name = "hdr_tonemapping",
 			kind = .Byte,
 			stages = {

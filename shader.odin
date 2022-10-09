@@ -72,18 +72,7 @@ Shader_Specialization :: [len(Shader_Stage)]Shader_Stage_Specialization
 
 Shader_Stage_Specialization :: distinct map[string]Subroutine_Location
 
-Shader_Loader :: union {
-	// Shader_Builder,
-	Raw_Shader_Loader,
-}
-
-// Shader_Builder :: struct {
-// 	using info:    helios.Builder,
-// 	document_name: string,
-// 	document:      ^helios.Document,
-// }
-
-Raw_Shader_Loader :: struct {
+Shader_Loader :: struct {
 	name:   string,
 	kind:   enum {
 		File,
@@ -97,38 +86,9 @@ Shader_Stage_Loader :: struct {
 	source:    string,
 }
 
-// @(private)
-// internal_build_shader :: proc(builder: Shader_Builder, allocator := context.allocator) -> Shader {
-// 	output, build_err := helios.build_shader(builder.document, builder, allocator)
-
-// 	if build_err != nil {
-// 		log.errorf(
-// 			"[%s]: Failed to build shader from document\n\tBuild Options: %#v\n\tError: %#v",
-// 			App_Module.Shader,
-// 			builder.info,
-// 			build_err,
-// 		)
-// 		assert(false)
-// 	}
-
-// 	loader := Raw_Shader_Loader {
-// 		name = output.name,
-// 		kind = .Byte,
-// 	}
-// 	for stage in helios.Stage {
-// 		if stage in output.active_stages {
-// 			loader.stages[stage] = Shader_Stage_Loader {
-// 				source = output.stages[stage],
-// 			}
-// 		}
-// 	}
-
-// 	return internal_load_shader_from_bytes(loader, allocator)
-// }
-
 @(private)
 internal_load_shader_from_file :: proc(
-	loader: Raw_Shader_Loader,
+	loader: Shader_Loader,
 	allocator := context.allocator,
 ) -> Shader {
 	l := loader
@@ -159,7 +119,7 @@ internal_load_shader_from_file :: proc(
 
 @(private)
 internal_load_shader_from_bytes :: proc(
-	loader: Raw_Shader_Loader,
+	loader: Shader_Loader,
 	allocator := context.allocator,
 ) -> (
 	shader: Shader,
@@ -306,6 +266,7 @@ internal_load_shader_from_bytes :: proc(
 						loc = Subroutine_Location(su_loc),
 					}
 				}
+				shader.stages_info[stage].subroutine_uniforms = subroutine_uniforms
 			}
 		}
 	}
@@ -360,6 +321,55 @@ compile_shader_source :: proc(
 		}
 	}
 	return
+}
+
+@(private)
+recompile_shader_from_file :: proc(shader: ^Shader, loader: Shader_Loader) {
+	gl.DeleteProgram(shader.handle)
+	shader.handle = gl.CreateProgram()
+	for s, i in loader.stages {
+		if s != nil {
+			stage := s.?
+			source, ok := os.read_entire_file(stage.file_path, context.temp_allocator)
+			if !ok {
+				log.fatalf(
+					"%s: Failed to read shader source file:\n\t- %s\n",
+					App_Module.IO,
+					stage.file_path,
+				)
+				unreachable()
+			}
+			stage_handle := compile_shader_source(
+				string(source),
+				gl_shader_type(Shader_Stage(i)),
+				loader.name,
+			)
+			defer gl.DeleteShader(stage_handle)
+
+			if stage_handle == 0 {
+				log.debug("Failed to compile fragment shader")
+			}
+			gl.AttachShader(shader.handle, stage_handle)
+			shader.stages += {Shader_Stage(i)}
+		}
+	}
+
+	gl.LinkProgram(shader.handle)
+	compile_ok: i32
+	gl.GetProgramiv(shader.handle, gl.LINK_STATUS, &compile_ok)
+	if compile_ok == 0 {
+		max_length: i32
+		gl.GetProgramiv(shader.handle, gl.INFO_LOG_LENGTH, &max_length)
+
+		message: [512]byte
+		gl.GetProgramInfoLog(shader.handle, 512, &max_length, &message[0])
+		log.debugf(
+			"%s: Linkage error Shader[%d]:\n\t%s\n",
+			App_Module.Shader,
+			shader.handle,
+			string(message[:max_length]),
+		)
+	}
 }
 
 @(private = "file")
@@ -541,7 +551,6 @@ set_shader_stage_subroutines :: proc(
 	stage: Shader_Stage,
 	spec: Shader_Stage_Specialization,
 ) {
-	bind_shader(shader)
 	buf := [256]u32{}
 	count: i32 = 0
 	for _, loc in spec {
@@ -552,6 +561,7 @@ set_shader_stage_subroutines :: proc(
 }
 
 set_shader_subroutines :: proc(shader: ^Shader, spec: Shader_Specialization) {
+	bind_shader(shader)
 	for stage in Shader_Stage {
 		if stage in shader.stages {
 			set_shader_stage_subroutines(shader, stage, spec[stage])
