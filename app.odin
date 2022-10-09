@@ -231,6 +231,13 @@ frame_allocator_offset :: proc() -> int {
 	return app.frame_arena.offset
 }
 
+get_app :: proc() -> ^App {
+	return app
+}
+
+set_app :: proc(ptr: rawptr) {
+	app = cast(^App)ptr
+}
 
 @(private)
 gl_debug_cb :: proc "c" (

@@ -253,6 +253,8 @@ sample :: proc(it: $T/Sample_Interface($Data, $Elem), coord: Vector2) -> Elem {
 	return result
 }
 
+@(private)
+d :: math.π
 
 DEBUG_VERTEX_SHADER :: `
 #version 450 core
