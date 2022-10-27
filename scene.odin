@@ -609,6 +609,64 @@ Camera_Flag :: enum {
 	Frustum_Cull,
 }
 
+new_default_camera :: proc(scene: ^Scene) -> ^Camera_Node {
+	camera := new_node_from(scene, Camera_Node {
+			derived_flags = {.Main_Camera, .Frustum_Cull},
+			pitch = 45,
+			target = {0, 0.5, 0},
+			target_distance = 10,
+			target_rotation = 90,
+			min_pitch = 10,
+			max_pitch = 170,
+			min_distance = 2,
+			distance_speed = 1,
+			position_speed = 12,
+			rotation_proc = proc() -> (trigger: bool, delta: Vector2) {
+				m_right := mouse_button_state(.Right)
+				if .Pressed in m_right {
+					trigger = true
+					delta = mouse_delta()
+				} else {
+					KEY_CAMERA_PAN_SPEED :: 2
+					left_state := key_state(.Q)
+					right_state := key_state(.E)
+					if .Pressed in left_state {
+						trigger = true
+						delta = {KEY_CAMERA_PAN_SPEED, 0}
+					} else if .Pressed in right_state {
+						trigger = true
+						delta = {-KEY_CAMERA_PAN_SPEED, 0}
+					}
+				}
+				return
+			},
+			distance_proc = proc() -> (trigger: bool, displacement: f32) {
+				displacement = f32(mouse_scroll())
+				trigger = displacement != 0
+				return
+			},
+			position_proc = proc() -> (trigger: bool, fb: f32, lr: f32) {
+				if .Pressed in key_state(.W) {
+					trigger = true
+					fb = 1
+				} else if .Pressed in key_state(.S) {
+					trigger = true
+					fb = -1
+				}
+
+				if .Pressed in key_state(.A) {
+					trigger = true
+					lr = -1
+				} else if .Pressed in key_state(.D) {
+					trigger = true
+					lr = 1
+				}
+				return
+			},
+		})
+	return camera
+}
+
 update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 	dirty: bool
 	r_delta: Vector2
@@ -946,20 +1004,10 @@ load_mesh_from_gltf :: proc(
 	return
 }
 
-model_node_from_mesh :: proc(
-	scene: ^Scene,
-	mesh: ^Mesh,
-	material: ^Material,
-	transform: Transform,
-) -> ^Model_Node {
+model_node_from_mesh :: proc(scene: ^Scene, mesh: ^Mesh, material: ^Material) -> ^Model_Node { 	// transform: Transform,
 	model := new_node(scene, Model_Node)
 	append(&model.meshes, mesh)
 	append(&model.materials, material)
-	// model.mesh_transform = linalg.matrix4_from_trs_f32(
-	// 	transform.translation,
-	// 	transform.rotation,
-	// 	transform.scale,
-	// )
 	return model
 }
 

@@ -131,7 +131,6 @@ animation_target_value :: proc(target: Animation_Target, value: Animation_Value)
 	}
 }
 
-@(private)
 compute_animation_start_value :: proc(channel: Animation_Channel) -> (result: Animation_Value) {
 	result = lerp_values(
 		channel.frame_outputs[len(channel.frame_outputs) - 1],
