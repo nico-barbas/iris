@@ -783,6 +783,23 @@ g_buffer_texture :: proc(a: Framebuffer_Attachment) -> ^Texture {
 	return framebuffer_texture(app.render_ctx.deferred_framebuffer, a)
 }
 
+render_size :: proc() -> Vector2 {
+	return {f32(app.render_ctx.render_width), f32(app.render_ctx.render_height)}
+}
+
+// The returned matrix is from frame n-1
+projection_view_matrix :: proc() -> Matrix4 {
+	return app.render_ctx.projection_view
+}
+
+projection_matrix :: proc() -> Matrix4 {
+	return app.render_ctx.projection
+}
+
+view_matrix :: proc() -> Matrix4 {
+	return app.render_ctx.view
+}
+
 @(private)
 LIGHT_DEPTH_VERTEX_SHADER :: `
 #version 450 core

@@ -717,6 +717,28 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 	}
 }
 
+camera_mouse_ray :: proc(camera: ^Camera_Node) -> (result: Ray) {
+	m_pos := mouse_position()
+	r_size := render_size()
+	proj := projection_matrix()
+	view := view_matrix()
+	inverse_proj := linalg.matrix4_inverse_f32(proj)
+	inverse_view := linalg.matrix4_inverse_f32(view)
+
+	ndc := Vector4{(m_pos.x / r_size.x) * 2.0 - 1.0, (m_pos.y / r_size.y) * 2.0 - 1.0, -1.0, 1.0}
+	ray_eye := inverse_proj * ndc
+	ray_eye.z = -1
+	ray_eye.w = 0
+
+	ray_world := linalg.vector_normalize(inverse_view * ray_eye).xyz
+
+	result = Ray {
+		origin    = camera.position,
+		direction = Vector3(ray_world),
+	}
+	return
+}
+
 camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
 	cull_node :: proc(frustum: Frustum, node: ^Node) {
 		cull_children := true

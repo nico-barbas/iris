@@ -1,6 +1,6 @@
 package iris
 
-// import "core:fmt"
+import "core:fmt"
 import "core:math"
 import "core:intrinsics"
 import "core:math/linalg"
@@ -172,9 +172,6 @@ frustum :: proc(
 	half_v_size := far * math.tan(fovy * 0.5)
 	half_h_size := half_v_size * aspect
 
-	// fn := eye + f * near
-	// fe := eye + f * far
-
 	f_vec := f * far
 
 	frustum[Frustum_Planes.Near] = plane(normal = f, from_to = eye + f * near)
@@ -206,8 +203,6 @@ bounding_box_in_frustum :: proc(f: Frustum, b: Bounding_Box) -> (result: Collisi
 			c := linalg.vector_dot(plane.normal, point)
 			if c - plane.d <= 0 {
 				points_in -= 1
-				// fmt.printf("%v failed intersection with plane %s\n", point, Frustum_Planes(i))
-				// fmt.printf("Projected length: %0.4f, Plane Distance: %0.4f\n", c, plane.d)
 				continue loop
 			}
 		}
@@ -221,6 +216,59 @@ bounding_box_in_frustum :: proc(f: Frustum, b: Bounding_Box) -> (result: Collisi
 	case 8:
 		result = .Full_In
 	}
-	// fmt.printf("%d points inside frustum\n", points_in)
 	return
+}
+
+Ray :: struct {
+	origin:    Vector3,
+	direction: Vector3,
+	// TODO: maybe a step function
+}
+
+ray_bounding_box_intersection :: proc(ray: Ray, b: Bounding_Box) -> (result: Collision_Result) {
+	// Gather all the planes of the bounding box
+	f := b.points[Bounding_Point.Far_Bottom_Left] - b.points[Bounding_Point.Near_Bottom_Left]
+	f = linalg.vector_normalize(f)
+
+	r := linalg.vector_normalize(linalg.vector_cross(f, VECTOR_UP))
+	u := linalg.vector_cross(r, f)
+
+	// fmt.println(f, r, u)
+
+	normals := [6]Vector3{}
+	normals[0] = f
+	normals[1] = -f
+	normals[2] = r
+	normals[3] = -r
+	normals[4] = -u
+	normals[5] = u
+
+	origins := [6]Vector3{
+		b.points[Bounding_Point.Near_Bottom_Left],
+		b.points[Bounding_Point.Far_Bottom_Left],
+		b.points[Bounding_Point.Near_Bottom_Left],
+		b.points[Bounding_Point.Near_Bottom_Right],
+		b.points[Bounding_Point.Near_Up_Left],
+		b.points[Bounding_Point.Near_Bottom_Left],
+	}
+
+	for i in 0 ..< 6 {
+		n := normals[i]
+		o := origins[i]
+
+		denom := linalg.vector_dot(ray.direction, n)
+		fmt.println(ray.direction, n, denom)
+		if denom > 1e-6 {
+			ray_plane := o - ray.origin
+			t := linalg.vector_dot(ray_plane, n) / denom
+
+			if t < 0 {
+				return .Outside
+			}
+		} else {
+			return .Outside
+		}
+	}
+
+	return .Partial_In
 }

@@ -167,10 +167,6 @@ set_viewport :: proc(r: Rectangle) {
 	gl.Viewport(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
 }
 
-// clear_viewport :: proc(clr: Color) {
-
-// }
-
 Color :: distinct [4]f32
 
 Triangle :: [3]u32
@@ -289,6 +285,6 @@ in VS_OUT {
 } frag;
 
 void main() {
-	finalColor = frag.color;
+	finalColor = vec4(1, 0, 0, 1);
 }
 `
