@@ -162,6 +162,10 @@ transform_from_matrix :: proc(m: Matrix4) -> (result: Transform) {
 	return
 }
 
+translation_from_matrix :: proc(m: Matrix4) -> Vector3 {
+	return Vector3{m[3][0], m[3][1], m[3][2]}
+}
+
 
 set_viewport :: proc(r: Rectangle) {
 	gl.Viewport(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
