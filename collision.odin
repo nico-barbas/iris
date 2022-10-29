@@ -1,6 +1,6 @@
 package iris
 
-import "core:fmt"
+// import "core:fmt"
 import "core:math"
 import "core:intrinsics"
 import "core:math/linalg"
@@ -16,6 +16,8 @@ BONDING_BOX_EDGE_LEN :: 12
 
 Bounding_Box :: struct {
 	points: [8]Vector3,
+	min:    Vector3,
+	max:    Vector3,
 }
 
 Bounding_Point :: enum {
@@ -54,6 +56,8 @@ bounding_box_from_min_max :: proc(p_min, p_max: Vector3) -> (result: Bounding_Bo
 			{p_max.x, p_max.y, p_max.z},
 			{p_min.x, p_max.y, p_max.z},
 		},
+		min = p_min,
+		max = p_max,
 	}
 
 	return b
@@ -90,6 +94,8 @@ bounding_box_from_bounds_slice :: proc(slice: []Bounding_Box) -> (result: Boundi
 			{max_x, max_y, max_z},
 			{min_x, max_y, max_z},
 		},
+		min = Vector3{min_x, min_y, min_z},
+		max = Vector3{max_x, max_y, max_z},
 	}
 
 	return b
@@ -127,6 +133,8 @@ bounding_box_from_vertex_slice :: proc(
 			{max_x, max_y, max_z},
 			{min_x, max_y, max_z},
 		},
+		min = Vector3{min_x, min_y, min_z},
+		max = Vector3{max_x, max_y, max_z},
 	}
 
 	return b
@@ -220,55 +228,64 @@ bounding_box_in_frustum :: proc(f: Frustum, b: Bounding_Box) -> (result: Collisi
 }
 
 Ray :: struct {
-	origin:    Vector3,
-	direction: Vector3,
-	// TODO: maybe a step function
+	origin:            Vector3,
+	direction:         Vector3,
+	inverse_direction: Vector3,
 }
 
-ray_bounding_box_intersection :: proc(ray: Ray, b: Bounding_Box) -> (result: Collision_Result) {
-	// Gather all the planes of the bounding box
-	f := b.points[Bounding_Point.Far_Bottom_Left] - b.points[Bounding_Point.Near_Bottom_Left]
-	f = linalg.vector_normalize(f)
+Ray_Collision_Result :: struct {
+	hit:      bool,
+	distance: f32,
+	position: Vector3,
+	normal:   Vector3,
+}
 
-	r := linalg.vector_normalize(linalg.vector_cross(f, VECTOR_UP))
-	u := linalg.vector_cross(r, f)
+Ray_Collision_Policies :: distinct bit_set[Ray_Collision_Result_Kind]
 
-	// fmt.println(f, r, u)
+Ray_Collision_Result_Kind :: enum {
+	Hit,
+	Distance,
+	World_Position,
+	Normal,
+}
 
-	normals := [6]Vector3{}
-	normals[0] = f
-	normals[1] = -f
-	normals[2] = r
-	normals[3] = -r
-	normals[4] = -u
-	normals[5] = u
+ray :: proc(origin, direction: Vector3) -> Ray {
+	result := Ray {
+		origin = origin,
+		direction = direction,
+		inverse_direction = Vector3{1 / direction.x, 1 / direction.y, 1 / direction.z},
+	}
+	return result
+}
 
-	origins := [6]Vector3{
-		b.points[Bounding_Point.Near_Bottom_Left],
-		b.points[Bounding_Point.Far_Bottom_Left],
-		b.points[Bounding_Point.Near_Bottom_Left],
-		b.points[Bounding_Point.Near_Bottom_Right],
-		b.points[Bounding_Point.Near_Up_Left],
-		b.points[Bounding_Point.Near_Bottom_Left],
+ray_bounding_box_intersection :: proc(
+	ray: Ray,
+	b: Bounding_Box,
+	policies := Ray_Collision_Policies{.Hit},
+) -> (
+	result: Ray_Collision_Result,
+) {
+	t: [8]f32
+
+	t[0] = (b.min.x - ray.origin.x) * ray.inverse_direction.x
+	t[1] = (b.max.x - ray.origin.x) * ray.inverse_direction.x
+	t[2] = (b.min.y - ray.origin.y) * ray.inverse_direction.y
+	t[3] = (b.max.y - ray.origin.y) * ray.inverse_direction.y
+	t[4] = (b.min.z - ray.origin.z) * ray.inverse_direction.z
+	t[5] = (b.max.z - ray.origin.z) * ray.inverse_direction.z
+
+	// Get the min-max values
+	t[6] = max(max(min(t[0], t[1]), min(t[2], t[3])), min(t[4], t[5]))
+	t[7] = min(min(max(t[0], t[1]), max(t[2], t[3])), max(t[4], t[5]))
+
+	if .Hit in policies {
+		result.hit = !(t[7] < 0 || t[6] > t[7])
 	}
 
-	for i in 0 ..< 6 {
-		n := normals[i]
-		o := origins[i]
-
-		denom := linalg.vector_dot(ray.direction, n)
-		fmt.println(ray.direction, n, denom)
-		if denom > 1e-6 {
-			ray_plane := o - ray.origin
-			t := linalg.vector_dot(ray_plane, n) / denom
-
-			if t < 0 {
-				return .Outside
-			}
-		} else {
-			return .Outside
+	if result.hit {
+		if .Distance in policies {
+			result.distance = t[6]
 		}
 	}
-
-	return .Partial_In
+	return
 }

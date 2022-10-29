@@ -206,7 +206,17 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 				p.w = 1
 				result := node.global_transform * p
 				node.global_bounds.points[i] = result.xyz
+
 			}
+			min: Vector4
+			min.xyz = node.local_bounds.min.xyz
+			min.w = 1
+			node.global_bounds.min = (node.global_transform * min).xyz
+
+			max: Vector4
+			max.xyz = node.local_bounds.max.xyz
+			max.w = 1
+			node.global_bounds.max = (node.global_transform * max).xyz
 		}
 		node.flags -= {.Dirty_Bounds}
 		bounds = node.global_bounds
@@ -725,17 +735,14 @@ camera_mouse_ray :: proc(camera: ^Camera_Node) -> (result: Ray) {
 	inverse_proj := linalg.matrix4_inverse_f32(proj)
 	inverse_view := linalg.matrix4_inverse_f32(view)
 
-	ndc := Vector4{(m_pos.x / r_size.x) * 2.0 - 1.0, (m_pos.y / r_size.y) * 2.0 - 1.0, -1.0, 1.0}
+	ndc := Vector4{(m_pos.x / r_size.x) * 2.0 - 1.0, 1.0 - (m_pos.y / r_size.y) * 2.0, -1.0, 1.0}
 	ray_eye := inverse_proj * ndc
 	ray_eye.z = -1
 	ray_eye.w = 0
 
 	ray_world := linalg.vector_normalize(inverse_view * ray_eye).xyz
 
-	result = Ray {
-		origin    = camera.position,
-		direction = Vector3(ray_world),
-	}
+	result = ray(camera.position, Vector3(ray_world))
 	return
 }
 
