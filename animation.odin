@@ -41,6 +41,7 @@ Interpolation_Mode :: enum uint {
 
 Animation_Player :: struct {
 	using ptr:           ^Animation,
+	playing:             bool,
 	timer:               f32,
 	channels_info:       []Animation_Channel_Info,
 	targets:             []Animation_Target,
@@ -113,6 +114,9 @@ advance_animation :: proc(player: ^Animation_Player, dt: f32) -> (complete: bool
 		}
 	}
 	if complete {
+		if !player.loop {
+			player.playing = false
+		}
 		reset_animation(player)
 	}
 	return
