@@ -801,13 +801,14 @@ Model_Node_Flag :: enum {
 }
 
 Model_Loader :: struct {
-	shader_ref: union {
+	shader_ref:  union {
 		string,
 		^Shader,
 	},
-	flags:      Model_Loader_Flags,
-	options:    Rendering_Options,
-	rigged:     bool,
+	shader_spec: ^Shader_Specialization,
+	flags:       Model_Loader_Flags,
+	options:     Rendering_Options,
+	rigged:      bool,
 }
 
 Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
@@ -868,6 +869,7 @@ model_node_from_gltf :: proc(
 				material = load_material_from_gltf(data.primitives[i].material^)
 			}
 			material.shader = shader
+			material.specialization = loader.shader_spec
 
 			end_temp_allocation()
 			append(&model.meshes, mesh)
