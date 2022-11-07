@@ -228,8 +228,10 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 	render_commands :: proc(shader: ^Shader, cmds: []Render_Command, is_dynamic: bool) {
 		for cmd in cmds {
 			c := cmd.(Render_Mesh_Command)
+			rigged := is_dynamic && .Skinned in c.options
+			set_shader_uniform(shader, "dynamicGeometry", &rigged)
 			set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
-			if is_dynamic {
+			if rigged {
 				set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
 				set_shader_uniform(shader, "matJoints", &c.joints[0])
 			}
@@ -256,10 +258,6 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 		light_proj := ctx.lights_projection[lc.id]
 		cache := ctx.shadow_map_slices[i][0]
 		if lc.cache_dirty {
-			// clip_mode_on()
-			// set_clip_rect({cache.x, cache.y, cache.width, cache.height})
-			// clear_framebuffer(ctx.shadow_map_atlas)
-			// clip_mode_off()
 			clear_framebuffer_region(
 				ctx.shadow_map_atlas,
 				Rectangle{cache.x, cache.y, cache.width, cache.height},
@@ -285,9 +283,7 @@ shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Comman
 			set_viewport({s_map.x, s_map.y, s_map.width, s_map.height})
 
 			// log.debug(ctx.shadow_map_shader.uniforms)
-			b := true
 			set_shader_uniform(ctx.shadow_map_shader, "matLightSpace", &light_proj[0][0])
-			set_shader_uniform(ctx.shadow_map_shader, "dynamicGeometry", &b)
 
 			render_commands(ctx.shadow_map_shader, dyn_geo, true)
 			lc.map_dirty = false

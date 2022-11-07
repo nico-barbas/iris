@@ -275,7 +275,6 @@ render_scene :: proc(scene: ^Scene) {
 
 				case ^Model_Node:
 					for mesh, i in n.meshes {
-						def := .Transparent not_in n.options
 						push_draw_command(
 							Render_Mesh_Command{
 								mesh = mesh,
@@ -283,7 +282,7 @@ render_scene :: proc(scene: ^Scene) {
 								material = n.materials[i],
 								options = n.options,
 							},
-							.Deferred_Geometry_Static if def else .Forward_Geometry,
+							queue_kind_from_rendering_options(n.options),
 						)
 						if .Geomtry_Modified in n.derived_flags {
 							invalidate_shadow_map_cache()
@@ -293,7 +292,6 @@ render_scene :: proc(scene: ^Scene) {
 
 				case ^Model_Group_Node:
 					for mesh, i in n.meshes {
-						def := .Transparent not_in n.options
 						push_draw_command(
 							Render_Mesh_Command{
 								mesh = mesh,
@@ -305,7 +303,7 @@ render_scene :: proc(scene: ^Scene) {
 									count = n.count,
 								},
 							},
-							.Deferred_Geometry_Static if def else .Forward_Geometry,
+							queue_kind_from_rendering_options(n.options),
 						)
 						if .Geomtry_Modified in n.derived_flags {
 							invalidate_shadow_map_cache()
@@ -325,9 +323,9 @@ render_scene :: proc(scene: ^Scene) {
 									local_transform = n.target.local_transform,
 									joints = joint_matrices,
 									material = n.target.materials[i],
-									options = n.target.options + {.Use_Joints},
+									options = n.target.options,
 								},
-								.Deferred_Geometry_Dynamic if def else .Forward_Geometry,
+								queue_kind_from_rendering_options(n.target.options),
 							)
 						}
 					}
@@ -435,7 +433,7 @@ new_node :: proc(scene: ^Scene, $T: typeid, local := linalg.MATRIX4F32_IDENTITY)
 }
 
 new_node_from :: proc(scene: ^Scene, from: $T, local := linalg.MATRIX4F32_IDENTITY) -> ^T {
-	node := new_clone(from)
+	node := new_clone(from, scene.allocator)
 	node.derived = node
 	node.scene = scene
 
@@ -476,6 +474,7 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
+		n.options += {.Static}
 
 	case ^Model_Group_Node:
 		node.name = "Model_Group"
@@ -1042,6 +1041,16 @@ model_node_from_mesh :: proc(scene: ^Scene, mesh: ^Mesh, material: ^Material) ->
 	return model
 }
 
+flag_model_node_as_dynamic :: proc(model: ^Model_Node) {
+	model.options -= {.Static}
+	model.options += {.Dynamic}
+}
+
+flag_model_node_as_static :: proc(model: ^Model_Node) {
+	model.options += {.Static}
+	model.options -= {.Dynamic}
+}
+
 Model_Group_Node :: struct {
 	using model:   Model_Node,
 	count:         int,
@@ -1196,6 +1205,8 @@ skin_node_target :: proc(skin: ^Skin_Node, model: ^Model_Node) {
 	skin.target = model
 	skin.flags += {.Rendered}
 	skin.target.flags -= {.Rendered}
+	skin.target.options -= {.Static}
+	skin.target.options += {.Dynamic}
 }
 
 skin_node_joint_matrices :: proc(skin: ^Skin_Node) -> []Matrix4 {

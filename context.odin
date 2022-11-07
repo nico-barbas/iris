@@ -113,8 +113,9 @@ Rendering_Option :: enum {
 	Enable_Culling,
 	Disable_Culling,
 	Static,
+	Dynamic,
+	Skinned,
 	Transparent,
-	Use_Joints,
 	Cast_Shadows,
 	Instancing,
 }
@@ -377,7 +378,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.hdr_framebuffer)
 	clear_framebuffer(ctx.hdr_framebuffer)
 	{
-	// set_backface_culling(false)
+		// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
@@ -553,9 +554,9 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			calculate_tangent_space := .Normal0 in c.material.maps
 			set_shader_uniform(shader, "useTangentSpace", &calculate_tangent_space)
 
-			dyn_geometry := .Use_Joints in c.options
+			skinned := .Skinned in c.options
 			// set_shader_uniform(shader, "useJointSpace", &calculate_joint_deform)
-			if dyn_geometry {
+			if skinned {
 				set_shader_uniform(shader, "matJoints", &c.joints[0])
 			}
 
@@ -585,13 +586,13 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			model_mat_subroutine: Subroutine_Location
 			stage_subroutines := shader.stages_info[Shader_Stage.Vertex].subroutines
 			switch {
-			case !dyn_geometry && !instancing:
+			case !skinned && !instancing:
 				model_mat_subroutine = stage_subroutines["computeStaticModelMat"]
-			case dyn_geometry && !instancing:
+			case skinned && !instancing:
 				model_mat_subroutine = stage_subroutines["computeDynamicModelMat"]
-			case !dyn_geometry && instancing:
+			case !skinned && instancing:
 				model_mat_subroutine = stage_subroutines["computeInstancedStaticModelMat"]
-			case dyn_geometry && instancing:
+			case skinned && instancing:
 				model_mat_subroutine = stage_subroutines["computeInstancedDynamicModelMat"]
 			}
 			spec[Shader_Stage.Vertex]["computeModelMat"] = model_mat_subroutine
@@ -777,6 +778,23 @@ push_draw_command :: proc(cmd: Render_Command, kind: Render_Queue_Kind) {
 	queue := &app.render_ctx.queues[kind]
 	queue.commands[queue.count] = cmd
 	queue.count += 1
+}
+
+@(private)
+queue_kind_from_rendering_options :: proc(opt: Rendering_Options) -> Render_Queue_Kind {
+	queue_kind: Render_Queue_Kind
+	switch {
+	case .Transparent in opt:
+		queue_kind = .Forward_Geometry
+	case .Static in opt:
+		queue_kind = .Deferred_Geometry_Static
+	case .Dynamic in opt:
+		queue_kind = .Deferred_Geometry_Dynamic
+	case:
+		unreachable()
+	}
+
+	return queue_kind
 }
 
 g_buffer_texture :: proc(a: Framebuffer_Attachment) -> ^Texture {
