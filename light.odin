@@ -68,10 +68,10 @@ Shadow_Map :: struct {
 init_lighting_context :: proc(ctx: ^Lighting_Context) {
 	ctx.ambient = RENDER_CTX_DEFAULT_AMBIENT
 	ctx.projection = linalg.matrix_ortho3d_f32(
-		-17.5,
-		17.5,
-		-10,
-		10,
+		-8.75,
+		8.75,
+		-5,
+		5,
 		f32(RENDER_CTX_DEFAULT_NEAR),
 		f32(20),
 	)
