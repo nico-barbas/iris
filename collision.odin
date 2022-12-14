@@ -164,11 +164,8 @@ Frustum_Planes :: enum {
 }
 
 frustum :: proc(
-	eye,
-	centre: Vector3,
-	near,
-	far,
-	fovy: f32,
+	eye, centre: Vector3,
+	near, far, fovy: f32,
 	aspect: f32 = (16 / 9),
 ) -> (
 	frustum: Frustum,
@@ -202,6 +199,41 @@ frustum :: proc(
 	)
 
 	return
+}
+
+frustum_corners :: proc(
+	inverse_pv: Matrix4,
+	target_inverse_world := linalg.MATRIX4F32_IDENTITY,
+) -> (
+	result: [8]Vector3,
+) {
+	m := inverse_pv * target_inverse_world
+
+	result = {
+		Bounding_Point.Near_Bottom_Left = Vector3{-1, -1, -1},
+		Bounding_Point.Near_Bottom_Right = Vector3{1, -1, -1},
+		Bounding_Point.Near_Up_Right = Vector3{1, 1, -1},
+		Bounding_Point.Near_Up_Left = Vector3{-1, 1, -1},
+		Bounding_Point.Far_Bottom_Left = Vector3{-1, -1, 1},
+		Bounding_Point.Far_Bottom_Right = Vector3{1, -1, 1},
+		Bounding_Point.Far_Up_Right = Vector3{1, 1, 1},
+		Bounding_Point.Far_Up_Left = Vector3{-1, 1, 1},
+	}
+
+	for point in &result {
+		p := Vector4(1)
+		p.xyz = point.xyz
+		p = m * p
+		point = (p / p.w).xyz
+	}
+
+	return
+}
+
+frustum_center :: proc(near_corner: Vector3, far_corner: Vector3) -> Vector3 {
+	d := (far_corner - near_corner) / 2
+
+	return near_corner + d
 }
 
 bounding_box_in_frustum :: proc(f: Frustum, b: Bounding_Box) -> (result: Collision_Result) {

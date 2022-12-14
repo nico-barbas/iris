@@ -1,13 +1,13 @@
 package iris
 
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 
 MAX_SHADOW_MAPS :: 1
 MAX_LIGHTS :: 32
 
 Lighting_Context :: struct {
-	projection:         Matrix4,
 	ambient:            Color,
 	ambient_strength:   f32,
 	lights:             [MAX_LIGHTS]^Light_Node,
@@ -42,12 +42,16 @@ Light_Uniform_Info :: struct {
 Light_ID :: distinct uint
 
 Light_Node :: struct {
-	using base: Node,
-	id:         Light_ID,
-	projection: Matrix4,
-	color:      Color,
-	options:    Light_Options,
-	shadow_map: Maybe(Shadow_Map),
+	using base:      Node,
+	id:              Light_ID,
+	camera:          ^Camera_Node,
+	view:            Matrix4,
+	projection:      Matrix4,
+	view_projection: Matrix4,
+	direction:       Vector3,
+	color:           Color,
+	options:         Light_Options,
+	shadow_map:      Maybe(Shadow_Map),
 }
 
 Light_Option :: enum {
@@ -67,14 +71,6 @@ Shadow_Map :: struct {
 
 init_lighting_context :: proc(ctx: ^Lighting_Context) {
 	ctx.ambient = RENDER_CTX_DEFAULT_AMBIENT
-	ctx.projection = linalg.matrix_ortho3d_f32(
-		-8.75,
-		8.75,
-		-5,
-		5,
-		f32(RENDER_CTX_DEFAULT_NEAR),
-		f32(20),
-	)
 
 	uniform_res := raw_buffer_resource(size_of(Light_Uniform_Data))
 	ctx.uniform_memory = buffer_memory_from_buffer_resource(uniform_res)
@@ -101,7 +97,7 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 			shadow_maps_ids[i] = {
 				0 = u32(id),
 			}
-			projections[i] = ctx.lights[id].projection
+			projections[i] = ctx.lights[id].view_projection
 			shadow_map := ctx.lights[id].shadow_map.?
 			sizes[i] = Vector2{f32(shadow_map.data.width), f32(shadow_map.data.height)}
 		}
@@ -129,11 +125,13 @@ set_lighting_context_dirty :: proc(ctx: ^Lighting_Context) {
 	ctx.dirty_uniform_data = true
 }
 
-init_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
+init_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node, camera: ^Camera_Node) {
 	node.name = "Light"
 	node.id = Light_ID(ctx.light_count)
 	node.local_bounds = BOUNDING_BOX_ZERO
 	node.flags += {.Rendered, .Ignore_Culling, .Dirty_Transform}
+	node.camera = camera
+	node.direction = linalg.vector_normalize(node.direction)
 
 	ctx.lights[node.id] = node
 	ctx.light_count += 1
@@ -171,9 +169,35 @@ init_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
 }
 
 update_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
-	node_position := translation_from_matrix(node.global_transform)
-	light_view := linalg.matrix4_look_at_f32(node_position, VECTOR_ZERO, VECTOR_ONE)
-	node.projection = ctx.projection * light_view
+	camera_corners := frustum_corners(linalg.matrix4_inverse_f32(projection_view_matrix()))
+	center := Vector3{}
+	for corner in camera_corners {
+		center += corner
+	}
+	center /= len(camera_corners)
+
+	node.view = linalg.matrix4_look_at_f32(center - node.direction, center, VECTOR_ONE)
+
+	min_x := math.INF_F32
+	max_x := -math.INF_F32
+	min_y := math.INF_F32
+	max_y := -math.INF_F32
+	min_z := math.INF_F32
+	max_z := -math.INF_F32
+	for corner in camera_corners {
+		c := Vector4{corner.x, corner.y, corner.z, 1}
+		c = node.view * c
+		min_x = min(min_x, c.x)
+		max_x = max(max_x, c.x)
+		min_y = min(min_y, c.y)
+		max_y = max(max_y, c.y)
+		min_z = min(min_z, c.z)
+		max_z = max(max_z, c.z)
+	}
+
+
+	node.projection = linalg.matrix_ortho3d_f32(min_x, max_x, min_y, max_y, min_z, max_z)
+	node.view_projection = node.projection * node.view
 }
 
 shadow_map_pass :: proc(node: ^Light_Node, geometry: [2][]Render_Command) -> ^Texture {
@@ -208,7 +232,7 @@ static_shadow_map_pass :: proc(node: ^Light_Node, geometry: []Render_Command) {
 	set_viewport(Rectangle{0, 0, f32(shadow_map.cache.width), f32(shadow_map.cache.height)})
 
 	b := false
-	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.projection[0][0])
+	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.view_projection[0][0])
 	set_shader_uniform(shadow_map.shader, "dynamicGeometry", &b)
 	render_statics(shadow_map.shader, geometry)
 }
@@ -229,7 +253,7 @@ dynamic_shadow_map_pass :: proc(node: ^Light_Node, geometry: []Render_Command) {
 		Rectangle{0, 0, f32(shadow_map.data.width), f32(shadow_map.data.height)},
 	)
 	set_viewport(Rectangle{0, 0, f32(shadow_map.data.width), f32(shadow_map.data.height)})
-	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.projection[0][0])
+	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.view_projection[0][0])
 	render_dynamics(shadow_map.shader, geometry)
 }
 
