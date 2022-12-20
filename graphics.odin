@@ -26,7 +26,7 @@ Render_Context :: struct {
 	up:                          Vector3,
 
 	// Lighting context
-	shadow_maps:                 [MAX_SHADOW_MAPS]^Texture,
+	shadow_maps:                 [MAX_SHADOW_MAPS][MAX_CASCADES]^Texture,
 	shadow_map_count:            int,
 
 	// Deferred context
@@ -337,7 +337,7 @@ end_render :: proc() {
 		position_buffer_index: u32 = 0
 		normal_buffer_index: u32 = 1
 		albedo_buffer_index: u32 = 2
-		shadow_map_indices: [4]u32 = {3, 4, 5, 6}
+		shadow_map_indices: [MAX_SHADOW_MAPS][MAX_CASCADES]u32
 
 		set_shader_uniform(
 			ctx.deferred_composite_shader,
@@ -349,14 +349,25 @@ end_render :: proc() {
 		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1), normal_buffer_index)
 		set_shader_uniform(ctx.deferred_composite_shader, "bufferedAlbedo", &albedo_buffer_index)
 		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
-		set_shader_uniform(ctx.deferred_composite_shader, "shadowMaps", &shadow_map_indices[0])
 
+		next_shadow_map_index := u32(3)
 		for i in 0 ..< ctx.shadow_map_count {
-			bind_texture(ctx.shadow_maps[i], shadow_map_indices[0] + u32(i))
+			for j in 0 ..< MAX_CASCADES {
+				if ctx.shadow_maps[i][j] != nil {
+					shadow_map_indices[i][j] = next_shadow_map_index
+					bind_texture(ctx.shadow_maps[i][j], next_shadow_map_index)
+					next_shadow_map_index += 1
+				}
+			}
 		}
+		set_shader_uniform(ctx.deferred_composite_shader, "shadowMaps", &shadow_map_indices[0][0])
 		defer {
 			for i in 0 ..< ctx.shadow_map_count {
-				unbind_texture(ctx.shadow_maps[i])
+				for j in 0 ..< MAX_CASCADES {
+					if ctx.shadow_maps[i][j] != nil {
+						unbind_texture(ctx.shadow_maps[i][j])
+					}
+				}
 			}
 		}
 

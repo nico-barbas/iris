@@ -201,13 +201,8 @@ frustum :: proc(
 	return
 }
 
-frustum_corners :: proc(
-	inverse_pv: Matrix4,
-	target_inverse_world := linalg.MATRIX4F32_IDENTITY,
-) -> (
-	result: [8]Vector3,
-) {
-	m := inverse_pv * target_inverse_world
+frustum_corners :: proc(inverse_pv: Matrix4) -> (result: [8]Vector3) {
+	m := inverse_pv
 
 	result = {
 		Bounding_Point.Near_Bottom_Left = Vector3{-1, -1, -1},
@@ -230,11 +225,50 @@ frustum_corners :: proc(
 	return
 }
 
-frustum_center :: proc(near_corner: Vector3, far_corner: Vector3) -> Vector3 {
-	d := (far_corner - near_corner) / 2
-
-	return near_corner + d
+froxel_plane :: proc {
+	froxel_plane_from_matrix,
+	froxel_plane_from_near_far_plane,
 }
+
+froxel_plane_from_matrix :: proc(im: Matrix4, fz: f32) -> (result: [4]Vector3) {
+	z := (fz * 2) - 1
+	result = {
+		Bounding_Point.Near_Bottom_Left = Vector3{-1, -1, z},
+		Bounding_Point.Near_Bottom_Right = Vector3{1, -1, z},
+		Bounding_Point.Near_Up_Right = Vector3{1, 1, z},
+		Bounding_Point.Near_Up_Left = Vector3{-1, 1, z},
+	}
+
+	for point in &result {
+		p := im * Vector4{point.x, point.y, point.z, 1}
+		point = (p / p.w).xyz
+	}
+	return
+}
+
+froxel_plane_from_near_far_plane :: proc(
+	near_plane, far_plane: [4]Vector3,
+	z: f32,
+) -> (
+	result: [4]Vector3,
+) {
+	l := linalg.vector_length(far_plane[0] - near_plane[0]) * z
+
+	result[0] = near_plane[0]
+	result[0] += linalg.vector_normalize(far_plane[0] - near_plane[0]) * l
+
+	result[1] = near_plane[1]
+	result[1] += linalg.vector_normalize(far_plane[1] - near_plane[1]) * l
+
+	result[2] = near_plane[2]
+	result[2] += linalg.vector_normalize(far_plane[2] - near_plane[2]) * l
+
+	result[3] = near_plane[3]
+	result[3] += linalg.vector_normalize(far_plane[3] - near_plane[3]) * l
+
+	return
+}
+
 
 bounding_box_in_frustum :: proc(f: Frustum, b: Bounding_Box) -> (result: Collision_Result) {
 	points_in := len(b.points)
@@ -320,4 +354,13 @@ ray_bounding_box_intersection :: proc(
 		}
 	}
 	return
+}
+
+point_in_aabb_bounding_box :: proc(b: Bounding_Box, p: Vector3) -> bool {
+	ok := true
+	ok &= p.x >= b.min.x && p.x <= b.max.x
+	ok &= p.y >= b.min.y && p.y <= b.max.y
+	ok &= p.z >= b.min.z && p.z <= b.max.z
+
+	return ok
 }

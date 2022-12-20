@@ -184,12 +184,11 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 			// if children_dirty_transform {
 			update_light_node(&n.scene.lighting, n)
 			set_lighting_context_dirty(&n.scene.lighting)
-			if .Shadow_Map in n.options {
-				shadow_map := n.shadow_map.?
-				shadow_map.cache_dirty = true
-				shadow_map.data_dirty = true
-				n.shadow_map = shadow_map
-			}
+		// if .Shadow_Map in n.options {
+		// 	shadow_map := n.shadow_map.?
+		// 	shadow_map.dirty = true
+		// 	n.shadow_map = shadow_map
+		// }
 		// }
 
 		case ^Model_Node, ^Model_Group_Node:
@@ -632,28 +631,28 @@ node_local_transform :: proc(node: ^Node, t: Transform) {
 }
 
 Camera_Node :: struct {
-	using base:      Node,
-	derived_flags:   Camera_Flags,
-	pitch:           f32,
-	yaw:             f32,
-	position:        Vector3,
-	target:          Vector3,
-	target_distance: f32,
-	target_rotation: f32,
+	using base:        Node,
+	derived_flags:     Camera_Flags,
+	pitch:             f32,
+	yaw:               f32,
+	position:          Vector3,
+	target:            Vector3,
+	target_distance:   f32,
+	target_rotation:   f32,
 
 	// Pre-computed view matrices
-	view:            Matrix4,
-	inverse_view:    Matrix4,
+	view:              Matrix4,
+	inverse_proj_view: Matrix4,
 
 	// Input states
-	min_pitch:       f32,
-	max_pitch:       f32,
-	min_distance:    f32,
-	distance_speed:  f32,
-	position_speed:  f32,
-	rotation_proc:   proc() -> (trigger: bool, delta: Vector2),
-	distance_proc:   proc() -> (trigger: bool, displacement: f32),
-	position_proc:   proc() -> (trigger: bool, fb: f32, lr: f32),
+	min_pitch:         f32,
+	max_pitch:         f32,
+	min_distance:      f32,
+	distance_speed:    f32,
+	position_speed:    f32,
+	rotation_proc:     proc() -> (trigger: bool, delta: Vector2),
+	distance_proc:     proc() -> (trigger: bool, displacement: f32),
+	position_proc:     proc() -> (trigger: bool, fb: f32, lr: f32),
 }
 
 Camera_Flags :: distinct bit_set[Camera_Flag]
@@ -765,7 +764,7 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 		}
 
 		camera.view = linalg.matrix4_look_at_f32(camera.position, camera.target, VECTOR_UP)
-		camera.inverse_view = linalg.matrix4_inverse_f32(camera.view)
+		camera.inverse_proj_view = linalg.matrix4_inverse_f32(projection_matrix() * camera.view)
 		if .Main_Camera in camera.derived_flags {
 			view_position(camera.position)
 			view_target(camera.target)

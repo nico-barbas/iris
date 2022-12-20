@@ -6,6 +6,8 @@ import "core:math/linalg"
 
 MAX_SHADOW_MAPS :: 1
 MAX_LIGHTS :: 32
+MAX_CASCADES :: 3
+SHADOW_MAP_BOUNDS_PADDING :: 1.5
 
 Lighting_Context :: struct {
 	ambient:            Color,
@@ -21,13 +23,13 @@ Lighting_Context :: struct {
 }
 
 Light_Uniform_Data :: struct {
-	lights:           [MAX_LIGHTS]Light_Uniform_Info,
-	shadow_maps:      [MAX_SHADOW_MAPS][4]u32,
-	projections:      [MAX_SHADOW_MAPS]Matrix4,
-	ambient:          Color,
-	light_count:      u32,
-	shadow_map_count: u32,
-	sizes:            [MAX_SHADOW_MAPS]Vector2,
+	lights:            [MAX_LIGHTS]Light_Uniform_Info,
+	shadow_maps:       [MAX_SHADOW_MAPS][4]u32,
+	projections:       [MAX_SHADOW_MAPS][MAX_CASCADES]Matrix4,
+	cascades_distance: [MAX_SHADOW_MAPS][4]f32,
+	ambient:           Color,
+	light_count:       u32,
+	shadow_map_count:  u32,
 }
 
 Light_Uniform_Info :: struct {
@@ -42,16 +44,13 @@ Light_Uniform_Info :: struct {
 Light_ID :: distinct uint
 
 Light_Node :: struct {
-	using base:      Node,
-	id:              Light_ID,
-	camera:          ^Camera_Node,
-	view:            Matrix4,
-	projection:      Matrix4,
-	view_projection: Matrix4,
-	direction:       Vector3,
-	color:           Color,
-	options:         Light_Options,
-	shadow_map:      Maybe(Shadow_Map),
+	using base: Node,
+	id:         Light_ID,
+	camera:     ^Camera_Node,
+	direction:  Vector3,
+	color:      Color,
+	options:    Light_Options,
+	shadow_map: Shadow_Map,
 }
 
 Light_Option :: enum {
@@ -61,12 +60,19 @@ Light_Option :: enum {
 Light_Options :: distinct bit_set[Light_Option]
 
 Shadow_Map :: struct {
-	scale:       f32,
-	cache_dirty: bool,
-	data_dirty:  bool,
-	cache:       ^Framebuffer,
-	data:        ^Framebuffer,
-	shader:      ^Shader,
+	scale:             f32,
+	distance:          f32,
+	projection:        Matrix4,
+	bounds:            Bounding_Box,
+	dirty:             bool,
+	cascade_count:     int,
+	cascade_planes:    [MAX_CASCADES + 1][4]Vector3,
+	cascades_distance: [MAX_CASCADES]f32,
+	projections:       [MAX_CASCADES]Matrix4,
+	views:             [MAX_CASCADES]Matrix4,
+	view_projections:  [MAX_CASCADES]Matrix4,
+	cascades:          [MAX_CASCADES]^Framebuffer,
+	shader:            ^Shader,
 }
 
 init_lighting_context :: proc(ctx: ^Lighting_Context) {
@@ -82,8 +88,8 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 	if ctx.dirty_uniform_data {
 		lights: [MAX_LIGHTS]Light_Uniform_Info
 		shadow_maps_ids: [MAX_SHADOW_MAPS][4]u32
-		projections: [MAX_SHADOW_MAPS]Matrix4
-		sizes: [MAX_SHADOW_MAPS]Vector2
+		projections: [MAX_SHADOW_MAPS][MAX_CASCADES]Matrix4
+		distances: [MAX_SHADOW_MAPS][4]f32
 
 		for node, i in ctx.lights[:ctx.light_count] {
 			light_position := translation_from_matrix(node.global_transform)
@@ -94,12 +100,16 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 			}
 		}
 		for id, i in ctx.shadow_map_ids {
+			light := ctx.lights[id]
 			shadow_maps_ids[i] = {
 				0 = u32(id),
+				1 = u32(light.shadow_map.cascade_count),
 			}
-			projections[i] = ctx.lights[id].view_projection
-			shadow_map := ctx.lights[id].shadow_map.?
-			sizes[i] = Vector2{f32(shadow_map.data.width), f32(shadow_map.data.height)}
+
+			for j in 0 ..< light.shadow_map.cascade_count {
+				projections[i][j] = light.shadow_map.view_projections[j]
+				distances[i][j] = light.shadow_map.cascades_distance[j]
+			}
 		}
 
 		send_buffer_data(
@@ -112,7 +122,7 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 					shadow_map_count = u32(ctx.shadow_map_count),
 					shadow_maps = shadow_maps_ids,
 					projections = projections,
-					sizes = sizes,
+					cascades_distance = distances,
 				},
 				byte_size = size_of(Light_Uniform_Data),
 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
@@ -145,116 +155,197 @@ init_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node, camera: ^Came
 			)
 			return
 		}
+		DEFAULT_SHADOW_MAP_FAR :: 10
 
-		shadow_map := node.shadow_map.?
-		size := render_size() * shadow_map.scale
 
-		cache_res := framebuffer_resource(
-			Framebuffer_Loader{attachments = {.Depth}, width = int(size.x), height = int(size.y)},
+		size := render_size()
+		framebuffer_size := size * node.shadow_map.scale
+		for i in 0 ..< node.shadow_map.cascade_count {
+			map_res := framebuffer_resource(
+				Framebuffer_Loader{
+					attachments = {.Depth},
+					width = int(framebuffer_size.x),
+					height = int(framebuffer_size.y),
+				},
+			)
+			node.shadow_map.cascades[i] = map_res.data.(^Framebuffer)
+		}
+
+
+		node.shadow_map.dirty = true
+		node.shadow_map.shader = shadow_map_shader()
+
+
+		if node.shadow_map.distance == 0 {
+			node.shadow_map.distance = DEFAULT_SHADOW_MAP_FAR
+		}
+		node.shadow_map.projection = linalg.matrix4_perspective_f32(
+			f32(RENDER_CTX_DEFAULT_FOVY),
+			size.x / size.y,
+			f32(RENDER_CTX_DEFAULT_NEAR),
+			node.shadow_map.distance,
 		)
-		map_res := framebuffer_resource(
-			Framebuffer_Loader{attachments = {.Depth}, width = int(size.x), height = int(size.y)},
-		)
 
-		shadow_map.cache_dirty = true
-		shadow_map.data_dirty = true
-		shadow_map.cache = cache_res.data.(^Framebuffer)
-		shadow_map.data = map_res.data.(^Framebuffer)
-		shadow_map.shader = shadow_map_shader()
-
-		node.shadow_map = shadow_map
 		ctx.shadow_map_ids[ctx.shadow_map_count] = node.id
 		ctx.shadow_map_count += 1
 	}
 }
 
+// FIXME: Right now the shadow map is using the global projection matrix
 update_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
-	camera_corners := frustum_corners(linalg.matrix4_inverse_f32(projection_view_matrix()))
-	center := Vector3{}
-	for corner in camera_corners {
-		center += corner
+	if .Shadow_Map in node.options {
+		shadow_map := &node.shadow_map
+		last := shadow_map.cascade_count
+		shadow_map.cascade_planes[0] = froxel_plane(node.camera.inverse_proj_view, 0)
+		shadow_map.cascade_planes[last] = froxel_plane(node.camera.inverse_proj_view, 1)
+		out_of_bounds := false
+		for i in 0 ..< 4 {
+			corner_near := shadow_map.cascade_planes[0][i]
+			corner_far := shadow_map.cascade_planes[last][i]
+			out_of_bounds |= !point_in_aabb_bounding_box(shadow_map.bounds, corner_near)
+			out_of_bounds |= !point_in_aabb_bounding_box(shadow_map.bounds, corner_far)
+		}
+		if out_of_bounds {
+			log.debug("Out of shadow map bounds")
+
+			shadow_map.dirty = true
+			outer_corners: [8]Vector3
+			for i in 0 ..< 4 {
+				outer_corners[i] = shadow_map.cascade_planes[0][i]
+				outer_corners[4 + i] = shadow_map.cascade_planes[last][i]
+			}
+			shadow_map.bounds = bounding_box_from_vertex_slice(outer_corners[:])
+			shadow_map.bounds.min -= SHADOW_MAP_BOUNDS_PADDING
+			shadow_map.bounds.max += SHADOW_MAP_BOUNDS_PADDING
+			// node.view = linalg.matrix4_look_at_f32(center - node.direction, center, VECTOR_ONE)
+
+			for i in 1 ..< shadow_map.cascade_count {
+				t := f32(i) / f32(shadow_map.cascade_count)
+				t *= t
+				shadow_map.cascade_planes[i] = froxel_plane(
+					shadow_map.cascade_planes[0],
+					shadow_map.cascade_planes[last],
+					t,
+				)
+				shadow_map.cascades_distance[i - 1] = t * RENDER_CTX_DEFAULT_FAR
+			}
+			for i in 0 ..< shadow_map.cascade_count {
+				near_plane := shadow_map.cascade_planes[i]
+				far_plane := shadow_map.cascade_planes[i + 1]
+				froxel_center := Vector3{}
+				for j in 0 ..< 4 {
+					froxel_center += near_plane[j]
+					froxel_center += far_plane[j]
+				}
+				froxel_center /= 8
+
+				shadow_map.views[i] = linalg.matrix4_look_at_f32(
+					froxel_center - node.direction,
+					froxel_center,
+					VECTOR_ONE,
+				)
+				min_x := math.INF_F32
+				max_x := -math.INF_F32
+				min_y := math.INF_F32
+				max_y := -math.INF_F32
+				min_z := math.INF_F32
+				max_z := -math.INF_F32
+				for j in 0 ..< 4 {
+					corners := [2]Vector3{near_plane[j], far_plane[j]}
+					for corner in corners {
+						c := Vector4{corner.x, corner.y, corner.z, 1}
+						c = shadow_map.views[i] * c
+						min_x = min(min_x, c.x)
+						max_x = max(max_x, c.x)
+						min_y = min(min_y, c.y)
+						max_y = max(max_y, c.y)
+						min_z = min(min_z, c.z)
+						max_z = max(max_z, c.z)
+					}
+				}
+
+				min_x = min(min_x, min_y) - SHADOW_MAP_BOUNDS_PADDING
+				max_x = max(max_x, max_y) + SHADOW_MAP_BOUNDS_PADDING
+				min_y = min_x
+				max_y = max_x
+				min_z -= 20
+				max_z += 20
+				shadow_map.projections[i] = linalg.matrix_ortho3d_f32(
+					min_x,
+					max_x,
+					min_y,
+					max_y,
+					min_z,
+					max_z,
+				)
+				shadow_map.view_projections[i] = shadow_map.projections[i] * shadow_map.views[i]
+			}
+		}
 	}
-	center /= len(camera_corners)
-
-	node.view = linalg.matrix4_look_at_f32(center - node.direction, center, VECTOR_ONE)
-
-	min_x := math.INF_F32
-	max_x := -math.INF_F32
-	min_y := math.INF_F32
-	max_y := -math.INF_F32
-	min_z := math.INF_F32
-	max_z := -math.INF_F32
-	for corner in camera_corners {
-		c := Vector4{corner.x, corner.y, corner.z, 1}
-		c = node.view * c
-		min_x = min(min_x, c.x)
-		max_x = max(max_x, c.x)
-		min_y = min(min_y, c.y)
-		max_y = max(max_y, c.y)
-		min_z = min(min_z, c.z)
-		max_z = max(max_z, c.z)
-	}
-
-
-	node.projection = linalg.matrix_ortho3d_f32(min_x, max_x, min_y, max_y, min_z, max_z)
-	node.view_projection = node.projection * node.view
 }
 
-shadow_map_pass :: proc(node: ^Light_Node, geometry: [2][]Render_Command) -> ^Texture {
+shadow_map_pass :: proc(
+	node: ^Light_Node,
+	geometry: [2][]Render_Command,
+) -> [MAX_CASCADES]^Texture {
 	STATIC_INDEX :: 0
 	DYNAMIC_INDEX :: 1
 
-	shadow_map := node.shadow_map.?
-	if shadow_map.cache_dirty {
+	if node.shadow_map.dirty {
+		log.debug("Redraw shadow map")
 		static_shadow_map_pass(node, geometry[STATIC_INDEX])
-		shadow_map.cache_dirty = false
-	}
-
-	if shadow_map.data_dirty {
 		dynamic_shadow_map_pass(node, geometry[DYNAMIC_INDEX])
-		shadow_map.data_dirty = false
 	}
 
-	node.shadow_map = shadow_map
-	return framebuffer_texture(shadow_map.data, .Depth)
+	cascaded_maps: [MAX_CASCADES]^Texture
+	for i in 0 ..< node.shadow_map.cascade_count {
+		cascaded_maps[i] = framebuffer_texture(node.shadow_map.cascades[i], .Depth)
+	}
+	return cascaded_maps
 }
 
 static_shadow_map_pass :: proc(node: ^Light_Node, geometry: []Render_Command) {
-	shadow_map := node.shadow_map.?
-	bind_framebuffer(shadow_map.cache)
-	bind_shader(shadow_map.shader)
-	defer {
-		default_framebuffer()
-		default_shader()
+	for i in 0 ..< node.shadow_map.cascade_count {
+		cascade := node.shadow_map.cascades[i]
+		bind_framebuffer(cascade)
+		bind_shader(node.shadow_map.shader)
+		defer {
+			default_framebuffer()
+			default_shader()
+		}
+
+		clear_framebuffer(cascade)
+		set_viewport(Rectangle{0, 0, f32(cascade.width), f32(cascade.height)})
+
+		b := false
+		set_shader_uniform(
+			node.shadow_map.shader,
+			"matLightSpace",
+			&node.shadow_map.view_projections[i][0][0],
+		)
+		set_shader_uniform(node.shadow_map.shader, "dynamicGeometry", &b)
+		render_statics(node.shadow_map.shader, geometry)
 	}
-
-	clear_framebuffer(shadow_map.cache)
-	set_viewport(Rectangle{0, 0, f32(shadow_map.cache.width), f32(shadow_map.cache.height)})
-
-	b := false
-	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.view_projection[0][0])
-	set_shader_uniform(shadow_map.shader, "dynamicGeometry", &b)
-	render_statics(shadow_map.shader, geometry)
 }
 
 dynamic_shadow_map_pass :: proc(node: ^Light_Node, geometry: []Render_Command) {
-	shadow_map := node.shadow_map.?
-	bind_framebuffer(shadow_map.data)
-	bind_shader(shadow_map.shader)
-	defer {
-		default_framebuffer()
-		default_shader()
-	}
+	for i in 0 ..< node.shadow_map.cascade_count {
+		cascade := node.shadow_map.cascades[i]
+		bind_framebuffer(cascade)
+		bind_shader(node.shadow_map.shader)
+		defer {
+			default_framebuffer()
+			default_shader()
+		}
 
-	blit_framebuffer_depth(
-		shadow_map.cache,
-		shadow_map.data,
-		Rectangle{0, 0, f32(shadow_map.cache.width), f32(shadow_map.cache.height)},
-		Rectangle{0, 0, f32(shadow_map.data.width), f32(shadow_map.data.height)},
-	)
-	set_viewport(Rectangle{0, 0, f32(shadow_map.data.width), f32(shadow_map.data.height)})
-	set_shader_uniform(shadow_map.shader, "matLightSpace", &node.view_projection[0][0])
-	render_dynamics(shadow_map.shader, geometry)
+		set_viewport(Rectangle{0, 0, f32(cascade.width), f32(cascade.height)})
+		set_shader_uniform(
+			node.shadow_map.shader,
+			"matLightSpace",
+			&node.shadow_map.view_projections[i][0][0],
+		)
+		render_dynamics(node.shadow_map.shader, geometry)
+	}
 }
 
 @(private)
@@ -308,281 +399,6 @@ shadow_map_shader :: proc() -> ^Shader {
 		return shader_res.data.(^Shader)
 	}
 }
-
-// MAX_LIGHT_CASTERS :: 4
-// SHADOW_MAP_PADDING :: 0
-
-// Lighting_Context :: struct {
-// 	count:              u32,
-// 	projection:         Matrix4,
-// 	lights:             [RENDER_CTX_MAX_LIGHTS]Light_Info,
-// 	lights_projection:  [RENDER_CTX_MAX_LIGHTS]Matrix4,
-// 	ambient:            Color,
-// 	light_casters:      [MAX_LIGHT_CASTERS]struct {
-// 		id:          Light_ID,
-// 		cache_dirty: bool,
-// 		map_dirty:   bool,
-// 	},
-// 	light_caster_count: int,
-// 	shadow_map_atlas:   ^Framebuffer,
-// 	shadow_map_slices:  [MAX_LIGHT_CASTERS][2]Texture_Slice,
-// 	shadow_map_shader:  ^Shader,
-// 	uniform_memory:     Buffer_Memory,
-// }
-
-// Light_Info :: struct {
-// 	position:  Vector4,
-// 	color:     Color,
-// 	linear:    f32,
-// 	quadratic: f32,
-// 	kind:      Light_Kind,
-// 	dirty:     enum u32 {
-// 		True,
-// 		False,
-// 	},
-// }
-
-// Light_ID :: distinct u32
-
-// Light_Kind :: enum u32 {
-// 	Directional,
-// 	Point,
-// }
-
-// @(private)
-// Lighting_Uniform_Data :: struct {
-// 	lights:             [RENDER_CTX_MAX_LIGHTS]Light_Info,
-// 	light_casters:      [4][4]u32,
-// 	projections:        [4]Matrix4,
-// 	ambient:            Color,
-// 	light_count:        u32,
-// 	light_caster_count: u32,
-// 	shadow_map_size:    Vector2,
-// }
-
-// init_lighting_ctx :: proc(ctx: ^Lighting_Context, render_w, render_h: int) {
-// 	ctx.ambient = RENDER_CTX_DEFAULT_AMBIENT
-// 	ctx.projection = linalg.matrix_ortho3d_f32(
-// 		-17.5,
-// 		17.5,
-// 		-10,
-// 		10,
-// 		f32(RENDER_CTX_DEFAULT_NEAR),
-// 		f32(20),
-// 	)
-
-// 	map_res := framebuffer_resource(
-// 		Framebuffer_Loader{
-// 			attachments = {.Depth},
-// 			width = 2 * render_w + SHADOW_MAP_PADDING,
-// 			height = 4 * render_h + (3 * SHADOW_MAP_PADDING),
-// 		},
-// 	)
-// 	ctx.shadow_map_atlas = map_res.data.(^Framebuffer)
-
-// 	for slices, y in &ctx.shadow_map_slices {
-// 		slices[0] = Texture_Slice {
-// 			atlas_width  = f32(ctx.shadow_map_atlas.width),
-// 			atlas_height = f32(ctx.shadow_map_atlas.height),
-// 			x            = 0,
-// 			y            = f32(y * (render_h + SHADOW_MAP_PADDING)),
-// 			width        = f32(render_w),
-// 			height       = f32(render_h),
-// 		}
-// 		slices[1] = Texture_Slice {
-// 			atlas_width  = f32(ctx.shadow_map_atlas.width),
-// 			atlas_height = f32(ctx.shadow_map_atlas.height),
-// 			x            = f32(render_w + SHADOW_MAP_PADDING),
-// 			y            = f32(y * (render_h + SHADOW_MAP_PADDING)),
-// 			width        = f32(render_w),
-// 			height       = f32(render_h),
-// 		}
-// 	}
-
-// 	shader_res := shader_resource(
-// 		Shader_Loader{
-// 			name = "shadow_map",
-// 			kind = .Byte,
-// 			stages = {
-// 				Shader_Stage.Vertex = Shader_Stage_Loader{source = SHADOW_MAP_VERTEX_SHADER},
-// 				Shader_Stage.Fragment = Shader_Stage_Loader{source = EMPTY_FRAGMENT_SHADER},
-// 			},
-// 		},
-// 	)
-// 	ctx.shadow_map_shader = shader_res.data.(^Shader)
-
-// 	light_buffer_res := raw_buffer_resource(size_of(Lighting_Uniform_Data))
-// 	ctx.uniform_memory = buffer_memory_from_buffer_resource(light_buffer_res)
-// 	set_uniform_buffer_binding(ctx.uniform_memory.buf, u32(Render_Uniform_Kind.Lighting_Data))
-// }
-
-// update_lighting_context :: proc(ctx: ^Lighting_Context) {
-// 	ctx_dirty := false
-// 	for light, i in ctx.lights[:ctx.count] {
-// 		// TODO: Learn how to deal with directional light's view position
-// 		if light.dirty == .True {
-// 			light_view := linalg.matrix4_look_at_f32(light.position.xyz, VECTOR_ZERO, VECTOR_UP)
-// 			ctx.lights_projection[i] = ctx.projection * light_view
-// 			ctx.lights[i].dirty = .False
-// 			ctx_dirty = true
-// 		}
-// 	}
-
-// 	if ctx_dirty {
-// 		casters_id := [4][4]u32{
-// 			{0 = u32(ctx.light_casters[0].id)},
-// 			{0 = u32(ctx.light_casters[1].id)},
-// 			{0 = u32(ctx.light_casters[2].id)},
-// 			{0 = u32(ctx.light_casters[3].id)},
-// 		}
-// 		send_buffer_data(
-// 			&ctx.uniform_memory,
-// 			Buffer_Source{
-// 				data = &Lighting_Uniform_Data{
-// 					ambient = ctx.ambient,
-// 					light_count = ctx.count,
-// 					lights = ctx.lights,
-// 					light_caster_count = u32(ctx.light_caster_count),
-// 					light_casters = casters_id,
-// 					projections = {
-// 						0 = ctx.lights_projection[casters_id[0].x],
-// 						1 = ctx.lights_projection[casters_id[1].x],
-// 						2 = ctx.lights_projection[casters_id[2].x],
-// 						3 = ctx.lights_projection[casters_id[3].x],
-// 					},
-// 					shadow_map_size = Vector2{
-// 						f32(ctx.shadow_map_atlas.width),
-// 						f32(ctx.shadow_map_atlas.height),
-// 					},
-// 				},
-// 				byte_size = size_of(Lighting_Uniform_Data),
-// 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
-// 			},
-// 		)
-// 	}
-// }
-
-// add_light :: proc(kind: Light_Kind, p: Vector3, clr: Color, map_shadows: bool) -> (id: Light_ID) {
-// 	ctx := &app.render_ctx.lighting_context
-// 	id = Light_ID(ctx.count)
-// 	ctx.lights[id] = Light_Info {
-// 		kind = kind,
-// 		position = {p.x, p.y, p.z, 1.0},
-// 		color = clr,
-// 		dirty = .True,
-// 	}
-// 	ctx.count += 1
-// 	if map_shadows {
-// 		if ctx.light_caster_count >= MAX_LIGHT_CASTERS {
-// 			log.errorf(
-// 				"[%s]: Max light casters reached. Failed to add light [%d]",
-// 				App_Module.Shader,
-// 				id,
-// 			)
-// 			return
-// 		}
-// 		ctx.light_casters[ctx.light_caster_count] = {
-// 			id          = id,
-// 			cache_dirty = true,
-// 		}
-// 		ctx.light_caster_count += 1
-// 	}
-// 	return
-// }
-
-// @(private)
-// invalidate_shadow_map_cache :: proc() {
-// 	ctx := &app.render_ctx.lighting_context
-// 	for i in 0 ..< ctx.light_caster_count {
-// 		ctx.light_casters[i].cache_dirty = true
-// 	}
-// }
-
-// @(private)
-// invalidate_shadow_map :: proc() {
-// 	ctx := &app.render_ctx.lighting_context
-// 	for i in 0 ..< ctx.light_caster_count {
-// 		ctx.light_casters[i].map_dirty = true
-// 	}
-// }
-
-// light_position :: proc(id: Light_ID, position: Vector3) {
-// 	ctx := &app.render_ctx.lighting_context
-// 	ctx.lights[id].position = {position.x, position.y, position.z, 1.0}
-// 	ctx.lights[id].dirty = .True
-// }
-
-// light_ambient :: proc(strength: f32, color: Vector3) {
-// 	app.render_ctx.lighting_context.ambient.rbg = color.rgb
-// 	app.render_ctx.lighting_context.ambient.a = strength
-// }
-
-// shadow_map_pass :: proc(ctx: ^Lighting_Context, st_geo, dyn_geo: []Render_Command) {
-// 	render_commands :: proc(shader: ^Shader, cmds: []Render_Command, is_dynamic: bool) {
-// 		for cmd in cmds {
-// 			c := cmd.(Render_Mesh_Command)
-// 			rigged := is_dynamic && .Skinned in c.options
-// 			set_shader_uniform(shader, "dynamicGeometry", &rigged)
-// 			set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
-// 			if rigged {
-// 				set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
-// 				set_shader_uniform(shader, "matJoints", &c.joints[0])
-// 			}
-
-// 			bind_attributes(c.mesh.attributes)
-// 			defer default_attributes()
-// 			link_packed_attributes_vertices(
-// 				c.mesh.attributes,
-// 				c.mesh.vertices.buf,
-// 				c.mesh.attributes_info,
-// 			)
-// 			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
-// 			draw_triangles(c.mesh.index_count)
-// 		}
-// 	}
-
-// 	bind_framebuffer(ctx.shadow_map_atlas)
-// 	bind_shader(ctx.shadow_map_shader)
-// 	defer {
-// 		default_framebuffer()
-// 		default_shader()
-// 	}
-// 	for lc, i in &ctx.light_casters {
-// 		light_proj := ctx.lights_projection[lc.id]
-// 		cache := ctx.shadow_map_slices[i][0]
-// 		if lc.cache_dirty {
-// 			clear_framebuffer_region(
-// 				ctx.shadow_map_atlas,
-// 				Rectangle{cache.x, cache.y, cache.width, cache.height},
-// 			)
-// 			set_viewport({cache.x, cache.y, cache.width, cache.height})
-
-// 			b := false
-// 			set_shader_uniform(ctx.shadow_map_shader, "matLightSpace", &light_proj[0][0])
-// 			set_shader_uniform(ctx.shadow_map_shader, "dynamicGeometry", &b)
-
-// 			render_commands(ctx.shadow_map_shader, st_geo, false)
-// 			lc.cache_dirty = false
-// 			lc.map_dirty = true
-// 		}
-// 		if lc.map_dirty {
-// 			s_map := ctx.shadow_map_slices[i][1]
-// 			blit_framebuffer_depth(
-// 				ctx.shadow_map_atlas,
-// 				ctx.shadow_map_atlas,
-// 				Rectangle{cache.x, cache.y + cache.height, cache.width, cache.y},
-// 				Rectangle{s_map.x, s_map.y + s_map.height, s_map.x + s_map.width, s_map.y},
-// 			)
-// 			set_viewport({s_map.x, s_map.y, s_map.width, s_map.height})
-
-// 			// log.debug(ctx.shadow_map_shader.uniforms)
-// 			set_shader_uniform(ctx.shadow_map_shader, "matLightSpace", &light_proj[0][0])
-
-// 			render_commands(ctx.shadow_map_shader, dyn_geo, true)
-// 			lc.map_dirty = false
-// 		}
-// 	}
-// }
 
 @(private)
 SHADOW_MAP_VERTEX_SHADER :: `
