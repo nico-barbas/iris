@@ -7,7 +7,7 @@ import "core:math/linalg"
 MAX_SHADOW_MAPS :: 1
 MAX_LIGHTS :: 32
 MAX_CASCADES :: 3
-SHADOW_MAP_BOUNDS_PADDING :: 1.5
+SHADOW_MAP_BOUNDS_PADDING :: 0
 
 Lighting_Context :: struct {
 	ambient:            Color,
@@ -230,7 +230,7 @@ update_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
 				shadow_map.cascades_distance[i - 1] = t * RENDER_CTX_DEFAULT_FAR
 			}
 			for i in 0 ..< shadow_map.cascade_count {
-				near_plane := shadow_map.cascade_planes[i]
+				near_plane := shadow_map.cascade_planes[1]
 				far_plane := shadow_map.cascade_planes[i + 1]
 				froxel_center := Vector3{}
 				for j in 0 ..< 4 {
@@ -352,6 +352,9 @@ dynamic_shadow_map_pass :: proc(node: ^Light_Node, geometry: []Render_Command) {
 render_dynamics :: proc(shader: ^Shader, geometry: []Render_Command) {
 	for cmd in geometry {
 		c := cmd.(Render_Mesh_Command)
+		if .Cast_Shadows not_in c.options {
+			continue
+		}
 		rigged := .Skinned in c.options
 		set_shader_uniform(shader, "dynamicGeometry", &rigged)
 		if rigged {
@@ -366,6 +369,9 @@ render_dynamics :: proc(shader: ^Shader, geometry: []Render_Command) {
 render_statics :: proc(shader: ^Shader, geometry: []Render_Command) {
 	for cmd in geometry {
 		c := cmd.(Render_Mesh_Command)
+		if .Cast_Shadows not_in c.options {
+			continue
+		}
 		render(shader, &c)
 	}
 }
