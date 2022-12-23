@@ -19,6 +19,7 @@ Scene :: struct {
 	// Specific states
 	flags:              Scene_Flags,
 	main_camera:        ^Camera_Node,
+	lighting:           Lighting_Context,
 
 	// Debug states
 	debug_shader:       ^Shader,
@@ -68,6 +69,7 @@ Node_Flag :: enum {
 Any_Node :: union {
 	^Empty_Node,
 	^Camera_Node,
+	^Light_Node,
 	^Model_Node,
 	^Model_Group_Node,
 	^Skin_Node,
@@ -93,6 +95,8 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 	context.allocator = scene.allocator
 	scene.nodes = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
 	scene.roots = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
+
+	init_lighting_context(&scene.lighting)
 
 	if .Draw_Debug_Collisions in scene.flags {
 		scene.debug_vertex_slice = make([]f32, DEBUG_BATCH_CAP * 5)
@@ -141,11 +145,24 @@ destroy_scene :: proc(scene: ^Scene) {
 }
 
 set_scene_main_camera :: proc(scene: ^Scene, camera: ^Camera_Node) {
+	traverse_node :: proc(node: ^Node, camera: ^Camera_Node) {
+		if n, ok := node.derived.(^Light_Node); ok {
+			n.camera = camera
+		}
+
+		for child in node.children {
+			traverse_node(child, camera)
+		}
+	}
+
 	if scene.main_camera != nil {
 		scene.main_camera.derived_flags -= {.Main_Camera}
 	}
 	scene.main_camera = camera
 	camera.derived_flags += {.Main_Camera}
+	for root in scene.roots {
+		traverse_node(root, camera)
+	}
 }
 
 update_scene :: proc(scene: ^Scene, dt: f32) {
@@ -162,6 +179,17 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 
 		case ^Camera_Node:
 			update_camera_node(n, false)
+
+		case ^Light_Node:
+			// if children_dirty_transform {
+			update_light_node(&n.scene.lighting, n)
+			set_lighting_context_dirty(&n.scene.lighting)
+		// if .Shadow_Map in n.options {
+		// 	shadow_map := n.shadow_map.?
+		// 	shadow_map.dirty = true
+		// 	n.shadow_map = shadow_map
+		// }
+		// }
 
 		case ^Model_Node, ^Model_Group_Node:
 
@@ -273,6 +301,12 @@ render_scene :: proc(scene: ^Scene) {
 				switch n in node.derived {
 				case ^Empty_Node, ^Camera_Node:
 
+				case ^Light_Node:
+					if .Shadow_Map in n.options {
+						// unimplemented("TODO: send the light to the renderer to do a shadow pass")
+						push_draw_command(n, .Shadow_Pass)
+					}
+
 				case ^Model_Node:
 					for mesh, i in n.meshes {
 						push_draw_command(
@@ -285,7 +319,6 @@ render_scene :: proc(scene: ^Scene) {
 							queue_kind_from_rendering_options(n.options),
 						)
 						if .Geomtry_Modified in n.derived_flags {
-							invalidate_shadow_map_cache()
 							n.derived_flags -= {.Geomtry_Modified}
 						}
 					}
@@ -306,7 +339,6 @@ render_scene :: proc(scene: ^Scene) {
 							queue_kind_from_rendering_options(n.options),
 						)
 						if .Geomtry_Modified in n.derived_flags {
-							invalidate_shadow_map_cache()
 							n.derived_flags -= {.Geomtry_Modified}
 						}
 					}
@@ -409,6 +441,8 @@ render_scene :: proc(scene: ^Scene) {
 	for root in scene.roots {
 		traverse_node(scene, root)
 	}
+	scene.lighting.global_dirty_cache = true
+	update_lighting_context(&scene.lighting)
 	if .Draw_Debug_Collisions in scene.flags {
 		push_draw_command(
 			Render_Custom_Command{
@@ -468,6 +502,9 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 			set_scene_main_camera(scene, n)
 		}
 		update_camera_node(n, true)
+
+	case ^Light_Node:
+		init_light_node(&scene.lighting, n, scene.main_camera)
 
 	case ^Model_Node:
 		node.name = "Model"
@@ -546,6 +583,9 @@ destroy_node :: proc(scene: ^Scene, node: ^Node) {
 	case ^Camera_Node:
 		free(n)
 
+	case ^Light_Node:
+		free(n)
+
 	case ^Model_Node:
 		free(n)
 
@@ -591,24 +631,28 @@ node_local_transform :: proc(node: ^Node, t: Transform) {
 }
 
 Camera_Node :: struct {
-	using base:      Node,
-	derived_flags:   Camera_Flags,
-	pitch:           f32,
-	yaw:             f32,
-	position:        Vector3,
-	target:          Vector3,
-	target_distance: f32,
-	target_rotation: f32,
+	using base:        Node,
+	derived_flags:     Camera_Flags,
+	pitch:             f32,
+	yaw:               f32,
+	position:          Vector3,
+	target:            Vector3,
+	target_distance:   f32,
+	target_rotation:   f32,
+
+	// Pre-computed view matrices
+	view:              Matrix4,
+	inverse_proj_view: Matrix4,
 
 	// Input states
-	min_pitch:       f32,
-	max_pitch:       f32,
-	min_distance:    f32,
-	distance_speed:  f32,
-	position_speed:  f32,
-	rotation_proc:   proc() -> (trigger: bool, delta: Vector2),
-	distance_proc:   proc() -> (trigger: bool, displacement: f32),
-	position_proc:   proc() -> (trigger: bool, fb: f32, lr: f32),
+	min_pitch:         f32,
+	max_pitch:         f32,
+	min_distance:      f32,
+	distance_speed:    f32,
+	position_speed:    f32,
+	rotation_proc:     proc() -> (trigger: bool, delta: Vector2),
+	distance_proc:     proc() -> (trigger: bool, displacement: f32),
+	position_proc:     proc() -> (trigger: bool, fb: f32, lr: f32),
 }
 
 Camera_Flags :: distinct bit_set[Camera_Flag]
@@ -719,6 +763,8 @@ update_camera_node :: proc(camera: ^Camera_Node, force_refresh: bool) {
 			camera.target.z - (h_dist * math.sin(target_rot_in_rad)),
 		}
 
+		camera.view = linalg.matrix4_look_at_f32(camera.position, camera.target, VECTOR_UP)
+		camera.inverse_proj_view = linalg.matrix4_inverse_f32(projection_matrix() * camera.view)
 		if .Main_Camera in camera.derived_flags {
 			view_position(camera.position)
 			view_target(camera.target)

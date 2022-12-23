@@ -10,6 +10,13 @@ Material :: struct {
 	maps:           Material_Maps,
 	textures:       [len(Material_Map)]^Texture,
 	double_face:    bool,
+	data:           Material_Data,
+}
+
+Material_Data :: struct {
+	base_color:   Color,
+	roughness:    f32,
+	metallicness: f32,
 }
 
 Material_Loader :: struct {
@@ -52,12 +59,10 @@ load_material_from_gltf :: proc(m: gltf.Material) -> ^Material {
 	resource := material_resource(loader)
 	material := resource.data.(^Material)
 	if m.base_color_texture.present {
-		// path := m.base_color_texture.texture.source.reference.(string)
 		base_texture := load_texture_from_gltf(m.base_color_texture.texture^, .sRGB)
 		set_material_map(material, .Diffuse0, base_texture)
 	}
 	if m.normal_texture.present {
-		// path := m.normal_texture.texture.source.reference.(string)
 		normal_texture := load_texture_from_gltf(m.normal_texture.texture^, .Linear)
 		set_material_map(material, .Normal0, normal_texture)
 	}

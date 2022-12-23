@@ -38,8 +38,7 @@ Framebuffer_Attachment :: enum {
 internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	create_framebuffer_texture :: proc(
 		a: Framebuffer_Attachment,
-		w,
-		h: int,
+		w, h: int,
 		precision := 8,
 	) -> Texture {
 		texture: Texture
