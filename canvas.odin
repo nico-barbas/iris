@@ -53,10 +53,11 @@ Canvas_Flag :: enum {
 }
 
 Canvas_Quad_Options :: struct {
-	dst:     Rectangle,
-	src:     Rectangle,
-	texture: ^Texture,
-	color:   Color,
+	dst:       Rectangle,
+	src:       Rectangle,
+	texture:   ^Texture,
+	color:     Color,
+	roundness: f32,
 }
 
 Canvas_Line_Options :: struct {
@@ -79,8 +80,13 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	QUAD_CAP :: QUAD_VERTICES / 4
 	LINE_CAP :: LINE_VERTICES / 2
 	INDEX_CAP :: (QUAD_CAP * 6) + (LINE_CAP * 2)
-	stride := (buffer_len_of[.Vector2] + buffer_len_of[.Vector3] + buffer_len_of[.Vector4])
-
+	//odinfmt: disable
+	stride := (
+		buffer_len_of[.Vector2] + 
+		buffer_len_of[.Vector3] + 
+		buffer_len_of[.Vector3] + 
+		buffer_len_of[.Vector4])
+	//odinfmt: enable
 
 	canvas.projection = linalg.matrix_mul(
 		linalg.matrix_ortho3d_f32(0, f32(canvas.width), f32(canvas.height), 0, 1, 100),
@@ -88,9 +94,10 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 	)
 	canvas.attributes = attributes_from_layout(
 		Attribute_Layout{
-			enabled = {.Position, .Tex_Coord, .Color},
+			enabled = {.Position, .Normal, .Tex_Coord, .Color},
 			accessors = {
 				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+				Attribute_Kind.Normal = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
 				Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
 			},
@@ -206,10 +213,10 @@ push_canvas_quad :: proc(canvas: ^Canvas_Node, c: Canvas_Quad_Options) {
 			//odinfmt: disable
 			append(
 				&canvas.vertices, 
-				x1, y1, uvx1, uvy1, f32(texture_index), r, g, b, a,
-				x2, y1, uvx2, uvy1, f32(texture_index), r, g, b, a,
-				x2, y2, uvx2, uvy2, f32(texture_index), r, g, b, a,
-				x1, y2, uvx1, uvy2, f32(texture_index), r, g, b, a,
+				x1, y1, c.dst.width, c.dst.height, c.roundness, uvx1, uvy1, f32(texture_index), r, g, b, a,
+				x2, y1, c.dst.width, c.dst.height, c.roundness, uvx2, uvy1, f32(texture_index), r, g, b, a,
+				x2, y2, c.dst.width, c.dst.height, c.roundness, uvx2, uvy2, f32(texture_index), r, g, b, a,
+				x1, y2, c.dst.width, c.dst.height, c.roundness, uvx1, uvy2, f32(texture_index), r, g, b, a,
 			)
 			//odinfmt: enable
 	i_off := canvas.tri_index_offset
@@ -238,8 +245,8 @@ push_canvas_line :: proc(canvas: ^Canvas_Node, c: Canvas_Line_Options) {
 	//odinfmt: disable
 	append(
 		&canvas.line_vertices,
-		x1, y1, 0, 0, 0, r, g, b, a,
-		x2, y2, 0, 0, 0, r, g, b, a,
+		x1, y1, 0, 0, 0, 0, 0, 0, r, g, b, a,
+		x2, y2, 0, 0, 0, 0, 0, 0, r, g, b, a,
 	)
 	//odinfmt: enable
 	i_off := canvas.line_index_offset
@@ -402,6 +409,21 @@ draw_rect :: proc(canvas: ^Canvas_Node, r: Rectangle, clr: Color) {
 	)
 }
 
+draw_rounded_rect :: proc(canvas: ^Canvas_Node, r: Rectangle, clr: Color, round: f32) {
+	push_canvas_quad(
+		canvas,
+		Canvas_Quad_Options{
+			dst = r,
+			src = {x = 0, y = 0, width = 1, height = 1},
+			color = clr,
+			texture = default_canvas_texture(canvas),
+			roundness = round,
+		},
+	)
+}
+
+// draw_rounded_rect :: proc(canvas: ^Canvas_Node)
+
 draw_line :: proc(canvas: ^Canvas_Node, s, e: Vector2, clr: Color) {
 	push_canvas_line(canvas, Canvas_Line_Options{p1 = s, p2 = e, color = clr})
 }
@@ -452,10 +474,14 @@ draw_text :: proc(
 OVERLAY_VERTEX_SHADER :: `
 #version 450 core
 layout (location = 0) in vec2 attribPosition;
+layout (location = 1) in vec3 attribNormal;
 layout (location = 5) in vec3 attribTexCoord;
 layout (location = 6) in vec4 attribColor;
 
 out VS_OUT {
+	float quadWidth;
+	float quadHeight;
+	float quadRoundness;
 	vec2 texCoord;
 	float texIndex;
 	vec4 color;
@@ -464,6 +490,9 @@ out VS_OUT {
 uniform mat4 matProj;
 
 void main() {
+	frag.quadWidth = attribNormal.x;
+	frag.quadHeight = attribNormal.y;
+	frag.quadRoundness = attribNormal.z;
 	frag.texCoord = attribTexCoord.xy;
 	frag.texIndex = attribTexCoord.z;
 	frag.color = attribColor;
@@ -475,6 +504,9 @@ void main() {
 OVERLAY_FRAGMENT_SHADER :: `
 #version 450 core
 in VS_OUT {
+	float quadWidth;
+	float quadHeight;
+	float quadRoundness;
 	vec2 texCoord;
 	float texIndex;
 	vec4 color;
@@ -485,7 +517,40 @@ out vec4 fragColor;
 uniform sampler2D textures[16];
 
 void main() {
+	const float smoothValue = 0.7;
+	float alphaValue = 1.0;
+
+	if (frag.quadRoundness > 0.0) {
+		const float radius = frag.quadRoundness;
+		const vec2 pixelPos = frag.texCoord * vec2(frag.quadWidth, frag.quadHeight);
+		const float xMax = frag.quadWidth - radius;
+		const float yMax = frag.quadHeight - radius;
+
+		const float smoothMin = radius - smoothValue;
+		const float smoothMax = radius + smoothValue; 
+
+		if (pixelPos.x < radius && pixelPos.y < radius) {
+			const float blendValue = smoothstep(
+				smoothMin, smoothMax, length(pixelPos - vec2(radius, radius))); 
+			alphaValue = 1.0 - blendValue;
+		} else if (pixelPos.x > xMax && pixelPos.y < radius) {
+			const float blendValue = smoothstep(
+				smoothMin, smoothMax, length(pixelPos - vec2(xMax, radius))); 
+			alphaValue = 1.0 - blendValue;
+		} else if (pixelPos.x > xMax && pixelPos.y > yMax) {
+			const float blendValue = smoothstep(
+				smoothMin, smoothMax, length(pixelPos - vec2(xMax, yMax))); 
+			alphaValue = 1.0 - blendValue;
+		} else if (pixelPos.x < radius && pixelPos.y > yMax) {
+			const float blendValue = smoothstep(
+				smoothMin, smoothMax, length(pixelPos - vec2(radius, yMax))); 
+			alphaValue = 1.0 - blendValue;
+		}
+	}
+
+
 	int index = int(frag.texIndex);
 	fragColor = texture(textures[index], frag.texCoord) * frag.color;
+	fragColor.a *= alphaValue;
 }
 `
