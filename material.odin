@@ -32,7 +32,6 @@ Material_Map :: enum byte {
 	Diffuse0 = 0,
 	Diffuse1 = 1,
 	Normal0  = 2,
-	// Shadow  = 2,
 }
 
 material_map_name := map[Material_Map]string {

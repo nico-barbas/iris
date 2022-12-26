@@ -183,10 +183,6 @@ close_library :: proc(lib: ^Resource_Library) {
 	}
 	delete(lib.scenes)
 
-	// for _, document in lib.shader_documents {
-	// 	helios.destroy(document)
-	// }
-	// delete(lib.shader_documents)
 	free_all(lib.allocator)
 }
 
@@ -476,73 +472,6 @@ load_resources_from_gltf :: proc(document: ^gltf.Document) {
 	}
 }
 
-// load_shader_document :: proc(file_path: string) {
-// 	lib := &app.library
-// 	begin_temp_allocation()
-
-// 	lib_source, read_ok := os.read_entire_file(file_path, context.temp_allocator)
-// 	if !read_ok {
-// 		log.fatalf(
-// 			"[%s]: Failed to read shader library from filepath: %s",
-// 			App_Module.IO,
-// 			file_path,
-// 		)
-// 		intrinsics.trap()
-// 	}
-
-// 	shader_document, parse_err := helios.parse(file_path, lib_source, lib.allocator)
-// 	if parse_err != nil {
-// 		log.fatalf(
-// 			"[%s]: Failed to parse shader library: %s\n\tDetails: %#v",
-// 			App_Module.IO,
-// 			file_path,
-// 			parse_err,
-// 		)
-// 		intrinsics.trap()
-// 	}
-// 	lib.shader_documents[file_path] = shader_document
-
-// 	end_temp_allocation()
-// }
-
-// load_shaders_from_dir :: proc(dir: string) {
-// 	lib := &app.library
-// 	context.allocator = lib.allocator
-// 	context.temp_allocator = lib.temp_allocator
-
-// 	matches, glob_err := filepath.glob(fmt.tprintf("%s/*", dir), context.temp_allocator)
-
-// 	if glob_err != nil {
-// 		log.fatalf("%s: Failed to load Shaders from directory %s", App_Module.Shader, dir)
-// 		assert(false)
-// 	}
-// 	for path in matches {
-// 		if !strings.has_suffix(path, ".shader") {
-// 			continue
-// 		}
-// 		output, err := aether.split_shader_stages(path, context.temp_allocator)
-
-// 		if err != .None {
-// 			log.errorf("%s: [%s] Failed to load shader %s", App_Module.IO, err, path)
-// 			continue
-// 		}
-
-// 		loader := Shader_Loader {
-// 			name = filepath.stem(path),
-// 			kind = .Byte,
-// 			stages = {
-// 				Shader_Stage.Vertex = Shader_Stage_Loader{
-// 					source = aether.stage_source(&output, .Vertex),
-// 				},
-// 				Shader_Stage.Fragment = Shader_Stage_Loader{
-// 					source = aether.stage_source(&output, .Fragment),
-// 				},
-// 			},
-// 		}
-// 		shader_resource(loader)
-// 	}
-// }
-
 
 // Searching procedures
 @(private)
@@ -581,6 +510,24 @@ shader_from_name :: proc(name: string) -> (result: ^Shader, exist: bool) {
 		}
 	}
 	return
+}
+
+shader_specialization_from_name :: proc(
+	name: string,
+) -> (
+	result: ^Shader_Specialization,
+	exist: bool,
+) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	if spec_res, exist := lib.shader_specs[name]; exist {
+		return spec_res.data.(^Shader_Specialization), true
+	} else {
+		return nil, false
+	}
+
 }
 
 material_from_name :: proc(name: string) -> (result: ^Material, exist: bool) {
