@@ -522,12 +522,12 @@ shader_specialization_from_name :: proc(
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
 
-	if spec_res, exist := lib.shader_specs[name]; exist {
-		return spec_res.data.(^Shader_Specialization), true
-	} else {
-		return nil, false
+	if spec_res, _exist := lib.shader_specs[name]; _exist {
+		result = spec_res.data.(^Shader_Specialization)
+		exist = true
 	}
 
+	return
 }
 
 material_from_name :: proc(name: string) -> (result: ^Material, exist: bool) {
