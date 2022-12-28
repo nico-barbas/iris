@@ -1,5 +1,6 @@
 package iris
 
+// import "core:log"
 import "core:time"
 import "core:math/linalg"
 
@@ -28,6 +29,7 @@ Render_Context :: struct {
 	// Lighting context
 	shadow_maps:                 [MAX_SHADOW_MAPS][MAX_CASCADES]^Texture,
 	shadow_map_count:            int,
+	shadow_offsets:              Sampling_Disk,
 
 	// Deferred context
 	deferred_framebuffer:        ^Framebuffer,
@@ -257,6 +259,8 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 		},
 		.Interleaved,
 	)
+
+	ctx.shadow_offsets = make_sampling_disk(4)
 }
 
 close_render_ctx :: proc(ctx: ^Render_Context) {
@@ -319,7 +323,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.hdr_framebuffer)
 	clear_framebuffer(ctx.hdr_framebuffer)
 	{
-		// set_backface_culling(false)
+	// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
@@ -349,6 +353,12 @@ end_render :: proc() {
 		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color1), normal_buffer_index)
 		set_shader_uniform(ctx.deferred_composite_shader, "bufferedAlbedo", &albedo_buffer_index)
 		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
+		set_shader_uniform(
+			ctx.deferred_composite_shader,
+			"shadowOffsets[0]",
+			&ctx.shadow_offsets.data[0],
+		)
+		// log.debug(ctx.deferred_composite_shader.uniforms)
 
 		next_shadow_map_index := u32(3)
 		for i in 0 ..< ctx.shadow_map_count {
@@ -370,7 +380,6 @@ end_render :: proc() {
 				}
 			}
 		}
-
 
 		send_buffer_data(
 			&ctx.deferred_vertices,

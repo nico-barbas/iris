@@ -1,5 +1,6 @@
 package iris
 
+import "core:math/rand"
 import "core:math"
 import "core:math/linalg"
 import gl "vendor:OpenGL"
@@ -251,6 +252,34 @@ sample :: proc(it: $T/Sample_Interface($Data, $Elem), coord: Vector2) -> Elem {
 
 	result := it.blend_proc(sample_s, sample_t, blend_y)
 	return result
+}
+
+Sampling_Disk :: struct {
+	data: []Vector2,
+	size: int,
+}
+
+make_sampling_disk :: proc(size: int, allocator := context.allocator) -> (result: Sampling_Disk) {
+	result = Sampling_Disk {
+		data = make([]Vector2, size * size, allocator),
+		size = size,
+	}
+
+	index := 0
+	for v := size - 1; v >= 0; v -= 1 {
+		for u in 0 ..< size {
+			x := f32(u) + 0.5 + (rand.float32() - 0.5)
+			y := f32(v) + 0.5 + (rand.float32() - 0.5)
+
+			result.data[index] = Vector2{
+				math.sqrt(y) * math.cos(2 * math.PI * x),
+				math.sqrt(y) * math.sin(2 * math.PI * x),
+			}
+			index += 1
+		}
+	}
+
+	return
 }
 
 @(private)

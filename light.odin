@@ -60,7 +60,7 @@ Light_Option :: enum {
 Light_Options :: distinct bit_set[Light_Option]
 
 Shadow_Map :: struct {
-	scale:             f32,
+	scales:            [MAX_CASCADES]f32,
 	distance:          f32,
 	projection:        Matrix4,
 	bounds:            Bounding_Box,
@@ -159,8 +159,8 @@ init_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node, camera: ^Came
 
 
 		size := render_size()
-		framebuffer_size := size * node.shadow_map.scale
 		for i in 0 ..< node.shadow_map.cascade_count {
+			framebuffer_size := size * node.shadow_map.scales[i]
 			map_res := framebuffer_resource(
 				Framebuffer_Loader{
 					attachments = {.Depth},
@@ -295,6 +295,7 @@ shadow_map_pass :: proc(
 		log.debug("Redraw shadow map")
 		static_shadow_map_pass(node, geometry[STATIC_INDEX])
 		dynamic_shadow_map_pass(node, geometry[DYNAMIC_INDEX])
+		node.shadow_map.dirty = false
 	}
 
 	cascaded_maps: [MAX_CASCADES]^Texture
