@@ -2583,8 +2583,8 @@ init_text_input :: proc(input: ^Text_Input_Widget) {
 		height = f32(char_height),
 	}
 	input.delete_timer = Timer {
-		reset = true,
-		rate  = 0.25,
+		reset    = true,
+		duration = 0.25,
 	}
 }
 
