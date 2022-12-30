@@ -19,6 +19,7 @@ Render_Context :: struct {
 	projection_view:             Matrix4,
 	context_uniform_buffer:      ^Buffer,
 	context_uniform_memory:      Buffer_Memory,
+	material_cache:              Material_Cache,
 
 	// Camera context
 	view_dirty:                  bool,
@@ -52,8 +53,9 @@ Render_Context :: struct {
 }
 
 Render_Uniform_Kind :: enum u32 {
-	Context_Data  = 0,
-	Lighting_Data = 1,
+	Context_Data   = 0,
+	Lighting_Data  = 1,
+	Material_Cache = 2,
 }
 
 @(private)
@@ -137,13 +139,16 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	ctx.centre = {}
 	ctx.up = VECTOR_UP
 
+	init_material_cache(&ctx.material_cache)
+
 	deferred_framebuffer_res := framebuffer_resource(
 		Framebuffer_Loader{
-			attachments = {.Color0, .Color1, .Color2, .Depth},
+			attachments = {.Color0, .Color1, .Color2, .Color3, .Depth},
 			precision = {
 				Framebuffer_Attachment.Color0 = 16,
 				Framebuffer_Attachment.Color1 = 16,
 				Framebuffer_Attachment.Color2 = 8,
+				Framebuffer_Attachment.Color3 = 8,
 			},
 			width = ctx.render_width,
 			height = ctx.render_height,
@@ -286,6 +291,7 @@ start_render :: proc() {
 	for queue in &ctx.queues {
 		queue.count = 0
 	}
+	refresh_material_cache(&ctx.material_cache)
 }
 
 end_render :: proc() {
@@ -323,7 +329,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.hdr_framebuffer)
 	clear_framebuffer(ctx.hdr_framebuffer)
 	{
-	// set_backface_culling(false)
+		// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
@@ -341,6 +347,7 @@ end_render :: proc() {
 		position_buffer_index: u32 = 0
 		normal_buffer_index: u32 = 1
 		albedo_buffer_index: u32 = 2
+		material_buffer_index: u32 = 3
 		shadow_map_indices: [MAX_SHADOW_MAPS][MAX_CASCADES]u32
 
 		set_shader_uniform(
@@ -355,12 +362,22 @@ end_render :: proc() {
 		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color2), albedo_buffer_index)
 		set_shader_uniform(
 			ctx.deferred_composite_shader,
+			"bufferedMaterial",
+			&material_buffer_index,
+		)
+		bind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color3), material_buffer_index)
+
+
+		set_shader_uniform(
+			ctx.deferred_composite_shader,
 			"shadowOffsets[0]",
 			&ctx.shadow_offsets.data[0],
 		)
-		// log.debug(ctx.deferred_composite_shader.uniforms)
 
-		next_shadow_map_index := u32(3)
+		// Material uniforms
+		// set_shader_uniform(ctx.deferred_composite_shader, "material.color", &)
+
+		next_shadow_map_index := u32(4)
 		for i in 0 ..< ctx.shadow_map_count {
 			for j in 0 ..< MAX_CASCADES {
 				if ctx.shadow_maps[i][j] != nil {
@@ -526,6 +543,7 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			if skinned {
 				set_shader_uniform(shader, "matJoints", &c.joints[0])
 			}
+			set_shader_uniform(shader, "materialId", &c.material.cache_id)
 
 			for kind in Material_Map {
 				if kind in c.material.maps {
@@ -565,7 +583,6 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			spec[Shader_Stage.Vertex]["computeModelMat"] = model_mat_subroutine
 
 			set_shader_subroutines(shader, spec^)
-			// set_shader_uniform(shader, "instanced", &instancing)
 			if instancing {
 				info := c.instancing_info.?
 				link_packed_attributes_vertices_list(
