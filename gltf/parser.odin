@@ -2,6 +2,7 @@ package gltf
 
 import "core:os"
 import "core:encoding/json"
+import "core:encoding/base64"
 import "core:slice"
 import "core:strings"
 import "core:strconv"
@@ -58,11 +59,12 @@ parse_from_file :: proc(
 		err = .Failed_To_Read_Gltf_File
 		return
 	}
-	if format != .Gltf_External {
+	if format == .Glb {
 		err = .Unsupported_Format
 		return
 	}
 
+	// fmt.println(string(source[:len(source) / 10]))
 	json_data, json_success := json.parse(data = source, allocator = context.temp_allocator)
 	defer json.destroy_value(json_data)
 
@@ -87,12 +89,32 @@ parse_from_file :: proc(
 
 			buffer: Buffer
 			buffer.name = strings.clone(buffer_data["name"].(string) or_else "")
-			buffer.uri = strings.clone(buffer_data["uri"].(string))
 
 			switch format {
-			case .Gltf_Embed, .Glb:
+			case .Glb:
+			case .Gltf_Embed:
+				uri_str := buffer_data["uri"].(string)
+				binary_data: string
+				if strings.has_prefix(uri_str, "data:application/octet-stream;") {
+					binary_data = uri_str[len("data:application/octet-stream;"):]
+				} else if strings.has_prefix(uri_str, "data:application/gltf-buffer;") {
+					binary_data = uri_str[len("data:application/gltf-buffer;"):]
+				} else {
+					unreachable()
+				}
+
+				if strings.has_prefix(binary_data, "base64,") {
+					binary_data = binary_data[len("base64,"):]
+				} else {
+					err = .Invalid_Buffer_Uri
+					return
+				}
+
+				buffer.data = base64.decode(binary_data)
+
 			case .Gltf_External:
 				uri_ok: bool
+				buffer.uri = strings.clone(buffer_data["uri"].(string))
 				buffer_path := filepath.join({dir, buffer.uri}, context.temp_allocator)
 				buffer.data, uri_ok = os.read_entire_file(buffer_path)
 				if !uri_ok {
@@ -318,7 +340,12 @@ parse_from_file :: proc(
 				pbr_info := json_pbr_info.(json.Object)
 
 				if base_clr_f, has_base_clr_f := pbr_info["baseColorFactor"]; has_base_clr_f {
+					// fmt.println(material.name, pbr_info)
 					base_color_factor := base_clr_f.(json.Array)
+					// for component, i in &material.base_color_factor {
+					// 	c := f32(base_color_factor[i].(json.Float))
+					// 	component = c
+					// }
 					material.base_color_factor = {
 						0 = f32(base_color_factor[0].(json.Float)),
 						1 = f32(base_color_factor[1].(json.Float)),

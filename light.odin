@@ -293,6 +293,8 @@ shadow_map_pass :: proc(
 
 	if node.shadow_map.dirty {
 		log.debug("Redraw shadow map")
+		set_frontface_culling(true)
+		defer set_backface_culling(true)
 		static_shadow_map_pass(node, geometry[STATIC_INDEX])
 		dynamic_shadow_map_pass(node, geometry[DYNAMIC_INDEX])
 		node.shadow_map.dirty = false

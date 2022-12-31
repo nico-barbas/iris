@@ -12,7 +12,7 @@ import "core:path/filepath"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 
-@(private)
+@(private, export)
 app: ^App
 
 App :: struct {
@@ -231,11 +231,11 @@ frame_allocator_offset :: proc() -> int {
 	return app.frame_arena.offset
 }
 
-get_app :: proc() -> ^App {
+get_app_ptr :: proc() -> rawptr {
 	return app
 }
 
-set_app :: proc(ptr: rawptr) {
+set_app_ptr :: proc(ptr: rawptr) {
 	app = cast(^App)ptr
 }
 

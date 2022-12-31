@@ -511,7 +511,9 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 		n.meshes.allocator = scene.allocator
 		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
-		n.options += {.Static}
+		if .Dynamic not_in n.options {
+			n.options += {.Static}
+		}
 
 	case ^Model_Group_Node:
 		node.name = "Model_Group"
@@ -869,6 +871,7 @@ Model_Loader_Flag :: enum {
 
 	// Specific data
 	Load_Bones,
+	Load_Children,
 }
 
 Model_Loading_Error :: enum {
@@ -922,7 +925,21 @@ model_node_from_gltf :: proc(
 			meshes_bounds[i] = mesh_bounds
 		}
 
+		model.options += loader.options
 		model.local_bounds = bounding_box_from_bounds_slice(meshes_bounds)
+		node_local_transform(model, transform_from_matrix(node.local_transform))
+
+		// FIXME: Not the prettiest way to handle that
+		// Should recursively check the children for deep mesh nodes
+		if .Load_Children in loader.flags {
+			for child in node.children {
+				if child.mesh != nil {
+					child_model := new_node(model.scene, Model_Node)
+					model_node_from_gltf(child_model, loader, child)
+					insert_node(model.scene, child_model, model)
+				}
+			}
+		}
 	} else {
 		err = .Invalid_Node
 	}
@@ -1087,15 +1104,15 @@ model_node_from_mesh :: proc(scene: ^Scene, mesh: ^Mesh, material: ^Material) ->
 	return model
 }
 
-flag_model_node_as_dynamic :: proc(model: ^Model_Node) {
-	model.options -= {.Static}
-	model.options += {.Dynamic}
-}
+// flag_model_node_as_dynamic :: proc(model: ^Model_Node) {
+// 	model.options -= {.Static}
+// 	model.options += {.Dynamic}
+// }
 
-flag_model_node_as_static :: proc(model: ^Model_Node) {
-	model.options += {.Static}
-	model.options -= {.Dynamic}
-}
+// flag_model_node_as_static :: proc(model: ^Model_Node) {
+// 	model.options += {.Static}
+// 	model.options -= {.Dynamic}
+// }
 
 Model_Group_Node :: struct {
 	using model:   Model_Node,
