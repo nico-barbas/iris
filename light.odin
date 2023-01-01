@@ -17,9 +17,9 @@ Lighting_Context :: struct {
 	shadow_map_count:   int,
 	shadow_map_ids:     [MAX_SHADOW_MAPS]Light_ID,
 	shadow_map_shader:  ^Shader,
-	global_dirty_cache: bool,
 	uniform_memory:     Buffer_Memory,
 	dirty_uniform_data: bool,
+	dirty_shadow_maps:  bool,
 }
 
 Light_Uniform_Data :: struct {
@@ -128,6 +128,16 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
 			},
 		)
+
+		ctx.dirty_uniform_data = false
+	}
+
+	if ctx.dirty_shadow_maps {
+		for id in ctx.shadow_map_ids[:ctx.shadow_map_count] {
+			ctx.lights[id].shadow_map.dirty = true
+		}
+
+		ctx.dirty_shadow_maps = false
 	}
 }
 

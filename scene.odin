@@ -167,12 +167,11 @@ set_scene_main_camera :: proc(scene: ^Scene, camera: ^Camera_Node) {
 
 update_scene :: proc(scene: ^Scene, dt: f32) {
 	traverse_node :: proc(node: ^Node, parent_transform: Matrix4, dt: f32) {
-		children_dirty_transform := false
-		if .Dirty_Transform in node.flags {
+		dirty := .Dirty_Transform in node.flags
+		if dirty {
 			node.global_transform = parent_transform * node.local_transform
 			node.flags -= {.Dirty_Transform}
 			node.flags += {.Dirty_Bounds}
-			children_dirty_transform = true
 		}
 		switch n in node.derived {
 		case ^Empty_Node:
@@ -181,7 +180,7 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 			update_camera_node(n, false)
 
 		case ^Light_Node:
-			// if children_dirty_transform {
+			// if dirty {
 			update_light_node(&n.scene.lighting, n)
 			set_lighting_context_dirty(&n.scene.lighting)
 		// if .Shadow_Map in n.options {
@@ -191,7 +190,13 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		// }
 		// }
 
-		case ^Model_Node, ^Model_Group_Node:
+		case ^Model_Node:
+			if dirty && .Cast_Shadows in n.options {
+				// TODO: set shadow map dirty
+				n.scene.lighting.dirty_shadow_maps = true
+			}
+
+		case ^Model_Group_Node:
 
 		case ^Skin_Node:
 			update_skin_node(n, dt)
@@ -203,7 +208,7 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 			render_ui_node(n)
 		}
 		for child in node.children {
-			if children_dirty_transform {
+			if dirty {
 				child.flags += {.Dirty_Transform}
 			}
 			traverse_node(child, node.global_transform, dt)
@@ -441,7 +446,6 @@ render_scene :: proc(scene: ^Scene) {
 	for root in scene.roots {
 		traverse_node(scene, root)
 	}
-	scene.lighting.global_dirty_cache = true
 	update_lighting_context(&scene.lighting)
 	if .Draw_Debug_Collisions in scene.flags {
 		push_draw_command(

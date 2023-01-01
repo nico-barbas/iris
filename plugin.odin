@@ -9,6 +9,7 @@ import "core:dynlib"
 import "core:strings"
 import "core:path/filepath"
 import win32 "core:sys/windows"
+foreign import libc "system:c"
 
 Plugin_Desc :: struct {
 	source_dir:    string,
@@ -237,8 +238,36 @@ build_plugin :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
 		win32.CloseHandle(stdout_read)
 
 		return exit_code, true, stdout[0:index]
-	} else {
-		unimplemented("Plugin for non-windows OS not implemented")
-		return -1, false, stdout[:]
+	} else when ODIN_OS == .Linux {
+		fp := popen(strings.clone_to_cstring(command, context.temp_allocator), "r")
+		if fp == nil {
+			return 0, false, stdout[0:]
+		}
+		defer pclose(fp)
+
+		read_buffer: [50]byte
+		index: int
+
+		for fgets(&read_buffer[0], size_of(read_buffer), fp) != nil {
+			read := bytes.index_byte(read_buffer[:], 0)
+			defer index += cast(int)read
+
+			if read > 0 && index + cast(int)read <= len(stdout) {
+				mem.copy(&stdout[index], &read_buffer[0], cast(int)read)
+			}
+		}
+
+
+		return 0, true, stdout[0:index]
+	}
+}
+
+
+when ODIN_OS == .Linux {
+	foreign libc {
+		popen :: proc(command: cstring, type: cstring) -> ^FILE ---
+		pclose :: proc(stream: ^FILE) -> i32 ---
+		fgets :: proc "cdecl" (s: [^]byte, n: i32, stream: ^FILE) -> [^]u8 ---
+		fgetc :: proc "cdecl" (stream: ^FILE) -> i32 ---
 	}
 }
