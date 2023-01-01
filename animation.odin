@@ -1,5 +1,6 @@
 package iris
 
+import "core:math"
 import "core:math/linalg"
 import "core:strings"
 import "gltf"
@@ -256,4 +257,40 @@ destroy_animation :: proc(animation: ^Animation) {
 		delete(channel.frame_outputs)
 	}
 	delete(animation.channels)
+}
+
+
+Tween :: struct {
+	using timer:   Timer,
+	interpolation: enum {
+		Linear,
+		In,
+		Out,
+		In_Out,
+	},
+	start:         Animation_Value,
+	end:           Animation_Value,
+}
+
+advance_tween :: proc(tween: ^Tween, dt: f32) -> (result: Animation_Value, done: bool) {
+	done = advance_timer(tween, dt)
+
+	t := tween.time / tween.duration
+
+	switch tween.interpolation {
+	case .Linear:
+	case .In:
+		t = t * t
+	case .Out:
+		t = math.sqrt(t)
+	case .In_Out:
+		t = -(math.cos(math.PI * t) - 1) / 2
+	}
+
+	result = lerp_values(tween.start, tween.end, t)
+	return
+}
+
+reset_tween :: proc(tween: ^Tween) {
+	tween.time = 0
 }

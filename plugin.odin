@@ -7,9 +7,16 @@ import "core:mem"
 import "core:time"
 import "core:dynlib"
 import "core:strings"
+import "core:bytes"
 import "core:path/filepath"
-import win32 "core:sys/windows"
-foreign import libc "system:c"
+
+when ODIN_OS == .Windows {
+	import win32 "core:sys/windows"
+}
+
+when ODIN_OS == .Linux {
+	foreign import libc "system:c"
+}
 
 Plugin_Desc :: struct {
 	source_dir:    string,
@@ -238,7 +245,9 @@ build_plugin :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
 		win32.CloseHandle(stdout_read)
 
 		return exit_code, true, stdout[0:index]
+
 	} else when ODIN_OS == .Linux {
+
 		fp := popen(strings.clone_to_cstring(command, context.temp_allocator), "r")
 		if fp == nil {
 			return 0, false, stdout[0:]
@@ -264,6 +273,8 @@ build_plugin :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
 
 
 when ODIN_OS == .Linux {
+	FILE :: struct {}
+
 	foreign libc {
 		popen :: proc(command: cstring, type: cstring) -> ^FILE ---
 		pclose :: proc(stream: ^FILE) -> i32 ---

@@ -196,17 +196,17 @@ Direction :: enum {
 }
 
 Timer :: struct {
-	reset:       bool,
-	duration:    f32,
-	accumulator: f32,
+	reset:    bool,
+	duration: f32,
+	time:     f32,
 }
 
 advance_timer :: proc(t: ^Timer, dt: f32) -> (finished: bool) {
-	t.accumulator += dt
-	if t.accumulator >= t.duration {
+	t.time += dt
+	if t.time >= t.duration {
 		finished = true
 		if t.reset {
-			t.accumulator = 0
+			t.time = 0
 		}
 	}
 	return
