@@ -21,6 +21,11 @@ Error :: enum {
 	Json_Parsing_Error,
 	Failed_To_Read_Gltf_File,
 	Failed_To_Read_External_File,
+	Invalid_Header_Size,
+	Invalid_Glb_Magic,
+	Invalid_Glb_Version,
+	Invalid_Binary_Chunk,
+	Invalid_Json_Chunk,
 	Invalid_Buffer_Uri,
 	Invalid_Buffer_View_Length,
 	Invalid_Accessor_Count,
@@ -55,17 +60,23 @@ parse_from_file :: proc(
 	dir := filepath.dir(path, context.temp_allocator)
 	source, file_ok := os.read_entire_file(path, context.temp_allocator)
 
+	json_source: []byte
+	glb_bin_source: []byte
+
 	if !file_ok {
 		err = .Failed_To_Read_Gltf_File
 		return
 	}
-	if format == .Glb {
-		err = .Unsupported_Format
-		return
+
+	// GLB header checking shenanigans
+	switch format {
+	case .Glb:
+		json_source, glb_bin_source = parse_glb_header(source) or_return
+	case .Gltf_Embed, .Gltf_External:
+		json_source = source[:]
 	}
 
-	// fmt.println(string(source[:len(source) / 10]))
-	json_data, json_success := json.parse(data = source, allocator = context.temp_allocator)
+	json_data, json_success := json.parse(data = json_source, allocator = context.temp_allocator)
 	defer json.destroy_value(json_data)
 
 	if json_success != nil {
@@ -92,6 +103,9 @@ parse_from_file :: proc(
 
 			switch format {
 			case .Glb:
+				buffer.byte_length = uint(buffer_data["byteLength"].(json.Float))
+				buffer.data = slice.clone(glb_bin_source[:buffer.byte_length])
+
 			case .Gltf_Embed:
 				uri_str := buffer_data["uri"].(string)
 				binary_data: string
@@ -995,6 +1009,79 @@ destroy_document :: proc(d: ^Document) {
 }
 
 @(private)
+parse_glb_header :: proc(source: []byte) -> (json_source: []byte, bin_source: []byte, err: Error) {
+	if len(source) < 12 {
+		err = .Invalid_Header_Size
+		return
+	}
+
+	read_u32 :: proc(source: []byte, at: int) -> (result: u32, next: int) {
+		next = at + U32_LEN
+		result = slice.reinterpret([]u32, source[at:next])[0]
+		return
+	}
+
+	U32_LEN :: size_of(u32)
+	GLTF_MAGIC :: 0x46546C67
+	JSON_CHUNK_TYPE :: 0x4E4F534A
+	BIN_CHUNK_TYPE :: 0x004E4942
+
+	magic: u32
+	version: u32
+	cursor := 0
+
+	magic, cursor = read_u32(source, cursor)
+	if magic != GLTF_MAGIC {
+		err = .Invalid_Glb_Magic
+		return
+	}
+
+	version, cursor = read_u32(source, cursor)
+	if version != 2 {
+		err = .Invalid_Glb_Version
+		return
+	}
+
+	cursor += U32_LEN
+
+	if len(source[cursor:]) < 8 {
+		err = .Invalid_Json_Chunk
+		return
+	}
+
+	chunk_length: u32
+	chunk_type: u32
+
+	chunk_length, cursor = read_u32(source, cursor)
+	chunk_type, cursor = read_u32(source, cursor)
+
+	if chunk_type != JSON_CHUNK_TYPE {
+		err = .Invalid_Json_Chunk
+		return
+	}
+
+	json_source = source[cursor:cursor + int(chunk_length)]
+	cursor += int(chunk_length)
+
+	if len(source[cursor:]) < 8 {
+		err = .Invalid_Binary_Chunk
+		return
+	}
+
+	chunk_length, cursor = read_u32(source, cursor)
+	chunk_type, cursor = read_u32(source, cursor)
+
+	if chunk_type != BIN_CHUNK_TYPE {
+		err = .Invalid_Binary_Chunk
+		return
+	}
+
+	bin_source = source[cursor:cursor + int(chunk_length)]
+
+	return
+}
+
+@(private)
 to_accesor_kind :: proc(t: string) -> (k: Accessor_Kind) {
 	switch t {
 	case "SCALAR":
@@ -1015,6 +1102,7 @@ to_accesor_kind :: proc(t: string) -> (k: Accessor_Kind) {
 	return
 }
 
+@(private)
 parse_accessor_data :: proc(a: ^Buffer_Data_Type, raw: []byte) {
 	switch a.kind {
 	case .Scalar:
