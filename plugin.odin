@@ -74,13 +74,7 @@ load_plugin :: proc(plugin: ^Plugin) -> (ok: bool) {
 	plugin.dll = dynlib.load_library(plugin.dll_path, true) or_return
 	load_plugin_symbols(plugin) or_return
 
-	// FIXME: could probably do better here, but this will have to do 
-	// for now to remember not to touch OpenGL from the dll side
-	log.debugf(
-		"[%s]: Successfully loaded custom plugin\n%s\n",
-		App_Module.IO,
-		"=> Be careful not to use any GPU allocation procs across DLL boundaries..",
-	)
+	log.debugf("[%s]: Successfully loaded custom plugin\n", App_Module.IO)
 
 	plugin.modification_time = time.now()
 	plugin.last_reload = time.now()

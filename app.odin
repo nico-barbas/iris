@@ -64,6 +64,12 @@ App_Module :: enum u8 {
 	Text,
 }
 
+App_Graphics_API :: enum {
+	GL,
+	Vulkan,
+	D3D11,
+}
+
 init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	DEFAULT_ALLOCATOR_SIZE :: mem.Megabyte * 500
 	DEFAULT_FRAME_ALLOCATOR_SIZE :: mem.Megabyte * 1000
@@ -124,11 +130,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	glfw.ShowWindow(app.win_handle)
 
 	glfw.MakeContextCurrent(app.win_handle)
-	gl.load_up_to(
-		DEFAULT_GL_MAJOR_VERSION,
-		DEFAULT_GL_MINOR_VERSION,
-		proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = glfw.GetProcAddress(name)},
-	)
+	load_api(.GL)
 	gl.Enable(gl.DEBUG_OUTPUT)
 	gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
 	gl.DebugMessageCallback(gl_debug_cb, nil)
@@ -251,4 +253,14 @@ gl_debug_cb :: proc "c" (
 ) {
 	context = app.ctx
 	// log.debug(message)
+}
+
+load_api :: proc(api: App_Graphics_API) {
+	DEFAULT_GL_MAJOR_VERSION :: 4
+	DEFAULT_GL_MINOR_VERSION :: 6
+	gl.load_up_to(
+		DEFAULT_GL_MAJOR_VERSION,
+		DEFAULT_GL_MINOR_VERSION,
+		proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = glfw.GetProcAddress(name)},
+	)
 }
