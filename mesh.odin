@@ -59,7 +59,6 @@ plane_mesh :: proc(w, h: int, s_w, s_h: int, uv_repeat: int, normal := VECTOR_UP
 
 			u := f32(x) / f32(uv_repeat)
 			v := f32(y) / f32(uv_repeat)
-			// uvs[y * v_per_row + x] = {(f32(x) / f32(s_w)), (f32(y) / f32(s_h))}
 			uvs[y * v_per_row + x] = {u, v}
 		}
 	}
