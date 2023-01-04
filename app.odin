@@ -134,7 +134,6 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 	gl.Enable(gl.DEBUG_OUTPUT)
 	gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
 	gl.DebugMessageCallback(gl_debug_cb, nil)
-	gl.Enable(gl.MULTISAMPLE)
 	gl.Enable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE)

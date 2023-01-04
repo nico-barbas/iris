@@ -17,6 +17,7 @@ Framebuffer_Loader :: struct {
 	width:        int,
 	height:       int,
 	attachments:  Framebuffer_Attachments,
+	filter:       [MAX_COLOR_ATTACHMENT]Texture_Filter_Mode,
 	precision:    [MAX_COLOR_ATTACHMENT]int,
 	clear_colors: [len(Framebuffer_Attachment)]Color,
 }
@@ -39,6 +40,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	create_framebuffer_texture :: proc(
 		a: Framebuffer_Attachment,
 		w, h: int,
+		filter: Texture_Filter_Mode = .Nearest,
 		precision := 8,
 	) -> Texture {
 		texture: Texture
@@ -46,8 +48,8 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		texture.height = f32(h)
 		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture.handle)
 		if a >= .Color0 && a <= .Color3 {
-			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, i32(filter))
+			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, i32(filter))
 			gl.TextureStorage2D(
 				texture.handle,
 				1,
@@ -81,11 +83,13 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	for i in Framebuffer_Attachment.Color0 ..= Framebuffer_Attachment.Color3 {
 		a := Framebuffer_Attachment(i)
 		if a in l.attachments {
+			filter := l.filter[a] == nil ? Texture_Filter_Mode.Nearest : l.filter[a]
 			precision := l.precision[a]
 			framebuffer.maps[a] = create_framebuffer_texture(
 				a,
 				l.width,
 				l.height,
+				filter,
 				precision if precision > 0 else 8,
 			)
 			gl.NamedFramebufferTexture(

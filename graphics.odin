@@ -39,9 +39,13 @@ Render_Context :: struct {
 	deferred_vertices:           Buffer_Memory,
 	deferred_indices:            Buffer_Memory,
 
-	//
+	// hdr and tonemapping pass
 	hdr_framebuffer:             ^Framebuffer,
 	hdr_shader:                  ^Shader,
+
+	// Anti-aliasing pass
+	aa_framebuffer:              ^Framebuffer,
+	aa_shader:                   ^Shader,
 
 	// Pass through blit shader
 	framebuffer_blit_shader:     ^Shader,
@@ -240,6 +244,31 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 		},
 	)
 	ctx.hdr_shader = hdr_shader_res.data.(^Shader)
+
+	// Anti-aliasing resources
+	aa_framebuffer_res := framebuffer_resource(
+		Framebuffer_Loader{
+			attachments = {.Color0, .Depth},
+			clear_colors = {Framebuffer_Attachment.Color0 = Color{0.6, 0.6, 0.6, 1.0}},
+			filter = {Framebuffer_Attachment.Color0 = .Linear},
+			precision = {Framebuffer_Attachment.Color0 = 8},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	ctx.aa_framebuffer = aa_framebuffer_res.data.(^Framebuffer)
+
+	aa_shader_res := shader_resource(
+		Shader_Loader{
+			name = "anti_aliasing",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = AA_FRAGMENT_SHADER},
+			},
+		},
+	)
+	ctx.aa_shader = aa_shader_res.data.(^Shader)
 
 	blit_shader_res := shader_resource(
 		Shader_Loader{
@@ -444,9 +473,14 @@ end_render :: proc() {
 	render_forward_geometry(ctx)
 
 	// Tone mapping pass
-	bind_shader(ctx.hdr_shader)
-	default_framebuffer()
 	{
+		bind_framebuffer(ctx.aa_framebuffer)
+		clear_framebuffer(ctx.aa_framebuffer)
+		bind_shader(ctx.hdr_shader)
+		defer {
+			default_attributes()
+			default_shader()
+		}
 			//odinfmt: disable
 		quad_vertices := [?]f32{
 			-1.0,  1.0, 0.0, 1.0,
@@ -488,11 +522,6 @@ end_render :: proc() {
 
 		// prepare attributes
 		bind_attributes(ctx.framebuffer_blit_attributes)
-		defer {
-			default_attributes()
-			default_shader()
-			unbind_texture(framebuffer_texture(ctx.deferred_framebuffer, .Color0))
-		}
 
 		link_interleaved_attributes_vertices(
 			ctx.framebuffer_blit_attributes,
@@ -501,6 +530,18 @@ end_render :: proc() {
 		link_attributes_indices(ctx.framebuffer_blit_attributes, ctx.deferred_indices.buf)
 
 		draw_triangles(len(quad_indices))
+		unbind_texture(framebuffer_texture(ctx.hdr_framebuffer, .Color0))
+
+		// Anti-aliasing pass
+		default_framebuffer()
+		bind_shader(ctx.aa_shader)
+
+		aa_buffer_index: u32 = 0
+		set_shader_uniform(ctx.aa_shader, "aaBuffer", &aa_buffer_index)
+		bind_texture(framebuffer_texture(ctx.aa_framebuffer, .Color0), aa_buffer_index)
+
+		draw_triangles(len(quad_indices))
+		unbind_texture(framebuffer_texture(ctx.aa_framebuffer, .Color0))
 	}
 
 	render_other_geometry(ctx)
@@ -802,18 +843,6 @@ view_matrix :: proc() -> Matrix4 {
 	return app.render_ctx.view
 }
 
-@(private)
-LIGHT_DEPTH_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-
-uniform mat4 matLightSpace;
-uniform mat4 matModel;
-
-void main() {
-	gl_Position = matLightSpace * matModel * vec4(attribPosition, 1.0);
-}
-`
 
 @(private)
 EMPTY_FRAGMENT_SHADER :: `
@@ -821,25 +850,6 @@ EMPTY_FRAGMENT_SHADER :: `
 
 void main() {
 
-}
-`
-
-@(private)
-VIEW_DEPTH_VERTEX_SHADER :: `
-#version 450 core
-layout (location = 0) in vec3 attribPosition;
-
-layout (std140, binding = 0) uniform ContextData {
-	mat4 projView;
-    mat4 matProj;
-    mat4 matView;
-	vec3 viewPosition;
-};
-
-uniform mat4 matModel;
-
-void main() {
-	gl_Position = projView * matModel * vec4(attribPosition, 1.0);
 }
 `
 
@@ -855,14 +865,92 @@ out vec4 finalColor;
 uniform sampler2D hdrBuffer;
 uniform float exposureValue;
 
+const float gamma = 2.2;
+const vec3 invGamma = vec3(1.0 / gamma);
+
+vec3 tonemapReinhard(vec3 hdrInput) {
+	vec3 ldrOutput = vec3(1.0) - exp(-hdrInput * exposureValue);
+	ldrOutput = pow(ldrOutput, invGamma);
+	return ldrOutput;
+}
+
 void main() {
-	const float gamma = 2.2;
 	vec3 hdrClr = texture(hdrBuffer, frag.texCoord).rgb;
 
 	// Tone mapping
-	vec3 ldrClr = vec3(1.0) - exp(-hdrClr * exposureValue);
-	ldrClr = pow(ldrClr, vec3(1.0 / gamma));
+	vec3 ldrClr = tonemapReinhard(hdrClr);
 
 	finalColor = vec4(ldrClr, 1.0);
+}
+`
+
+@(private)
+AA_FRAGMENT_SHADER :: `
+#version 450 core
+in VS_OUT {
+	vec2 texCoord;
+} frag;
+
+out vec4 finalColor;
+
+uniform sampler2D aaBuffer;
+uniform bool aaOn = true;
+
+#define FXAA_REDUCE_MIN   (1.0/ 128.0)
+#define FXAA_REDUCE_MUL   (1.0 / 8.0)
+#define FXAA_SPAN_MAX     8.0
+
+const vec3 luma = vec3(0.299, 0.587, 0.114);
+
+void main() {
+	vec3 clrM = texture(aaBuffer, frag.texCoord).rgb;
+	if (!aaOn) {
+		finalColor = vec4(clrM, 1.0);
+		return;
+	}
+
+	float lumaM  = dot(luma, clrM);
+	vec2 texelSize = 1.0 / textureSize(aaBuffer, 0);
+
+	// Gather all the adjacent luminosity samples in X pattern
+	float lumaUL = dot(luma, textureOffset(aaBuffer, frag.texCoord, ivec2(-1, -1)).rgb);
+	float lumaUR = dot(luma, textureOffset(aaBuffer, frag.texCoord, ivec2(1, -1)).rgb);
+	float lumaBL = dot(luma, textureOffset(aaBuffer, frag.texCoord, ivec2(-1, 1)).rgb);
+	float lumaBR = dot(luma, textureOffset(aaBuffer, frag.texCoord, ivec2(1, 1)).rgb);
+
+	// Find out the direction of the edge and adjust it
+	vec2 dir;
+	dir.x = -((lumaUL + lumaUR) - (lumaBL + lumaBR));
+	dir.y =  ((lumaUL + lumaBL) - (lumaUR + lumaBR));
+
+	float dirReduce = max((lumaUL + lumaUR + lumaBL + lumaBL) * (FXAA_REDUCE_MUL * 0.25), FXAA_REDUCE_MIN);
+	float dirAdjust = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+
+	dir = clamp(
+		vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+		vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
+		dir * dirAdjust);
+	dir *= texelSize;
+
+	// Sample the correct texel coordinate given the direction we calculated previously
+	// TODO: re-read the paper on that part..
+	vec3 result1 = 0.5 * (
+		texture(aaBuffer, frag.texCoord + (dir * vec2(1.0 / 3.0 - 0.5))).rgb +
+		texture(aaBuffer, frag.texCoord + (dir * vec2(2.0 / 3.0 - 0.5))).rgb);
+
+	vec3 result2 = result1 * 0.5 + 0.25 * (
+		texture(aaBuffer, frag.texCoord + (dir * vec2(0.0 / 3.0 - 0.5))).rgb +
+		texture(aaBuffer, frag.texCoord + (dir * vec2(3.0 / 3.0 - 0.5))).rgb);
+
+	float lumaMin = min(lumaM, min(min(lumaUL, lumaUR), min(lumaBL, lumaBR)));
+	float lumaMax = max(lumaM, max(max(lumaUL, lumaUR), max(lumaBL, lumaBR)));
+
+	float lumaResult2 = dot(luma, result2);
+
+	if (lumaResult2 < lumaMin || lumaResult2 > lumaMax) {
+		finalColor = vec4(result1, 1.0);
+	} else {
+		finalColor = vec4(result2, 1.0);
+	}
 }
 `
