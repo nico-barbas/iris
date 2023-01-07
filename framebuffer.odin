@@ -50,6 +50,7 @@ internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 		if a >= .Color0 && a <= .Color3 {
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, i32(filter))
 			gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, i32(filter))
+			// gl.Texture
 			gl.TextureStorage2D(
 				texture.handle,
 				1,
