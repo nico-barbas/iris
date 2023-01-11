@@ -308,8 +308,13 @@ internal_load_mesh_from_slice :: proc(loader: Mesh_Loader) -> Mesh {
 	for kind in Attribute_Kind {
 		if kind in loader.enabled {
 			a := loader.sources[kind].?
-			offsets[kind] = offset
 			layout.accessors[kind] = a.accessor
+
+			if kind == .Instance_Transform {
+				continue
+			}
+
+			offsets[kind] = offset
 			send_buffer_data(&mesh.vertices, a, offset)
 			offset += a.byte_size
 		}

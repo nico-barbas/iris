@@ -374,8 +374,21 @@ internal_load_cubemap_from_bytes :: proc(loader: Texture_Loader) -> Texture {
 
 load_texture_from_gltf :: proc(t: gltf.Texture, space: Texture_Space) -> ^Texture {
 	loader := Texture_Loader {
-		info = File_Texture_Info{path = t.source.reference.(string)},
 		space = space,
+	}
+
+	switch ref in t.source.reference {
+	case string:
+		loader.info = File_Texture_Info {
+			path = t.source.reference.(string),
+		}
+	case gltf.Image_Embedded_Reference:
+		assert(ref.mime_type != .Jpeg, "JPEG images not supported yet")
+		loader.info = Byte_Texture_Info {
+			data     = ref.view.byte_slice,
+			channels = 4,
+			bitmap   = false,
+		}
 	}
 
 	if t.sampler != nil {
