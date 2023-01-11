@@ -522,7 +522,13 @@ init_node :: proc(scene: ^Scene, node: ^Node) {
 	case ^Model_Group_Node:
 		node.name = "Model_Group"
 		node.local_bounds = BOUNDING_BOX_ZERO
+		n.meshes.allocator = scene.allocator
+		n.materials.allocator = scene.allocator
 		n.flags += {.Rendered}
+		if .Dynamic not_in n.options {
+			n.options += {.Static}
+		}
+		init_group_node(n)
 
 	case ^Skin_Node:
 		node.name = "Skin"
@@ -865,7 +871,6 @@ Model_Loader :: struct {
 Model_Loader_Flags :: distinct bit_set[Model_Loader_Flag]
 
 Model_Loader_Flag :: enum {
-	Flip_Normals,
 	Load_Position,
 	Load_Normal,
 	Load_Tangent,
@@ -876,6 +881,10 @@ Model_Loader_Flag :: enum {
 	// Specific data
 	Load_Bones,
 	Load_Children,
+
+	// Advanced flags
+	Flip_Normals,
+	Load_As_Instanced,
 }
 
 Model_Loading_Error :: enum {
@@ -1097,6 +1106,15 @@ load_mesh_from_gltf :: proc(
 		}
 	}
 
+	if .Load_As_Instanced in loader.flags {
+		mesh_loader.enabled += {.Instance_Transform}
+		mesh_loader.sources[Attribute_Kind.Instance_Transform] = Buffer_Source {
+			data = nil,
+			byte_size = 0,
+			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+		}
+	}
+
 	resource = mesh_resource(mesh_loader)
 	return
 }
@@ -1108,21 +1126,16 @@ model_node_from_mesh :: proc(scene: ^Scene, mesh: ^Mesh, material: ^Material) ->
 	return model
 }
 
-// flag_model_node_as_dynamic :: proc(model: ^Model_Node) {
-// 	model.options -= {.Static}
-// 	model.options += {.Dynamic}
-// }
-
-// flag_model_node_as_static :: proc(model: ^Model_Node) {
-// 	model.options += {.Static}
-// 	model.options -= {.Dynamic}
-// }
 
 Model_Group_Node :: struct {
 	using model:   Model_Node,
 	count:         int,
 	transform_res: ^Resource,
 	transform_buf: Buffer_Memory,
+}
+
+init_group_node :: proc(group: ^Model_Group_Node) {
+	resize_group_node_transforms(group, group.count)
 }
 
 resize_group_node_transforms :: proc(group: ^Model_Group_Node, count: int) {
@@ -1147,30 +1160,6 @@ resize_group_node_transforms :: proc(group: ^Model_Group_Node, count: int) {
 		},
 	)
 	end_temp_allocation()
-}
-
-init_group_node :: proc(
-	group: ^Model_Group_Node,
-	meshes: []^Mesh,
-	materials: []^Material,
-	count: int,
-) {
-	resize_group_node_transforms(group, count)
-
-	for mesh, i in meshes {
-		new_mesh := clone_mesh_resource(mesh).data.(^Mesh)
-
-		layout := mesh.attributes.layout
-		layout.enabled += {.Instance_Transform}
-		layout.accessors[Attribute_Kind.Instance_Transform] = Buffer_Data_Type {
-			kind   = .Float_32,
-			format = .Mat4,
-		}
-
-		new_mesh.attributes = attributes_from_layout(layout, mesh.attributes.format)
-		append(&group.meshes, new_mesh)
-		append(&group.materials, materials[i])
-	}
 }
 
 group_node_instance_transform :: proc(group: ^Model_Group_Node, index: int, t: Transform) {

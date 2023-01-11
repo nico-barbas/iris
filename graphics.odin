@@ -272,7 +272,7 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 
 	blit_shader_res := shader_resource(
 		Shader_Loader{
-			name = "hdr_tonemapping",
+			name = "blit",
 			kind = .Byte,
 			stages = {
 				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
@@ -559,8 +559,6 @@ render_deferred_geometry :: proc(ctx: ^Render_Context, cmds: []Render_Command) {
 			if .Transparent in c.options {
 				assert(false, "No transparent geometry allowed in the deferred pass")
 			}
-			// mvp := linalg.matrix_mul(ctx.projection_view, c.global_transform)
-			// set_shader_uniform(shader, "mvp", &mvp[0][0])
 
 			local := c.local_transform
 			global := c.global_transform
