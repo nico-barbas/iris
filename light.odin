@@ -369,12 +369,14 @@ render_dynamics :: proc(shader: ^Shader, geometry: []Render_Command) {
 			continue
 		}
 		rigged := .Skinned in c.options
+		instanced := .Instancing in c.options
 		set_shader_uniform(shader, "dynamicGeometry", &rigged)
+		set_shader_uniform(shader, "instancedGeometry", &instanced)
 		if rigged {
 			set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
 			set_shader_uniform(shader, "matJoints", &c.joints[0])
 		}
-		render(shader, &c)
+		render(shader, &c, instanced)
 	}
 }
 
@@ -385,18 +387,31 @@ render_statics :: proc(shader: ^Shader, geometry: []Render_Command) {
 		if .Cast_Shadows not_in c.options {
 			continue
 		}
-		render(shader, &c)
+		instanced := .Instancing in c.options
+		set_shader_uniform(shader, "instancedGeometry", &instanced)
+		render(shader, &c, instanced)
 	}
 }
 
 @(private)
-render :: proc(shader: ^Shader, c: ^Render_Mesh_Command) {
+render :: proc(shader: ^Shader, c: ^Render_Mesh_Command, instancing: bool) {
 	set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
 	bind_attributes(c.mesh.attributes)
 	defer default_attributes()
 	link_packed_attributes_vertices(c.mesh.attributes, c.mesh.vertices.buf, c.mesh.attributes_info)
 	link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
-	draw_triangles(c.mesh.index_count)
+	if instancing {
+		info := c.instancing_info.?
+		link_packed_attributes_vertices_list(
+			c.mesh.attributes,
+			info.memory.buf,
+			{.Instance_Transform},
+			Packed_Attributes{offsets = {Attribute_Kind.Instance_Transform = 0}},
+		)
+		draw_instanced_triangles(c.mesh.index_count, info.count)
+	} else {
+		draw_triangles(c.mesh.index_count)
+	}
 }
 
 @(private)
@@ -425,6 +440,7 @@ SHADOW_MAP_VERTEX_SHADER :: `
 layout (location = 0) in vec3 attribPosition;
 layout (location = 3) in vec4 attribJoints;
 layout (location = 4) in vec4 attribWeights;
+layout (location = 7) in mat4 attribInstanceMat;
 
 uniform mat4 matLightSpace;
 uniform mat4 matModel;
@@ -432,6 +448,7 @@ uniform mat4 matModelLocal;
 uniform mat4 matJoints[19];
 
 uniform bool dynamicGeometry;
+uniform bool instancedGeometry;
 
 void main() {
 	mat4 finalMatModel = mat4(1);
@@ -443,6 +460,8 @@ void main() {
 		attribWeights.w * matJoints[int(attribJoints.w)];
 
 		finalMatModel = matModelLocal * matSkin;
+	} else if (instancedGeometry) {
+		finalMatModel = attribInstanceMat;
 	} else {
 		finalMatModel = matModel;
 	}

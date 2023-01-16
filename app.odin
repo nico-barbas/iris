@@ -219,6 +219,10 @@ elapsed_time :: proc() -> f64 {
 	return app.elapsed_time
 }
 
+frame_allocator :: proc() -> runtime.Allocator {
+	return app.ctx.temp_allocator
+}
+
 begin_temp_allocation :: proc() {
 	app.frame_temp_memory = mem.begin_arena_temp_memory(&app.frame_arena)
 }

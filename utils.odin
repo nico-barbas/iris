@@ -212,6 +212,44 @@ advance_timer :: proc(t: ^Timer, dt: f32) -> (finished: bool) {
 	return
 }
 
+// Compare_Result :: enum {
+// 	Lesser,
+// 	Lesser_Eq,
+// 	Eq,
+// 	Greater_Eq,
+// 	Greater,
+// }
+
+// binary_search :: proc(
+// 	array: $A/[]$T,
+// 	key: T,
+// 	cmp_proc: proc(a, b: T) -> Compare_Result,
+// ) -> (
+// 	index: int,
+// 	found: bool,
+// ) {
+// 	n := len(array)
+// 	if n == 0 {
+// 		return -1, false
+// 	}
+
+// 	lo, hi := 0, n - 1
+// 	for {
+// 		hi_lo_cmp := cmp_proc(array[hi], array[lo])
+// 		key_lo_cmp := cmp_proc(key, array[lo])
+// 		key_hi_cmp := cmp_proc(key, array[hi])
+
+// 		if hi_lo_cmp == .Eq || key_lo_cmp != .Greater_Eq || key_hi_cmp == .Lesser_Eq {
+// 			break
+// 		}
+
+// 		m := lo + (hi - lo) / 2
+// 		switch {
+
+// 		}
+// 	}
+// }
+
 Sample_Interface :: struct($Data, $Elem: typeid) {
 	data:       Data,
 	size:       [2]int,

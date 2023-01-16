@@ -15,6 +15,7 @@ Scene :: struct {
 	name:               string,
 	nodes:              [dynamic]^Node,
 	roots:              [dynamic]^Node,
+	frame_count:        i64,
 
 	// Specific states
 	flags:              Scene_Flags,
@@ -95,6 +96,7 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 	context.allocator = scene.allocator
 	scene.nodes = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
 	scene.roots = make([dynamic]^Node, 0, DEFAULT_SCENE_CAPACITY)
+	scene.frame_count = 0
 
 	init_lighting_context(&scene.lighting)
 
@@ -260,9 +262,10 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		traverse_node(root, linalg.MATRIX4F32_IDENTITY, dt)
 		compute_node_bounds(root)
 		if scene.main_camera != nil {
-			camera_cull_nodes(scene.main_camera, scene.roots[:])
+			camera_cull_nodes(scene.main_camera, scene.roots[:], scene.frame_count == 0)
 		}
 	}
+	scene.frame_count += 1
 }
 
 render_scene :: proc(scene: ^Scene) {
@@ -803,8 +806,8 @@ camera_mouse_ray :: proc(camera: ^Camera_Node) -> (result: Ray) {
 	return
 }
 
-camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
-	cull_node :: proc(frustum: Frustum, node: ^Node) {
+camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node, force_cull: bool) {
+	cull_node :: proc(frustum: Frustum, node: ^Node, force_cull: bool) {
 		cull_children := true
 		if .Ignore_Culling not_in node.flags {
 			node.visibility = bounding_box_in_frustum(frustum, node.global_bounds)
@@ -819,9 +822,9 @@ camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
 			}
 		}
 
-		if cull_children {
+		if cull_children || force_cull {
 			for child in node.children {
-				cull_node(frustum, child)
+				cull_node(frustum, child, force_cull)
 			}
 		}
 	}
@@ -838,7 +841,7 @@ camera_cull_nodes :: proc(camera: ^Camera_Node, roots: []^Node) {
 		)
 
 		for root in roots {
-			cull_node(camera_frustum, root)
+			cull_node(camera_frustum, root, force_cull)
 		}
 	}
 }
@@ -1132,6 +1135,11 @@ Model_Group_Node :: struct {
 	count:         int,
 	transform_res: ^Resource,
 	transform_buf: Buffer_Memory,
+}
+
+Model_Instance :: struct {
+	group: ^Model_Group_Node,
+	id:    int,
 }
 
 init_group_node :: proc(group: ^Model_Group_Node) {
@@ -1966,7 +1974,7 @@ draw_widget_background :: proc(
 	}
 }
 
-widget_active :: proc(widget: ^Widget, active: bool) {
+set_widget_active :: proc(widget: ^Widget, active: bool) {
 	if active {
 		widget.flags += {.Active}
 	} else {
@@ -2011,6 +2019,7 @@ DEFAULT_LAYOUT_CHILD_FLAGS :: Widget_Flags{.Active}
 DEFAULT_LAYOUT_HANDLE_DIM :: 20
 DEFAULT_LAYOUT_HANDLE_MARGIN :: 2
 DEFAULT_LAYOUT_HANDLE_PADDING :: 2
+
 
 layout_add_widget :: proc(layout: ^Layout_Widget, child: ^Widget, size: f32 = 0) {
 	s := size if size > 0 else layout.default_size
@@ -2690,10 +2699,11 @@ init_slider :: proc(slider: ^Slider_Widget) {
 			slider.handle_rect.height = slider.rect.height
 		}
 	}
-	slider_progress_value(slider, slider.progress)
+	set_slider_progress_value(slider, slider.progress)
 }
 
-slider_progress_value :: proc(slider: ^Slider_Widget, t: f32) {
+set_slider_progress_value :: proc(slider: ^Slider_Widget, t: f32) {
+	ui_node_dirty(slider.ui)
 	slider.progress = clamp(t, 0, 1)
 	switch slider.progress_origin {
 	case .Up:
@@ -2766,8 +2776,7 @@ update_slider :: proc(slider: ^Slider_Widget) {
 			}
 
 			if t != slider.progress {
-				slider_progress_value(slider, t)
-				ui_node_dirty(slider.ui)
+				set_slider_progress_value(slider, t)
 			}
 			if .Just_Released in m_left {
 				slider.derived_flags -= {.Moving}
