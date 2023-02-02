@@ -96,10 +96,16 @@ init_canvas_node :: proc(canvas: ^Canvas_Node) {
 		Attribute_Layout{
 			enabled = {.Position, .Normal, .Tex_Coord, .Color},
 			accessors = {
-				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
-				Attribute_Kind.Normal = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
-				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
-				Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+				Attribute_Kind.Position = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector2,
+				},
+				Attribute_Kind.Normal = Buffer_Data_Accessor{kind = .Float_32, format = .Vector3},
+				Attribute_Kind.Tex_Coord = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector3,
+				},
+				Attribute_Kind.Color = Buffer_Data_Accessor{kind = .Float_32, format = .Vector4},
 			},
 		},
 		.Interleaved,
@@ -306,7 +312,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.tri_indices[0],
 					byte_size = int(size_of(u32) * canvas.tri_index_count),
-					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+					accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
 				},
 			)
 			send_buffer_data(
@@ -314,7 +320,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.vertices[0],
 					byte_size = size_of(f32) * len(canvas.vertices),
-					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+					accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
 				},
 			)
 			if canvas.clip_count > 0 {
@@ -338,7 +344,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.line_indices[0],
 					byte_size = int(size_of(u32) * canvas.line_index_count),
-					accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+					accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
 				},
 			)
 			send_buffer_data(
@@ -346,7 +352,7 @@ flush_canvas_node_buffers :: proc(data: rawptr) {
 				Buffer_Source{
 					data = &canvas.line_vertices[0],
 					byte_size = size_of(f32) * len(canvas.line_vertices),
-					accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+					accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
 				},
 			)
 			if canvas.clip_count > 0 {

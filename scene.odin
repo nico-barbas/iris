@@ -34,6 +34,10 @@ Scene :: struct {
 	d_i_offset:         int,
 }
 
+Scene_Description :: struct {
+	deferred_queue: Render_Queue,
+}
+
 Scene_Flags :: distinct bit_set[Scene_Flag]
 
 Scene_Flag :: enum {
@@ -114,11 +118,14 @@ init_scene :: proc(scene: ^Scene, allocator := context.allocator) {
 			Attribute_Layout{
 				enabled = {.Position, .Color},
 				accessors = {
-					Attribute_Kind.Position = Buffer_Data_Type{
+					Attribute_Kind.Position = Buffer_Data_Accessor{
 						kind = .Float_32,
 						format = .Vector3,
 					},
-					Attribute_Kind.Color = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+					Attribute_Kind.Color = Buffer_Data_Accessor{
+						kind = .Float_32,
+						format = .Vector4,
+					},
 				},
 			},
 			.Interleaved,
@@ -1000,7 +1007,7 @@ load_mesh_from_gltf :: proc(
 	mesh_loader.indices = Buffer_Source {
 		data = &indices[0],
 		byte_size = size_of(u32) * len(indices),
-		accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+		accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
 	}
 	mesh_loader.index_count = len(indices)
 
@@ -1012,7 +1019,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Position] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector3},
 			}
 			mesh_loader.byte_size += size
 
@@ -1031,7 +1038,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Normal] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector3},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector3},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -1048,7 +1055,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Tangent] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -1072,7 +1079,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Joint] = Buffer_Source {
 				data = &joints[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -1089,7 +1096,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Weight] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector4},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector4},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -1106,7 +1113,7 @@ load_mesh_from_gltf :: proc(
 			mesh_loader.sources[Attribute_Kind.Tex_Coord] = Buffer_Source {
 				data = &data[0],
 				byte_size = size,
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Vector2},
 			}
 			mesh_loader.byte_size += size
 		} else {
@@ -1120,7 +1127,7 @@ load_mesh_from_gltf :: proc(
 		mesh_loader.sources[Attribute_Kind.Instance_Transform] = Buffer_Source {
 			data = nil,
 			byte_size = 0,
-			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+			accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Mat4},
 		}
 	}
 
@@ -1170,7 +1177,7 @@ resize_group_node_transforms :: proc(group: ^Model_Group_Node, count: int) {
 		Buffer_Source{
 			data = &instance_identity[0][0][0],
 			byte_size = count * size_of(Matrix4),
-			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+			accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Mat4},
 		},
 	)
 	end_temp_allocation()
@@ -1183,7 +1190,7 @@ group_node_instance_transform :: proc(group: ^Model_Group_Node, index: int, t: T
 		Buffer_Source{
 			data = &instance_mat[0][0],
 			byte_size = size_of(Matrix4),
-			accessor = Buffer_Data_Type{kind = .Float_32, format = .Mat4},
+			accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Mat4},
 		},
 		index * size_of(Matrix4),
 	)

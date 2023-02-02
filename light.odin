@@ -125,7 +125,7 @@ update_lighting_context :: proc(ctx: ^Lighting_Context) {
 					cascades_distance = distances,
 				},
 				byte_size = size_of(Light_Uniform_Data),
-				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
+				accessor = Buffer_Data_Accessor{kind = .Byte, format = .Unspecified},
 			},
 		)
 

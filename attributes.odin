@@ -34,7 +34,7 @@ Attribute_Format :: enum {
 
 Attribute_Layout :: struct {
 	enabled:   Enabled_Attributes,
-	accessors: [len(Attribute_Kind)]Maybe(Buffer_Data_Type),
+	accessors: [len(Attribute_Kind)]Maybe(Buffer_Data_Accessor),
 }
 
 Enabled_Attributes :: distinct bit_set[Attribute_Kind]
@@ -50,18 +50,13 @@ Attribute_Kind :: enum {
 	Instance_Transform = 7,
 }
 
-attribute_layout_size :: proc(layout: Attribute_Layout) -> (size: int) {
+attribute_layout_stride :: proc(layout: Attribute_Layout) -> (size: int) {
 	for kind in Attribute_Kind {
 		if kind in layout.enabled {
 			size += accesor_size(layout.accessors[kind].?)
 		}
 	}
 	return
-}
-
-@(private)
-accesor_size :: proc(a: Buffer_Data_Type) -> int {
-	return buffer_size_of[a.kind] * buffer_len_of[a.format]
 }
 
 @(private)
@@ -107,7 +102,7 @@ init_attributes :: proc(attributes: ^Attributes) {
 	switch attributes.format {
 	case .Interleaved:
 		attributes.info = Interleaved_Attributes {
-			stride_size = attribute_layout_size(attributes.layout),
+			stride_size = attribute_layout_stride(attributes.layout),
 		}
 		stride_offset: u32
 		for kind in Attribute_Kind {
@@ -233,7 +228,7 @@ link_interleaved_attributes_vertices :: proc(attributes: ^Attributes, buffer: ^B
 		0,
 		buffer.handle,
 		0,
-		i32(attribute_layout_size(attributes)),
+		i32(attribute_layout_stride(attributes)),
 	)
 }
 
@@ -270,7 +265,7 @@ link_packed_attributes_vertices_list :: proc(
 			accessor := attributes.accessors[kind].?
 			offset := info.offsets[kind]
 			if kind == .Instance_Transform && accessor.format == .Mat4 {
-				column_accessor := Buffer_Data_Type {
+				column_accessor := Buffer_Data_Accessor {
 					kind   = accessor.kind,
 					format = .Vector4,
 				}

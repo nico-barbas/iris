@@ -47,7 +47,7 @@ refresh_material_cache :: proc(cache: ^Material_Cache) {
 			Buffer_Source{
 				data = &cache_data,
 				byte_size = size_of(Material_Cache_Uniform_Data),
-				accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
+				accessor = Buffer_Data_Accessor{kind = .Byte, format = .Unspecified},
 			},
 		)
 	}

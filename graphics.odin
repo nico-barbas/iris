@@ -17,7 +17,6 @@ Render_Context :: struct {
 	projection:                  Matrix4,
 	view:                        Matrix4,
 	projection_view:             Matrix4,
-	context_uniform_buffer:      ^Buffer,
 	context_uniform_memory:      Buffer_Memory,
 	material_cache:              Material_Cache,
 
@@ -53,6 +52,34 @@ Render_Context :: struct {
 
 	// Command buffer
 	queues:                      [len(Render_Queue_Kind)]Render_Queue,
+}
+
+MAX_RENDER_PASS :: 5
+
+_Render_Context :: struct {
+	render_width:      int,
+	render_height:     int,
+	aspect_ratio:      f32,
+	previous_matrices: Render_Matrices,
+	matrices:          Render_Matrices,
+	passes:            [len(Render_Priority)][MAX_RENDER_PASS]Render_Pass,
+}
+
+Render_Pass :: struct {
+	render_proc: proc(ctx: ^_Render_Context, pass: ^Render_Pass),
+	data:        []Render_Command,
+}
+
+Render_Matrices :: struct {
+	projection:      Matrix4,
+	view:            Matrix4,
+	projection_view: Matrix4,
+}
+
+Render_Priority :: enum {
+	High,
+	None,
+	Low,
 }
 
 Render_Uniform_Kind :: enum u32 {
@@ -213,13 +240,15 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	ctx.deferred_indices = buffer_memory_from_buffer_resource(deferred_indices_res)
 
 	context_buffer_res := raw_buffer_resource(size_of(Context_Uniform_Data))
-	ctx.context_uniform_buffer = context_buffer_res.data.(^Buffer)
 	ctx.context_uniform_memory = Buffer_Memory {
-		buf    = ctx.context_uniform_buffer,
+		buf    = context_buffer_res.data.(^Buffer),
 		size   = size_of(Context_Uniform_Data),
 		offset = 0,
 	}
-	set_uniform_buffer_binding(ctx.context_uniform_buffer, u32(Render_Uniform_Kind.Context_Data))
+	set_uniform_buffer_binding(
+		ctx.context_uniform_memory.buf,
+		u32(Render_Uniform_Kind.Context_Data),
+	)
 
 	// Framebuffer blitting states
 	hdr_framebuffer_res := framebuffer_resource(
@@ -287,8 +316,14 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 		{
 			enabled = {.Position, .Tex_Coord},
 			accessors = {
-				Attribute_Kind.Position = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
-				Attribute_Kind.Tex_Coord = Buffer_Data_Type{kind = .Float_32, format = .Vector2},
+				Attribute_Kind.Position = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector2,
+				},
+				Attribute_Kind.Tex_Coord = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector2,
+				},
 			},
 		},
 		.Interleaved,
@@ -300,20 +335,15 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 close_render_ctx :: proc(ctx: ^Render_Context) {
 }
 
-@(private)
-set_view_dirty :: proc() {
-	app.render_ctx.view_dirty = true
-}
+// view_position :: proc(position: Vector3) {
+// 	app.render_ctx.eye = position
+// 	app.render_ctx.view_dirty = true
+// }
 
-view_position :: proc(position: Vector3) {
-	app.render_ctx.eye = position
-	app.render_ctx.view_dirty = true
-}
-
-view_target :: proc(target: Vector3) {
-	app.render_ctx.centre = target
-	app.render_ctx.view_dirty = true
-}
+// view_target :: proc(target: Vector3) {
+// 	app.render_ctx.centre = target
+// 	app.render_ctx.view_dirty = true
+// }
 
 start_render :: proc() {
 	ctx := &app.render_ctx
@@ -367,7 +397,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.hdr_framebuffer)
 	clear_framebuffer(ctx.hdr_framebuffer)
 	{
-		// set_backface_culling(false)
+	// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
@@ -441,7 +471,7 @@ end_render :: proc() {
 			Buffer_Source{
 				data = &quad_vertices[0],
 				byte_size = len(quad_vertices) * size_of(f32),
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
 			},
 		)
 		send_buffer_data(
@@ -449,7 +479,7 @@ end_render :: proc() {
 			Buffer_Source{
 				data = &quad_indices[0],
 				byte_size = len(quad_indices) * size_of(u32),
-				accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+				accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
 			},
 		)
 
@@ -517,7 +547,7 @@ end_render :: proc() {
 			Buffer_Source{
 				data = &quad_vertices[0],
 				byte_size = len(quad_vertices) * size_of(f32),
-				accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+				accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
 			},
 		)
 		send_buffer_data(
@@ -525,7 +555,7 @@ end_render :: proc() {
 			Buffer_Source{
 				data = &quad_indices[0],
 				byte_size = len(quad_indices) * size_of(u32),
-				accessor = Buffer_Data_Type{kind = .Unsigned_32, format = .Scalar},
+				accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
 			},
 		)
 
@@ -800,7 +830,7 @@ compute_projection :: proc(ctx: ^Render_Context) {
 				dt = f32(elapsed_time()),
 			},
 			byte_size = size_of(Context_Uniform_Data),
-			accessor = Buffer_Data_Type{kind = .Byte, format = .Unspecified},
+			accessor = Buffer_Data_Accessor{kind = .Byte, format = .Unspecified},
 		},
 	)
 }

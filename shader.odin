@@ -57,7 +57,7 @@ Uniform_Location :: distinct i32
 
 Shader_Uniform_Info :: struct {
 	loc:   Uniform_Location,
-	type:  Buffer_Data_Type,
+	type:  Buffer_Data_Accessor,
 	count: int,
 }
 
@@ -384,7 +384,7 @@ format_uniform_name :: proc(buf: []u8, l: i32, t: u32, allocator := context.allo
 }
 
 @(private)
-uniform_type :: proc(t: u32) -> (type: Buffer_Data_Type) {
+uniform_type :: proc(t: u32) -> (type: Buffer_Data_Accessor) {
 	switch t {
 	case gl.BOOL:
 		type.kind = .Boolean

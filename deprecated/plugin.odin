@@ -1,4 +1,4 @@
-package iris
+package deprecated
 
 import "core:os"
 import "core:log"
@@ -9,6 +9,8 @@ import "core:dynlib"
 import "core:strings"
 import "core:bytes"
 import "core:path/filepath"
+
+import iris ".."
 
 when ODIN_OS == .Windows {
 	import win32 "core:sys/windows"
@@ -67,18 +69,18 @@ load_plugin :: proc(plugin: ^Plugin) -> (ok: bool) {
 		_, build_ok, output_msg := build_plugin(build_cmd, &stdout)
 		assert(build_ok)
 		if len(output_msg) > 0 {
-			log.debugf("[%s]: Plugin build output: %s\n", App_Module.IO, string(output_msg))
+			log.debugf("[%s]: Plugin build output: %s\n", iris.App_Module.IO, string(output_msg))
 		}
 	}
 
 	plugin.dll = dynlib.load_library(plugin.dll_path, true) or_return
 	load_plugin_symbols(plugin) or_return
 
-	log.debugf("[%s]: Successfully loaded custom plugin\n", App_Module.IO)
+	log.debugf("[%s]: Successfully loaded custom plugin\n", iris.App_Module.IO)
 
 	plugin.modification_time = time.now()
 	plugin.last_reload = time.now()
-	plugin.load(get_app_ptr(), plugin.user_ptr)
+	plugin.load(iris.get_app_ptr(), plugin.user_ptr)
 
 	ok = true
 	return
@@ -126,7 +128,7 @@ update_plugin :: proc(plugin: ^Plugin) {
 
 			_, ok, output_msg := build_plugin(build_cmd, &stdout)
 			assert(ok)
-			log.debugf("[%s]: Plugin build output: %s\n", App_Module.IO, string(output_msg))
+			log.debugf("[%s]: Plugin build output: %s\n", iris.App_Module.IO, string(output_msg))
 		}
 		lib_found: bool
 		plugin.dll, lib_found = dynlib.load_library(plugin.dll_path, true)
@@ -137,7 +139,7 @@ update_plugin :: proc(plugin: ^Plugin) {
 		assert(load_ok)
 
 		log.debugf("[%s]: Successfully recompiled and loaded plugin\n")
-		plugin.reload(get_app_ptr(), plugin.user_ptr)
+		plugin.reload(iris.get_app_ptr(), plugin.user_ptr)
 	}
 
 	plugin.update(plugin.user_ptr)

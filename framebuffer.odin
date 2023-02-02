@@ -40,7 +40,8 @@ Framebuffer_Attachment :: enum {
 internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	create_framebuffer_texture :: proc(
 		a: Framebuffer_Attachment,
-		w, h: int,
+		w,
+		h: int,
 		filter: Texture_Filter_Mode = .Nearest,
 		precision := 8,
 	) -> Texture {
@@ -209,7 +210,7 @@ blit_framebuffer :: proc(src, dst: ^Framebuffer, v_mem, i_mem: ^Buffer_Memory) {
 		Buffer_Source{
 			data = &framebuffer_vertices[0],
 			byte_size = len(framebuffer_vertices) * size_of(f32),
-			accessor = Buffer_Data_Type{kind = .Float_32, format = .Scalar},
+			accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
 		},
 	)
 	send_buffer_data(

@@ -46,6 +46,10 @@ draw_lines :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
 	)
 }
 
+set_viewport :: proc(r: Rectangle) {
+	gl.Viewport(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
+}
+
 clip_mode_on :: proc() {
 	gl.Enable(gl.SCISSOR_TEST)
 }
@@ -168,11 +172,6 @@ transform_from_matrix :: proc(m: Matrix4) -> (result: Transform) {
 
 translation_from_matrix :: proc(m: Matrix4) -> Vector3 {
 	return Vector3{m[3][0], m[3][1], m[3][2]}
-}
-
-
-set_viewport :: proc(r: Rectangle) {
-	gl.Viewport(i32(r.x), i32(r.y), i32(r.width), i32(r.height))
 }
 
 Color :: distinct [4]f32
@@ -302,9 +301,6 @@ parse_gltf_task_proc :: proc(task: Task) {
 		task.allocator,
 	)
 }
-
-@(private)
-d :: math.π
 
 DEBUG_VERTEX_SHADER :: `
 #version 450 core
