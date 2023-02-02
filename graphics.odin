@@ -52,7 +52,6 @@ Render_Context :: struct {
 	framebuffer_blit_attributes: ^Attributes,
 
 	// Command buffer
-	states:                      [dynamic]^Attributes,
 	queues:                      [len(Render_Queue_Kind)]Render_Queue,
 }
 
@@ -78,6 +77,7 @@ Render_Queue :: struct {
 }
 
 Render_Queue_Kind :: enum {
+	Memory_Access,
 	Shadow_Pass,
 	Deferred_Geometry_Static,
 	Deferred_Geometry_Dynamic,
@@ -324,15 +324,24 @@ start_render :: proc() {
 }
 
 end_render :: proc() {
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
 	ctx := &app.render_ctx
 
 	blend(true)
-
-	// Update light values
-	if ctx.view_dirty {
-		ctx.view_dirty = false
-	}
 	compute_projection(ctx)
+
+	memory_accesses := &ctx.queues[Render_Queue_Kind.Memory_Access]
+	for cmd in memory_accesses.commands[:memory_accesses.count] {
+		#partial switch c in cmd {
+		case Render_Custom_Command:
+			c.render_proc(c.data)
+		case:
+			assert(false, "Invalid command in memory access queue")
+		}
+	}
 
 	d_static_queue := &ctx.queues[Render_Queue_Kind.Deferred_Geometry_Static]
 	ds_cmds := d_static_queue.commands[:d_static_queue.count]

@@ -182,19 +182,11 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 			update_camera_node(n, false)
 
 		case ^Light_Node:
-			// if dirty {
 			update_light_node(&n.scene.lighting, n)
-			set_lighting_context_dirty(&n.scene.lighting)
-		// if .Shadow_Map in n.options {
-		// 	shadow_map := n.shadow_map.?
-		// 	shadow_map.dirty = true
-		// 	n.shadow_map = shadow_map
-		// }
-		// }
+		// set_lighting_context_dirty(&n.scene.lighting)
 
 		case ^Model_Node:
 			if dirty && .Cast_Shadows in n.options {
-				// TODO: set shadow map dirty
 				n.scene.lighting.dirty_shadow_maps = true
 			}
 
@@ -258,12 +250,17 @@ update_scene :: proc(scene: ^Scene, dt: f32) {
 		return
 	}
 
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
+
 	for root in scene.roots {
 		traverse_node(root, linalg.MATRIX4F32_IDENTITY, dt)
 		compute_node_bounds(root)
-		if scene.main_camera != nil {
-			camera_cull_nodes(scene.main_camera, scene.roots[:], scene.frame_count == 0)
-		}
+	}
+	if scene.main_camera != nil {
+		camera_cull_nodes(scene.main_camera, scene.roots[:], scene.frame_count == 0)
 	}
 	scene.frame_count += 1
 }
@@ -311,7 +308,6 @@ render_scene :: proc(scene: ^Scene) {
 
 				case ^Light_Node:
 					if .Shadow_Map in n.options {
-						// unimplemented("TODO: send the light to the renderer to do a shadow pass")
 						push_draw_command(n, .Shadow_Pass)
 					}
 
@@ -446,10 +442,20 @@ render_scene :: proc(scene: ^Scene) {
 
 	}
 
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
+
 	for root in scene.roots {
 		traverse_node(scene, root)
 	}
-	update_lighting_context(&scene.lighting)
+	push_draw_command(Render_Custom_Command {
+			data = &scene.lighting,
+			render_proc = proc(data: rawptr) {
+				update_lighting_context(cast(^Lighting_Context)data)
+			},
+		}, .Memory_Access)
 	if .Draw_Debug_Collisions in scene.flags {
 		push_draw_command(
 			Render_Custom_Command{

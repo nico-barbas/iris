@@ -1,9 +1,12 @@
 package iris
 
-import "core:math/rand"
 import "core:math"
+import "core:math/rand"
 import "core:math/linalg"
 import gl "vendor:OpenGL"
+
+
+import "gltf"
 
 @(private)
 draw_triangles :: proc(count: int, byte_offset: uintptr = 0, index_offset := 0) {
@@ -212,44 +215,6 @@ advance_timer :: proc(t: ^Timer, dt: f32) -> (finished: bool) {
 	return
 }
 
-// Compare_Result :: enum {
-// 	Lesser,
-// 	Lesser_Eq,
-// 	Eq,
-// 	Greater_Eq,
-// 	Greater,
-// }
-
-// binary_search :: proc(
-// 	array: $A/[]$T,
-// 	key: T,
-// 	cmp_proc: proc(a, b: T) -> Compare_Result,
-// ) -> (
-// 	index: int,
-// 	found: bool,
-// ) {
-// 	n := len(array)
-// 	if n == 0 {
-// 		return -1, false
-// 	}
-
-// 	lo, hi := 0, n - 1
-// 	for {
-// 		hi_lo_cmp := cmp_proc(array[hi], array[lo])
-// 		key_lo_cmp := cmp_proc(key, array[lo])
-// 		key_hi_cmp := cmp_proc(key, array[hi])
-
-// 		if hi_lo_cmp == .Eq || key_lo_cmp != .Greater_Eq || key_hi_cmp == .Lesser_Eq {
-// 			break
-// 		}
-
-// 		m := lo + (hi - lo) / 2
-// 		switch {
-
-// 		}
-// 	}
-// }
-
 Sample_Interface :: struct($Data, $Elem: typeid) {
 	data:       Data,
 	size:       [2]int,
@@ -318,6 +283,24 @@ make_sampling_disk :: proc(size: int, allocator := context.allocator) -> (result
 	}
 
 	return
+}
+
+Gltf_Task_Data :: struct {
+	path:     string,
+	format:   gltf.Format,
+	document: gltf.Document,
+	err:      gltf.Error,
+}
+
+parse_gltf_task_proc :: proc(task: Task) {
+	data := cast(^Gltf_Task_Data)task.data
+
+	data.document, data.err = gltf.parse_from_file(
+		data.path,
+		data.format,
+		task.allocator,
+		task.allocator,
+	)
 }
 
 @(private)

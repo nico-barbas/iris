@@ -4,6 +4,7 @@ import "core:os"
 import "core:mem"
 import "core:log"
 import "core:time"
+import "core:thread"
 import "core:slice"
 import "core:runtime"
 import "core:math/rand"
@@ -11,6 +12,7 @@ import "core:path/filepath"
 
 import "vendor:glfw"
 import gl "vendor:OpenGL"
+
 
 @(private, export)
 app: ^App
@@ -27,6 +29,12 @@ App :: struct {
 	last_time:         time.Time,
 	elapsed_time:      f64,
 	input:             Input_Buffer,
+	profiler:          Profiler,
+
+	// Thread Pool
+	threads:           thread.Pool,
+	pool_arena:        mem.Arena,
+	pool_allocator:    runtime.Allocator,
 
 	// Rendering states
 	viewport_width:    int,
@@ -93,6 +101,11 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 		log.fatalf("%s: Could not set the app directory: %s\n", App_Module.IO, app.asset_dir)
 		return
 	}
+
+	when ODIN_DEBUG {
+		init_profiler(&app.profiler)
+	}
+
 	if glfw.Init() == 0 {
 		log.fatalf("Could not initialize GLFW..\n")
 		return
@@ -131,6 +144,7 @@ init_app :: proc(config: ^App_Config, allocator := context.allocator) {
 
 	glfw.MakeContextCurrent(app.win_handle)
 	load_api(.GL)
+
 	gl.Enable(gl.DEBUG_OUTPUT)
 	gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
 	gl.DebugMessageCallback(gl_debug_cb, nil)
@@ -173,21 +187,13 @@ run_app :: proc() {
 	app.last_time = time.now()
 
 	rand.set_global_seed(u64(app.last_time._nsec))
+	init_threads(app)
 	init_library(&app.library)
 	init_render_ctx(&app.render_ctx, app.width, app.height)
 	app.init(app.data)
 	for app.is_running {
-		app.is_running = bool(!glfw.WindowShouldClose(app.win_handle))
-		app.frame_arena.offset = 0
-		app.elapsed_time = time.duration_seconds(time.since(app.last_time))
-		app.last_time = time.now()
-
-		refresh_library(&app.library)
-		app.update(app.data)
-
-		gl.ClearColor(0.6, 0.6, 0.6, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-		app.draw(app.data)
+		update_app()
+		render_app()
 
 		update_input_buffer(&app.input)
 		glfw.SwapBuffers(app.win_handle)
@@ -197,7 +203,35 @@ run_app :: proc() {
 	}
 }
 
+@(private)
+update_app :: proc() {
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
+	app.is_running = bool(!glfw.WindowShouldClose(app.win_handle))
+	app.frame_arena.offset = 0
+	app.elapsed_time = time.duration_seconds(time.since(app.last_time))
+	app.last_time = time.now()
+
+	refresh_library(&app.library)
+	app.update(app.data)
+}
+
+@(private)
+render_app :: proc() {
+	gl.ClearColor(0.6, 0.6, 0.6, 1.0)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
+	app.draw(app.data)
+}
+
 close_app :: proc() {
+	print_profile()
+
 	app.close(app.data)
 	close_render_ctx(&app.render_ctx)
 	close_library(&app.library)

@@ -4,6 +4,7 @@ import "core:intrinsics"
 import "core:log"
 import gl "vendor:OpenGL"
 
+
 // Generic data buffer stored on the GPU
 Buffer :: struct {
 	handle: u32,

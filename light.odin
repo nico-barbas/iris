@@ -290,6 +290,8 @@ update_light_node :: proc(ctx: ^Lighting_Context, node: ^Light_Node) {
 				)
 				shadow_map.view_projections[i] = shadow_map.projections[i] * shadow_map.views[i]
 			}
+
+			set_lighting_context_dirty(ctx)
 		}
 	}
 }
