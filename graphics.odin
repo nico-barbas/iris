@@ -72,6 +72,11 @@ _Render_Context :: struct {
 	// Uniform Buffer memory
 	context_uniform_memory: Buffer_Memory,
 	material_cache:         Material_Cache,
+
+	// Blit data
+	blit_attributes:        ^Attributes,
+	blit_vertices:          Buffer_Memory,
+	blit_indices:           Buffer_Memory,
 }
 
 Render_Pass :: struct {
@@ -241,6 +246,28 @@ _init_render_ctx :: proc(ctx: ^_Render_Context, w, h: int) {
 				Shader_Stage.Fragment = Shader_Stage_Loader{source = AA_FRAGMENT_SHADER},
 			},
 		},
+	)
+
+	// TEMP
+	deferred_vertices_res := raw_buffer_resource(size_of(f32) * 4 * 4)
+	ctx.blit_vertices = buffer_memory_from_buffer_resource(deferred_vertices_res)
+	deferred_indices_res := raw_buffer_resource(size_of(u32) * 6)
+	ctx.blit_indices = buffer_memory_from_buffer_resource(deferred_indices_res)
+	ctx.blit_attributes = attributes_from_layout(
+		{
+			enabled = {.Position, .Tex_Coord},
+			accessors = {
+				Attribute_Kind.Position = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector2,
+				},
+				Attribute_Kind.Tex_Coord = Buffer_Data_Accessor{
+					kind = .Float_32,
+					format = .Vector2,
+				},
+			},
+		},
+		.Interleaved,
 	)
 }
 
@@ -416,6 +443,104 @@ geometry_pass_proc :: proc(ctx: ^_Render_Context, pass: ^Render_Pass) {
 
 deferred_geometry_pass_proc :: proc(ctx: ^_Render_Context, pass: ^Render_Pass) {
 	geometry_pass_proc(ctx, pass)
+
+	lighting_ctx := cast(^Lighting_Context)pass.ptr
+	hdr_framebuffer, _ := framebuffer_from_name("hdr_framebuffer")
+	shader, _ := shader_from_name("deferred_shading")
+
+	bind_shader(shader)
+	bind_framebuffer(hdr_framebuffer)
+	clear_framebuffer(hdr_framebuffer)
+	
+	//odinfmt: disable
+	quad_vertices := [?]f32{
+		-1.0,  1.0, 0.0, 1.0,
+		1.0,  1.0, 1.0, 1.0,
+		-1.0, -1.0, 0.0, 0.0,
+		1.0, -1.0, 1.0, 0.0,
+	}
+	quad_indices := [?]u32{
+		2, 1, 0,
+		2, 3, 1,
+	}
+	//odinfmt: enable
+
+
+	position_buffer_index: u32 = 0
+	normal_buffer_index: u32 = 1
+	albedo_buffer_index: u32 = 2
+	material_buffer_index: u32 = 3
+	shadow_map_indices: [MAX_SHADOW_MAPS][MAX_CASCADES]u32
+
+	set_shader_uniform(shader, "bufferedPosition", &position_buffer_index)
+	bind_texture(framebuffer_texture(pass.target, .Color0), position_buffer_index)
+	set_shader_uniform(shader, "bufferedNormal", &normal_buffer_index)
+	bind_texture(framebuffer_texture(pass.target, .Color1), normal_buffer_index)
+	set_shader_uniform(shader, "bufferedAlbedo", &albedo_buffer_index)
+	bind_texture(framebuffer_texture(pass.target, .Color2), albedo_buffer_index)
+	set_shader_uniform(shader, "bufferedMaterial", &material_buffer_index)
+	bind_texture(framebuffer_texture(pass.target, .Color3), material_buffer_index)
+
+	next_shadow_map_index := u32(4)
+	for i in 0 ..< lighting_ctx.shadow_map_count {
+		id := lighting_ctx.shadow_map_ids[i]
+		light := lighting_ctx.lights[i]
+		for j in 0 ..< light.shadow_map.cascade_count {
+			shadow_map_indices[i][j] = next_shadow_map_index
+			map_texture := framebuffer_texture(light.shadow_map.cascades[j], .Depth)
+			bind_texture(map_texture, next_shadow_map_index)
+			next_shadow_map_index += 1
+		}
+	}
+	set_shader_uniform(shader, "shadowMaps", &shadow_map_indices[0][0])
+	defer {
+		for i in 0 ..< lighting_ctx.shadow_map_count {
+			id := lighting_ctx.shadow_map_ids[i]
+			light := lighting_ctx.lights[i]
+			for j in 0 ..< light.shadow_map.cascade_count {
+				map_texture := framebuffer_texture(light.shadow_map.cascades[j], .Depth)
+				unbind_texture(map_texture)
+			}
+		}
+	}
+
+	send_buffer_data(
+		&ctx.blit_vertices,
+		Buffer_Source{
+			data = &quad_vertices[0],
+			byte_size = len(quad_vertices) * size_of(f32),
+			accessor = Buffer_Data_Accessor{kind = .Float_32, format = .Scalar},
+		},
+	)
+	send_buffer_data(
+		&ctx.blit_indices,
+		Buffer_Source{
+			data = &quad_indices[0],
+			byte_size = len(quad_indices) * size_of(u32),
+			accessor = Buffer_Data_Accessor{kind = .Unsigned_32, format = .Scalar},
+		},
+	)
+
+	// prepare attributes
+	bind_attributes(ctx.blit_attributes)
+	defer {
+		default_attributes()
+		default_shader()
+		unbind_texture(framebuffer_texture(pass.target, .Color0))
+		unbind_texture(framebuffer_texture(pass.target, .Color1))
+		unbind_texture(framebuffer_texture(pass.target, .Color2))
+	}
+
+	link_interleaved_attributes_vertices(ctx.blit_attributes, ctx.blit_vertices.buf)
+	link_attributes_indices(ctx.blit_attributes, ctx.blit_indices.buf)
+
+	draw_triangles(len(quad_indices))
+	blit_framebuffer_depth(
+		pass.target,
+		hdr_framebuffer,
+		framebuffer_bounding_rect(pass.target),
+		framebuffer_bounding_rect(hdr_framebuffer),
+	)
 }
 
 

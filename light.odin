@@ -30,6 +30,7 @@ Light_Uniform_Data :: struct {
 	ambient:           Color,
 	light_count:       u32,
 	shadow_map_count:  u32,
+	shadow_offsets:    [16]Vector2,
 }
 
 Light_Uniform_Info :: struct {

@@ -533,7 +533,7 @@ shader_specialization_from_name :: proc(
 	return
 }
 
-frame_buffer_from_name :: proc(name: string) -> (result: ^Framebuffer, exist: bool) {
+framebuffer_from_name :: proc(name: string) -> (result: ^Framebuffer, exist: bool) {
 	lib := &app.library
 	context.allocator = lib.allocator
 	context.temp_allocator = lib.temp_allocator
