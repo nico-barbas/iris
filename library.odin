@@ -22,7 +22,7 @@ Resource_Library :: struct {
 	shaders:        [dynamic]^Resource,
 	shader_specs:   map[string]^Resource,
 	fonts:          [dynamic]^Resource,
-	framebuffers:   [dynamic]^Resource,
+	framebuffers:   map[string]^Resource,
 	meshes:         [dynamic]^Resource,
 	materials:      map[string]^Resource,
 	animations:     map[string]^Resource,
@@ -130,7 +130,7 @@ close_library :: proc(lib: ^Resource_Library) {
 	for r in lib.buffers {
 		free_resource(r)
 	}
-	delete(lib.framebuffers)
+	delete(lib.buffers)
 
 	for r in lib.attributes {
 		free_resource(r)
@@ -158,8 +158,9 @@ close_library :: proc(lib: ^Resource_Library) {
 	}
 	delete(lib.fonts)
 
-	for r in lib.framebuffers {
+	for name, r in lib.framebuffers {
 		free_resource(r)
+		delete(name)
 	}
 	delete(lib.framebuffers)
 
@@ -302,7 +303,9 @@ framebuffer_resource :: proc(loader: Framebuffer_Loader) -> ^Resource {
 	data := new_clone(internal_make_framebuffer(loader))
 	resource := new_resource(lib, data)
 
-	append(&lib.framebuffers, resource)
+	name := strings.clone(loader.name)
+
+	lib.framebuffers[name] = resource
 	return resource
 }
 
@@ -527,6 +530,17 @@ shader_specialization_from_name :: proc(
 		exist = true
 	}
 
+	return
+}
+
+frame_buffer_from_name :: proc(name: string) -> (result: ^Framebuffer, exist: bool) {
+	lib := &app.library
+	context.allocator = lib.allocator
+	context.temp_allocator = lib.temp_allocator
+
+	resource: ^Resource
+	resource, exist = lib.framebuffers[name]
+	result = resource.data.(^Material)
 	return
 }
 

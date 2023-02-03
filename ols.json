@@ -2,15 +2,11 @@
     "collections": [
         {
             "name": "core",
-            "path": "C:\\Program Files\\odin\\core"
+            "path": "/home/nico/bin/odin/core"
         },
         {
             "name": "vendor",
-            "path": "C:\\Program Files\\odin\\vendor"
-        },
-        {
-            "name": "iris",
-            "path": ".\\"
+            "path": "/home/nico/bin/odin/vendor"
         }
     ],
     "enable_document_symbols": true,

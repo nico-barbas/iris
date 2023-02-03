@@ -15,6 +15,7 @@ Framebuffer :: struct {
 }
 
 Framebuffer_Loader :: struct {
+	name:         string,
 	width:        int,
 	height:       int,
 	attachments:  Framebuffer_Attachments,
@@ -40,8 +41,7 @@ Framebuffer_Attachment :: enum {
 internal_make_framebuffer :: proc(l: Framebuffer_Loader) -> Framebuffer {
 	create_framebuffer_texture :: proc(
 		a: Framebuffer_Attachment,
-		w,
-		h: int,
+		w, h: int,
 		filter: Texture_Filter_Mode = .Nearest,
 		precision := 8,
 	) -> Texture {

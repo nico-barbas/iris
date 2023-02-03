@@ -3,6 +3,7 @@ package iris
 // import "core:log"
 import "core:time"
 import "core:math/linalg"
+import "core:sync"
 
 RENDER_CTX_DEFAULT_FAR :: 100
 RENDER_CTX_DEFAULT_NEAR :: 0.1
@@ -21,10 +22,10 @@ Render_Context :: struct {
 	material_cache:              Material_Cache,
 
 	// Camera context
-	view_dirty:                  bool,
-	eye:                         Vector3,
-	centre:                      Vector3,
-	up:                          Vector3,
+	// view_dirty:                  bool,
+	// eye:                         Vector3,
+	// centre:                      Vector3,
+	// up:                          Vector3,
 
 	// Lighting context
 	shadow_maps:                 [MAX_SHADOW_MAPS][MAX_CASCADES]^Texture,
@@ -54,26 +55,31 @@ Render_Context :: struct {
 	queues:                      [len(Render_Queue_Kind)]Render_Queue,
 }
 
-MAX_RENDER_PASS :: 5
+MAX_RENDER_PASS :: 3
 
 _Render_Context :: struct {
-	render_width:      int,
-	render_height:     int,
-	aspect_ratio:      f32,
-	previous_matrices: Render_Matrices,
-	matrices:          Render_Matrices,
-	passes:            [len(Render_Priority)][MAX_RENDER_PASS]Render_Pass,
+	render_width:           int,
+	render_height:          int,
+	aspect_ratio:           f32,
+	projection:             Matrix4,
+	passes:                 [len(Render_Priority)][MAX_RENDER_PASS]Render_Pass,
+	pass_count:             [len(Render_Priority)]int,
+
+	// Buffered Data
+	previous_passes:        [len(Render_Priority)][MAX_RENDER_PASS]Render_Pass,
+	previous_pass_count:    [len(Render_Priority)]int,
+
+	// Uniform Buffer memory
+	context_uniform_memory: Buffer_Memory,
+	material_cache:         Material_Cache,
 }
 
 Render_Pass :: struct {
 	render_proc: proc(ctx: ^_Render_Context, pass: ^Render_Pass),
-	data:        []Render_Command,
-}
-
-Render_Matrices :: struct {
-	projection:      Matrix4,
-	view:            Matrix4,
-	projection_view: Matrix4,
+	target:      ^Framebuffer,
+	commands:    []Render_Command,
+	ptr:         rawptr,
+	user_index:  int,
 }
 
 Render_Priority :: enum {
@@ -82,14 +88,14 @@ Render_Priority :: enum {
 	Low,
 }
 
-Render_Uniform_Kind :: enum u32 {
-	Context_Data   = 0,
-	Lighting_Data  = 1,
-	Material_Cache = 2,
+Uniform_Buffer_Kind :: enum u32 {
+	Projection_Data = 0,
+	Lighting_Data   = 1,
+	Material_Cache  = 2,
 }
 
 @(private)
-Context_Uniform_Data :: struct {
+Projection_Uniform_Data :: struct {
 	projection_view: Matrix4,
 	projection:      Matrix4,
 	view:            Matrix4,
@@ -114,8 +120,8 @@ Render_Queue_Kind :: enum {
 
 Render_Command :: union {
 	Render_Mesh_Command,
-	Render_Shadow_Map_Command,
-	Render_Custom_Command,
+	Render_Quad_Command,
+	Render_Line_Command,
 }
 
 Render_Mesh_Command :: struct {
@@ -124,7 +130,7 @@ Render_Mesh_Command :: struct {
 	global_transform: Matrix4,
 	joints:           []Matrix4,
 	material:         ^Material,
-	options:          Rendering_Options,
+	// options:          Rendering_Options,
 	instancing_info:  Maybe(Instancing_Info),
 }
 
@@ -134,26 +140,297 @@ Instancing_Info :: struct {
 	memory: Buffer_Memory,
 }
 
-Render_Shadow_Map_Command :: ^Light_Node
+// Render_Shadow_Map_Command :: ^Light_Node
 
-Render_Custom_Command :: struct {
-	data:        rawptr,
-	render_proc: proc(data: rawptr),
-	options:     Rendering_Options,
+// Render_Custom_Command :: struct {
+// 	data:        rawptr,
+// 	render_proc: proc(data: rawptr),
+// 	options:     Rendering_Options,
+// }
+
+Render_Quad_Command :: struct {
+	dst:       Rectangle,
+	src:       Rectangle,
+	texture:   ^Texture,
+	color:     Color,
+	roundness: f32,
 }
 
-Rendering_Options :: distinct bit_set[Rendering_Option]
-
-Rendering_Option :: enum {
-	Enable_Culling,
-	Disable_Culling,
-	Static,
-	Dynamic,
-	Skinned,
-	Transparent,
-	Cast_Shadows,
-	Instancing,
+Render_Line_Command :: struct {
+	p1:    Vector2,
+	p2:    Vector2,
+	color: Color,
 }
+
+_init_render_ctx :: proc(ctx: ^_Render_Context, w, h: int) {
+	ctx.render_width = w
+	ctx.render_height = h
+	ctx.aspect_ratio = f32(w) / f32(h)
+	ctx.projection = linalg.matrix4_perspective_f32(
+		f32(RENDER_CTX_DEFAULT_FOVY),
+		f32(w) / f32(h),
+		f32(RENDER_CTX_DEFAULT_NEAR),
+		f32(RENDER_CTX_DEFAULT_FAR),
+	)
+
+	init_material_cache(&ctx.material_cache)
+
+	framebuffer_resource(
+		Framebuffer_Loader{
+			name = "deferred_framebuffer",
+			attachments = {.Color0, .Color1, .Color2, .Color3, .Depth},
+			precision = {
+				Framebuffer_Attachment.Color0 = 16,
+				Framebuffer_Attachment.Color1 = 16,
+				Framebuffer_Attachment.Color2 = 8,
+				Framebuffer_Attachment.Color3 = 8,
+			},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	framebuffer_resource(
+		Framebuffer_Loader{
+			name = "hdr_framebuffer",
+			attachments = {.Color0, .Depth},
+			precision = {Framebuffer_Attachment.Color0 = 16},
+			clear_colors = {Framebuffer_Attachment.Color0 = Color{0.6, 0.6, 0.6, 1.0}},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+	framebuffer_resource(
+		Framebuffer_Loader{
+			name = "aa_framebuffer",
+			attachments = {.Color0, .Depth},
+			clear_colors = {Framebuffer_Attachment.Color0 = Color{0.6, 0.6, 0.6, 1.0}},
+			filter = {Framebuffer_Attachment.Color0 = .Linear},
+			precision = {Framebuffer_Attachment.Color0 = 8},
+			width = ctx.render_width,
+			height = ctx.render_height,
+		},
+	)
+
+	context_buffer_res := raw_buffer_resource(size_of(Projection_Uniform_Data))
+	ctx.context_uniform_memory = Buffer_Memory {
+		buf    = context_buffer_res.data.(^Buffer),
+		size   = size_of(Projection_Uniform_Data),
+		offset = 0,
+	}
+	set_uniform_buffer_binding(
+		ctx.context_uniform_memory.buf,
+		u32(Uniform_Buffer_Kind.Projection_Data),
+	)
+
+	shader_resource(
+		Shader_Loader{
+			name = "hdr_tonemapping",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = HDR_FRAGMENT_SHADER},
+			},
+		},
+	)
+	shader_resource(
+		Shader_Loader{
+			name = "anti_aliasing",
+			kind = .Byte,
+			stages = {
+				Shader_Stage.Vertex = Shader_Stage_Loader{source = BLIT_FRAMEBUFFER_VERTEX_SHADER},
+				Shader_Stage.Fragment = Shader_Stage_Loader{source = AA_FRAGMENT_SHADER},
+			},
+		},
+	)
+}
+
+_close_render_ctx :: proc(ctx: ^_Render_Context) {}
+
+render_begin :: proc(ctx: ^_Render_Context) {
+	when ODIN_DEBUG {
+		start_proc_profile()
+		defer end_proc_profile()
+	}
+	// compute_projection(ctx)
+
+	for priority in Render_Priority {
+		for i in 0 ..< ctx.previous_pass_count[priority] {
+			pass := &ctx.previous_passes[priority][i]
+
+			bind_framebuffer(pass.target)
+			defer default_framebuffer()
+			set_viewport(Rectangle{0, 0, f32(pass.target.width), f32(pass.target.height)})
+
+			pass.render_proc(ctx, pass)
+		}
+	}
+}
+
+render_end :: proc(ctx: ^_Render_Context) {
+	for priority in Render_Priority {
+		ctx.previous_pass_count[priority] = sync.atomic_exchange(&ctx.pass_count[priority], 0)
+		for i in 0 ..< ctx.previous_pass_count[priority] {
+			ctx.previous_passes[priority][i] = ctx.passes[priority][i]
+		}
+	}
+}
+
+shadow_map_pass_proc :: proc(ctx: ^_Render_Context, pass: ^Render_Pass) {
+	light := cast(^Light_Node)pass.ptr
+	shader := light.shadow_map.shader
+
+	clear_framebuffer(pass.target)
+	set_shader_uniform(
+		shader,
+		"matLightSpace",
+		&light.shadow_map.view_projections[pass.user_index][0][0],
+	)
+
+	for cmd in pass.commands {
+		c := cmd.(Render_Mesh_Command)
+		set_shader_uniform(shader, "matModel", &c.global_transform[0][0])
+		bind_attributes(c.mesh.attributes)
+		defer default_attributes()
+		link_packed_attributes_vertices(
+			c.mesh.attributes,
+			c.mesh.vertices.buf,
+			c.mesh.attributes_info,
+		)
+		link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+
+		rigged := .Skinned in c.options
+		instancing := .Instancing in c.options
+		set_shader_uniform(shader, "dynamicGeometry", &rigged)
+		set_shader_uniform(shader, "instancedGeometry", &instancing)
+		if rigged {
+			set_shader_uniform(shader, "matModelLocal", &c.local_transform[0][0])
+			set_shader_uniform(shader, "matJoints", &c.joints[0])
+		}
+		if instancing {
+			info := c.instancing_info.?
+			link_packed_attributes_vertices_list(
+				c.mesh.attributes,
+				info.memory.buf,
+				{.Instance_Transform},
+				Packed_Attributes{offsets = {Attribute_Kind.Instance_Transform = 0}},
+			)
+			draw_instanced_triangles(c.mesh.index_count, info.count)
+		} else {
+			draw_triangles(c.mesh.index_count)
+		}
+	}
+}
+
+geometry_pass_proc :: proc(ctx: ^_Render_Context, pass: ^Render_Pass) {
+	for command in pass.commands {
+		#partial switch c in command {
+		case Render_Mesh_Command:
+			shader := c.material.shader
+			spec := c.material.specialization
+
+			if .Transparent in c.options {
+				assert(false, "No transparent geometry allowed in the deferred pass")
+			}
+
+			local := c.local_transform
+			global := c.global_transform
+			set_shader_uniform(shader, "matModel", &global[0][0])
+			set_shader_uniform(shader, "matModelLocal", &local[0][0])
+
+
+			inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.global_transform)
+			normal_mat := linalg.matrix3_from_matrix4_f32(inverse_transpose_mat)
+			set_shader_uniform(shader, "matNormal", &normal_mat[0][0])
+
+			local_inverse_transpose_mat := linalg.matrix4_inverse_transpose_f32(c.local_transform)
+			local_normal_mat := linalg.matrix3_from_matrix4_f32(local_inverse_transpose_mat)
+			set_shader_uniform(shader, "matNormalLocal", &local_normal_mat[0][0])
+
+			calculate_tangent_space := .Normal0 in c.material.maps
+			set_shader_uniform(shader, "useTangentSpace", &calculate_tangent_space)
+
+			skinned := .Skinned in c.options
+			if skinned {
+				set_shader_uniform(shader, "matJoints", &c.joints[0])
+			}
+			set_shader_uniform(shader, "materialId", &c.material.cache_id)
+
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					map_uniform_value := u32(kind)
+					texture := c.material.textures[kind]
+					map_uniform_name := material_map_name[kind]
+					bind_texture(c.material.textures[kind], map_uniform_value)
+					if _, exist := shader.uniforms[map_uniform_name]; exist {
+						set_shader_uniform(shader, map_uniform_name, &map_uniform_value)
+					}
+				}
+			}
+
+			bind_attributes(c.mesh.attributes)
+			defer default_attributes()
+			link_packed_attributes_vertices(
+				c.mesh.attributes,
+				c.mesh.vertices.buf,
+				c.mesh.attributes_info,
+			)
+			link_attributes_indices(c.mesh.attributes, c.mesh.indices.buf)
+
+			instancing := .Instancing in c.options
+			model_mat_subroutine: Subroutine_Location
+			stage_subroutines := shader.stages_info[Shader_Stage.Vertex].subroutines
+			switch {
+			case !skinned && !instancing:
+				model_mat_subroutine = stage_subroutines["computeStaticModelMat"]
+			case skinned && !instancing:
+				model_mat_subroutine = stage_subroutines["computeDynamicModelMat"]
+			case !skinned && instancing:
+				model_mat_subroutine = stage_subroutines["computeInstancedStaticModelMat"]
+			case skinned && instancing:
+				model_mat_subroutine = stage_subroutines["computeInstancedDynamicModelMat"]
+			}
+			spec[Shader_Stage.Vertex]["computeModelMat"] = model_mat_subroutine
+
+			set_shader_subroutines(shader, spec^)
+			if instancing {
+				info := c.instancing_info.?
+				link_packed_attributes_vertices_list(
+					c.mesh.attributes,
+					info.memory.buf,
+					{.Instance_Transform},
+					Packed_Attributes{offsets = {Attribute_Kind.Instance_Transform = 0}},
+				)
+				draw_instanced_triangles(c.mesh.index_count, info.count)
+			} else {
+				draw_triangles(c.mesh.index_count)
+			}
+
+			for kind in Material_Map {
+				if kind in c.material.maps {
+					unbind_texture(c.material.textures[kind])
+				}
+			}
+		}
+	}
+}
+
+deferred_geometry_pass_proc :: proc(ctx: ^_Render_Context, pass: ^Render_Pass) {
+	geometry_pass_proc(ctx, pass)
+}
+
+
+// Rendering_Options :: distinct bit_set[Rendering_Option]
+
+// Rendering_Option :: enum {
+// 	Enable_Culling,
+// 	Disable_Culling,
+// 	Static,
+// 	Dynamic,
+// 	Skinned,
+// 	Transparent,
+// 	Cast_Shadows,
+// 	Instancing,
+// }
 
 init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 	set_backface_culling(true)
@@ -166,9 +443,9 @@ init_render_ctx :: proc(ctx: ^Render_Context, w, h: int) {
 		f32(RENDER_CTX_DEFAULT_NEAR),
 		f32(RENDER_CTX_DEFAULT_FAR),
 	)
-	ctx.eye = {}
-	ctx.centre = {}
-	ctx.up = VECTOR_UP
+	// ctx.eye = {}
+	// ctx.centre = {}
+	// ctx.up = VECTOR_UP
 
 	init_material_cache(&ctx.material_cache)
 
@@ -397,7 +674,7 @@ end_render :: proc() {
 	bind_framebuffer(ctx.hdr_framebuffer)
 	clear_framebuffer(ctx.hdr_framebuffer)
 	{
-	// set_backface_culling(false)
+		// set_backface_culling(false)
 				//odinfmt: disable
 			quad_vertices := [?]f32{
 				-1.0,  1.0, 0.0, 1.0,
